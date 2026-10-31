@@ -245,14 +245,12 @@ export async function exportContent(scope, id, options = {}) {
   if (!data) throw new Error('数据不存在');
   const images = includeImages ? await collectImages(data.points) : [];
 
-  // 纯文本
   if (format === 'txt') {
     const txt = toPlainText(data);
     downloadBlob(new Blob([txt], { type: 'text/plain;charset=utf-8' }), `export_${scope}_${Date.now()}.txt`);
     return;
   }
 
-  // PDF
   if (format === 'pdf') {
     await exportAsPdf(scope, id, { includeImages });
     return;
@@ -292,7 +290,15 @@ export async function exportContent(scope, id, options = {}) {
 }
 
 // ============ 全量备份 ============
-export async function exportFullBackup() {
+export async function exportFullBackup(options = {}) {
+  const {
+    data: includeData = true,
+    images: includeImages = true,
+    audios: includeAudios = true,
+    tape: includeTape = true,
+    exports: includeExports = true,
+  } = options;
+
   if (!window.JSZip) throw new Error('JSZip 未加载');
   const zip = new window.JSZip();
 
@@ -308,33 +314,84 @@ export async function exportFullBackup() {
     schemaVersion: Number(localStorage.getItem('kg_schema_version') || 1),
     exportAt: new Date().toISOString(),
   };
-  zip.file('data.json', JSON.stringify(data, null, 2));
+
+  if (includeData) {
+    zip.file('data.json', JSON.stringify(data, null, 2));
+  }
+
+  const readmeLines = ['考公复习系统备份清单', `导出时间：${new Date().toLocaleString()}`, ''];
+  (data.tasks || []).forEach(t => {
+    readmeLines.push(`任务：${t.name}`);
+    (data.chapters || []).filter(c => c.taskId === t.id).forEach(c => {
+      readmeLines.push(`  章节：${c.name}`);
+      (data.points || []).filter(p => p.chapterId === c.id).forEach(p => {
+        readmeLines.push(`    知识点：${(p.content || '').slice(0, 30)}`);
+      });
+    });
+  });
+  zip.file('readme.txt', readmeLines.join('\n'));
 
   const { dbAll } = await import('../db.js');
-  const images = await dbAll('images');
-  const imgFolder = zip.folder('images');
-  for (const img of images) {
-    if (img.annotatedBlob) imgFolder.file(`${img.id}_annotated.png`, img.annotatedBlob);
-    if (img.originalBlob && img.originalBlob !== img.annotatedBlob) {
-      imgFolder.file(`${img.id}_original.png`, img.originalBlob);
+
+  if (includeImages) {
+    const images = await dbAll('images');
+    const imgFolder = zip.folder('images');
+    for (const img of images) {
+      if (img.annotatedBlob) imgFolder.file(`${img.id}_annotated.png`, img.annotatedBlob);
+      if (img.originalBlob && img.originalBlob !== img.annotatedBlob) {
+        imgFolder.file(`${img.id}_original.png`, img.originalBlob);
+      }
     }
   }
 
-  const audios = await dbAll('audios');
-  const audioFolder = zip.folder('audios');
-  for (const a of audios) {
-    audioFolder.file(`${a.id}.webm`, a.blob);
+  if (includeAudios) {
+    const audios = await dbAll('audios');
+    const audioFolder = zip.folder('audios');
+    for (const a of audios) {
+      audioFolder.file(`${a.id}.webm`, a.blob);
+    }
   }
 
-  const tapeData = {};
-  const paperData = {};
-  for (let i = 0; i < localStorage.length; i++) {
-    const k = localStorage.key(i);
-    if (k.startsWith('kg_tape_')) tapeData[k] = JSON.parse(localStorage.getItem(k));
-    if (k.startsWith('kg_paper_')) paperData[k] = JSON.parse(localStorage.getItem(k));
+  if (includeTape) {
+    const tapeData = {};
+    const paperData = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k.startsWith('kg_tape_')) tapeData[k] = JSON.parse(localStorage.getItem(k));
+      if (k.startsWith('kg_paper_')) paperData[k] = JSON.parse(localStorage.getItem(k));
+    }
+    zip.file('tape.json', JSON.stringify(tapeData));
+    zip.file('paper.json', JSON.stringify(paperData));
   }
-  zip.file('tape.json', JSON.stringify(tapeData));
-  zip.file('paper.json', JSON.stringify(paperData));
+
+  if (includeExports) {
+    for (const task of (data.tasks || [])) {
+      const chapters = (data.chapters || []).filter(c => c.taskId === task.id);
+      const points = [];
+      chapters.forEach(c => {
+        (data.points || []).filter(p => p.chapterId === c.id).forEach(p => points.push(p));
+      });
+      if (points.length === 0) continue;
+
+      const taskData = { task, chapters, points };
+      const safeTask = task.name.replace(/[\\/:*?"<>|]/g, '_');
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      zip.file(`exports/${safeTask}_${dateStr}.md`, toMarkdown(taskData, []));
+      zip.file(`exports/${safeTask}_${dateStr}.txt`, toPlainText(taskData));
+      zip.file(`exports/${safeTask}_${dateStr}.html`, toHtml(taskData, []));
+      zip.file(`exports/${safeTask}_${dateStr}_打印版.html`, await buildPrintHtml(taskData, [], { includeImages: false }));
+
+      chapters.forEach(ch => {
+        const chPoints = points.filter(p => p.chapterId === ch.id);
+        if (chPoints.length === 0) return;
+        const chData = { task, chapter: ch, points: chPoints };
+        const safeCh = ch.name.replace(/[\\/:*?"<>|]/g, '_');
+        zip.file(`exports/${safeTask}_${safeCh}_${dateStr}.md`, toMarkdown(chData, []));
+        zip.file(`exports/${safeTask}_${safeCh}_${dateStr}.txt`, toPlainText(chData));
+      });
+    }
+  }
 
   const blob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(blob, `backup_full_${Date.now()}.zip`);
@@ -349,17 +406,111 @@ export async function importFullBackup(file, mode = 'merge') {
   if (!dataFile) throw new Error('不是有效的备份文件');
   const data = JSON.parse(await dataFile.async('string'));
 
+  const stats = { tasks: 0, chapters: 0, points: 0, images: 0, audios: 0, skippedPoints: 0 };
+
+  function normalizeTask(t) {
+    return {
+      id: t.id,
+      name: t.name || '未命名任务',
+      note: t.note || '',
+      order: t.order ?? 0,
+      createdAt: t.createdAt || new Date().toISOString(),
+      updatedAt: t.updatedAt || new Date().toISOString(),
+      deletedAt: t.deletedAt || null,
+    };
+  }
+  function normalizeChapter(c) {
+    return {
+      id: c.id,
+      taskId: c.taskId,
+      name: c.name || '未命名章节',
+      book: c.book || '',
+      part: c.part || '',
+      note: c.note || '',
+      order: c.order ?? 0,
+      createdAt: c.createdAt || new Date().toISOString(),
+      updatedAt: c.updatedAt || new Date().toISOString(),
+      deletedAt: c.deletedAt || null,
+    };
+  }
+  function normalizePoint(p) {
+    return {
+      id: p.id,
+      chapterId: p.chapterId,
+      content: p.content || '',
+      explanation: p.explanation || '',
+      imageIds: Array.isArray(p.imageIds) ? p.imageIds : [],
+      compositeImageIds: Array.isArray(p.compositeImageIds) ? p.compositeImageIds : [],
+      audioIds: Array.isArray(p.audioIds) ? p.audioIds : [],
+      files: Array.isArray(p.files) ? p.files : [],
+      reviewCount: typeof p.reviewCount === 'number' ? p.reviewCount : 0,
+      difficulty: typeof p.difficulty === 'number' ? p.difficulty : 5,
+      intervalDays: typeof p.intervalDays === 'number' ? p.intervalDays : 0,
+      nextReviewAt: p.nextReviewAt || new Date().toISOString(),
+      reviewHistory: Array.isArray(p.reviewHistory) ? p.reviewHistory : [],
+      isErrorProne: !!p.isErrorProne,
+      tags: Array.isArray(p.tags) ? p.tags : [],
+      order: p.order ?? 0,
+      createdAt: p.createdAt || new Date().toISOString(),
+      updatedAt: p.updatedAt || new Date().toISOString(),
+      deletedAt: p.deletedAt || null,
+    };
+  }
+
+  const existingTasks = JSON.parse(localStorage.getItem('kg_tasks') || '[]');
+  const existingTaskIds = new Set(existingTasks.map(t => t.id));
+  const normalizedTasks = (data.tasks || []).map(normalizeTask);
+  const incomingTasks = normalizedTasks.filter(t => !existingTaskIds.has(t.id));
   if (mode === 'overwrite') {
-    localStorage.setItem('kg_tasks', JSON.stringify(data.tasks || []));
-    localStorage.setItem('kg_chapters', JSON.stringify(data.chapters || []));
-    localStorage.setItem('kg_points', JSON.stringify(data.points || []));
+    localStorage.setItem('kg_tasks', JSON.stringify(normalizedTasks));
+    stats.tasks = normalizedTasks.length;
+  } else {
+    localStorage.setItem('kg_tasks', JSON.stringify([...existingTasks, ...incomingTasks]));
+    stats.tasks = incomingTasks.length;
+  }
+
+  const existingChapters = JSON.parse(localStorage.getItem('kg_chapters') || '[]');
+  const existingChapterIds = new Set(existingChapters.map(c => c.id));
+  const normalizedChapters = (data.chapters || []).map(normalizeChapter);
+  const incomingChapters = normalizedChapters.filter(c => !existingChapterIds.has(c.id));
+  if (mode === 'overwrite') {
+    localStorage.setItem('kg_chapters', JSON.stringify(normalizedChapters));
+    stats.chapters = normalizedChapters.length;
+  } else {
+    localStorage.setItem('kg_chapters', JSON.stringify([...existingChapters, ...incomingChapters]));
+    stats.chapters = incomingChapters.length;
+  }
+
+  const finalChapters = JSON.parse(localStorage.getItem('kg_chapters') || '[]');
+  const finalChapterIds = new Set(finalChapters.map(c => c.id));
+  const existingPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
+  const existingPointIds = new Set(existingPoints.map(p => p.id));
+
+  const normalizedPoints = (data.points || []).map(normalizePoint);
+  const pointsToImport = normalizedPoints.filter(p => !existingPointIds.has(p.id));
+  const validPoints = [];
+  pointsToImport.forEach(p => {
+    if (finalChapterIds.has(p.chapterId)) validPoints.push(p);
+    else stats.skippedPoints++;
+  });
+
+  if (mode === 'overwrite') {
+    const overwritePoints = normalizedPoints.filter(p => finalChapterIds.has(p.chapterId));
+    localStorage.setItem('kg_points', JSON.stringify(overwritePoints));
+    stats.points = overwritePoints.length;
+  } else {
+    localStorage.setItem('kg_points', JSON.stringify([...existingPoints, ...validPoints]));
+    stats.points = validPoints.length;
+  }
+
+  if (mode === 'overwrite') {
     localStorage.setItem('kg_inbox', JSON.stringify(data.inbox || []));
     localStorage.setItem('kg_recycle_bin', JSON.stringify(data.recycle || []));
     localStorage.setItem('kg_settings', JSON.stringify(data.settings || {}));
     localStorage.setItem('kg_audio_index', JSON.stringify(data.audioIndex || []));
     localStorage.setItem('kg_patterns', JSON.stringify(data.patterns || []));
   } else {
-    ['tasks', 'chapters', 'points', 'inbox'].forEach(key => {
+    ['inbox', 'recycle'].forEach(key => {
       const existing = JSON.parse(localStorage.getItem(`kg_${key}`) || '[]');
       const existingIds = new Set(existing.map(x => x.id));
       const incoming = (data[key] || []).filter(x => !existingIds.has(x.id));
@@ -367,29 +518,34 @@ export async function importFullBackup(file, mode = 'merge') {
     });
   }
 
+  const { dbPut, dbGet } = await import('../db.js');
   const imgFolder = zip.folder('images');
   if (imgFolder) {
-    const { dbPut } = await import('../db.js');
     const files = Object.keys(zip.files).filter(f => f.startsWith('images/') && f.endsWith('.png'));
     for (const f of files) {
-      const blob = await zip.file(f).async('blob');
-      const name = f.replace('images/', '').replace('.png', '');
-      const isOriginal = name.endsWith('_original');
-      const id = name.replace('_annotated', '').replace('_original', '');
-      const existing = await dbGet('images', id);
-      const record = existing || { id, width: 0, height: 0, createdAt: new Date().toISOString() };
-      if (isOriginal) record.originalBlob = blob;
-      else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
-      await dbPut('images', record);
+      try {
+        const blob = await zip.file(f).async('blob');
+        const name = f.replace('images/', '').replace('.png', '');
+        const isOriginal = name.endsWith('_original');
+        const id = name.replace('_annotated', '').replace('_original', '');
+        const existing = await dbGet('images', id);
+        const record = existing || { id, width: 0, height: 0, createdAt: new Date().toISOString() };
+        if (isOriginal) record.originalBlob = blob;
+        else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
+        await dbPut('images', record);
+        stats.images++;
+      } catch (err) { console.warn('图片导入失败:', f, err); }
     }
   }
 
-  const { dbPut } = await import('../db.js');
   const audioFiles = Object.keys(zip.files).filter(f => f.startsWith('audios/') && f.endsWith('.webm'));
   for (const f of audioFiles) {
-    const blob = await zip.file(f).async('blob');
-    const id = f.replace('audios/', '').replace('.webm', '');
-    await dbPut('audios', { id, blob, mimeType: 'audio/webm', createdAt: new Date().toISOString() });
+    try {
+      const blob = await zip.file(f).async('blob');
+      const id = f.replace('audios/', '').replace('.webm', '');
+      await dbPut('audios', { id, blob, mimeType: 'audio/webm', createdAt: new Date().toISOString() });
+      stats.audios++;
+    } catch (err) { console.warn('录音导入失败:', f, err); }
   }
 
   const tapeFile = zip.file('tape.json');
@@ -402,6 +558,8 @@ export async function importFullBackup(file, mode = 'merge') {
     const paperData = JSON.parse(await paperFile.async('string'));
     Object.entries(paperData).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
   }
+
+  return stats;
 }
 
 // ============ 工具 ============

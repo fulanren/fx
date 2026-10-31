@@ -27,9 +27,13 @@ export function renderEditPoint({ params, query }) {
     explanation: original.explanation || '',
     difficulty: original.difficulty || 5,
     isErrorProne: !!original.isErrorProne,
+    reviewCount: original.reviewCount || 0,
+    nextReviewAt: original.nextReviewAt || '',
+    manualReviewCount: !!original.manualReviewCount,
+    manualNextReviewAt: !!original.manualNextReviewAt,
   };
 
-  // 输入控件
+  // ============ 输入控件 ============
   const contentInput = el('textarea', { placeholder: '知识点内容（必填）', onInput: e => { form.content = e.target.value; queueSave(); } });
   contentInput.value = form.content;
   const contentRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
@@ -44,20 +48,93 @@ export function renderEditPoint({ params, query }) {
     attachSpeechButton(explainInput),
   ]);
 
-  const difficultyInput = el('input', { type: 'range', min: '1', max: '10', value: form.difficulty, style: { flex: '1' },
-    onInput: e => { form.difficulty = Number(e.target.value); difficultyLabel.textContent = form.difficulty; queueSave(); } });
-  const difficultyLabel = el('span', { text: form.difficulty, style: { fontWeight: '600', marginLeft: '12px', minWidth: '24px', textAlign: 'center' } });
-  const errorInput = el('input', { type: 'checkbox', checked: form.isErrorProne, onChange: e => { form.isErrorProne = e.target.checked; queueSave(); } });
+  // ============ 难记度按钮组 ============
+  const difficultyBtns = [];
+  const difficultyRow = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
+    Array.from({ length: 10 }, (_, i) => {
+      const val = i + 1;
+      const btn = el('button', {
+        class: `btn btn-sm ${form.difficulty === val ? 'btn-primary' : 'btn-ghost'}`,
+        text: String(val),
+        style: { minWidth: '36px', padding: '4px 8px' },
+        onClick: () => {
+          form.difficulty = val;
+          difficultyBtns.forEach((b, idx) => {
+            b.className = `btn btn-sm ${idx + 1 === val ? 'btn-primary' : 'btn-ghost'}`;
+          });
+          queueSave();
+        },
+      });
+      difficultyBtns.push(btn);
+      return btn;
+    })
+  );
 
-  // 草稿恢复
+  // ============ 易错按钮 ============
+  const errorBtn = el('button', {
+    class: `btn btn-sm ${form.isErrorProne ? 'btn-danger' : 'btn-ghost'}`,
+    text: form.isErrorProne ? '❗ 易错' : '标记易错',
+    style: { minHeight: '32px', padding: '4px 10px', fontSize: '13px' },
+    onClick: () => {
+      form.isErrorProne = !form.isErrorProne;
+      errorBtn.className = `btn btn-sm ${form.isErrorProne ? 'btn-danger' : 'btn-ghost'}`;
+      errorBtn.textContent = form.isErrorProne ? '❗ 易错' : '标记易错';
+      queueSave();
+    },
+  });
+
+  // ============ 手动设置遍数/日期（默认隐藏） ============
+  let showManual = !!(original.manualReviewCount || original.manualNextReviewAt);
+
+  const manualRow = el('div', {
+    class: 'field-row',
+    style: { marginTop: '12px', display: showManual ? 'flex' : 'none' },
+  }, [
+    el('div', { class: 'field' }, [
+      el('label', { text: '已背遍数' }),
+      el('input', {
+        type: 'number', min: '0', value: String(form.reviewCount),
+        onInput: e => { form.reviewCount = Number(e.target.value); form.manualReviewCount = true; queueSave(); },
+      }),
+    ]),
+    el('div', { class: 'field' }, [
+      el('label', { text: '下次复习日期' }),
+      el('input', {
+        type: 'date',
+        value: form.nextReviewAt ? new Date(form.nextReviewAt).toISOString().slice(0, 10) : '',
+        onInput: e => { form.nextReviewAt = e.target.value ? new Date(e.target.value).toISOString() : ''; form.manualNextReviewAt = true; queueSave(); },
+      }),
+    ]),
+  ]);
+
+  const manualBtn = el('button', {
+    class: 'btn btn-sm btn-ghost',
+    text: showManual ? '隐藏手动设置' : '手动设置遍数/日期',
+    onClick: () => {
+      showManual = !showManual;
+      manualBtn.textContent = showManual ? '隐藏手动设置' : '手动设置遍数/日期';
+      manualRow.style.display = showManual ? 'flex' : 'none';
+    },
+  });
+
+  // ============ 草稿恢复 ============
   const draft = loadDraft('point', entityId);
   if (draft && hasChanges(original, draft.data)) {
     setTimeout(async () => {
       if (await confirmBox({ title: '恢复草稿', message: '检测到未保存的草稿，是否恢复？', confirmText: '恢复', cancelText: '放弃' })) {
         form = { ...form, ...draft.data };
-        contentInput.value = form.content; explainInput.value = form.explanation;
-        difficultyInput.value = form.difficulty; difficultyLabel.textContent = form.difficulty;
-        errorInput.checked = form.isErrorProne;
+        contentInput.value = form.content;
+        explainInput.value = form.explanation;
+        difficultyBtns.forEach((b, idx) => {
+          b.className = `btn btn-sm ${idx + 1 === form.difficulty ? 'btn-primary' : 'btn-ghost'}`;
+        });
+        errorBtn.className = `btn btn-sm ${form.isErrorProne ? 'btn-danger' : 'btn-ghost'}`;
+        errorBtn.textContent = form.isErrorProne ? '❗ 易错' : '标记易错';
+        if (form.manualReviewCount || form.manualNextReviewAt) {
+          showManual = true;
+          manualRow.style.display = 'flex';
+          manualBtn.textContent = '隐藏手动设置';
+        }
       } else clearDraft('point', entityId);
     }, 300);
   }
@@ -77,12 +154,13 @@ export function renderEditPoint({ params, query }) {
     return el('div', { class: 'section' }, [head, body]);
   }
 
+  // ============ 基本信息 ============
   view.appendChild(makeSection('基本信息', [
     el('div', { class: 'field' }, [el('label', { text: '内容' }), contentRow]),
     el('div', { class: 'field' }, [el('label', { text: '文字解释' }), explainRow]),
   ]));
 
-  // 图片 + PDF 导入 + 合成区块（编辑已有知识点时）
+  // ============ 图片 + PDF + 合成 ============
   if (!isNew) {
     const imgBody = el('div', { class: 'section-body' });
     const imgSection = el('div', { class: 'section' }, [
@@ -97,7 +175,6 @@ export function renderEditPoint({ params, query }) {
         const refreshed = store.getPoint(params.id);
         if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
 
-        // 操作按钮：导入 PDF + 合成图片
         imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
@@ -105,6 +182,13 @@ export function renderEditPoint({ params, query }) {
               const { pdfImportModal } = await import('../views/pdfImport.js');
               await pdfImportModal(params.id);
               refresh();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
+            onClick: () => {
+              const input = document.querySelector('#image-section-body input[type="file"]');
+              if (input) input.click();
             },
           }),
           el('button', {
@@ -122,21 +206,19 @@ export function renderEditPoint({ params, query }) {
     });
   }
 
-  // 复习设置
+  // ============ 复习设置 ============
   view.appendChild(makeSection('复习设置', [
     el('div', { class: 'field' }, [
       el('label', { text: '难记度（1=一看就会，10=反复记不住）' }),
-      el('div', { style: { display: 'flex', alignItems: 'center' } }, [difficultyInput, difficultyLabel]),
+      difficultyRow,
     ]),
-    el('div', { class: 'field' }, [
-      el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [errorInput, '标记为易错']),
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' } }, [
+      errorBtn,
     ]),
-    !isNew ? el('div', { style: { fontSize: '13px', color: 'var(--text-2)' } }, [
-      `已背 ${original.reviewCount} 遍 · 下次复习 ${fmtDate(original.nextReviewAt)}`,
-    ]) : null,
+    !isNew ? el('div', { style: { marginTop: '12px' } }, [manualBtn, manualRow]) : null,
   ]));
 
-  // 录音区块
+  // ============ 录音 ============
   if (!isNew) {
     const audioContainer = el('div', { class: 'section-body' });
     view.appendChild(el('div', { class: 'section' }, [
@@ -166,7 +248,7 @@ export function renderEditPoint({ params, query }) {
     refreshAudios();
   }
 
-  // 底部操作
+  // ============ 底部操作 ============
   view.appendChild(el('div', { class: 'edit-footer' }, [
     status,
     el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => goBack() }),
@@ -178,7 +260,16 @@ export function renderEditPoint({ params, query }) {
     if (isNew) {
       store.createPoint({ chapterId, content: form.content.trim(), explanation: form.explanation.trim(), difficulty: form.difficulty });
     } else {
-      store.updatePoint(params.id, { content: form.content.trim(), explanation: form.explanation.trim(), difficulty: form.difficulty, isErrorProne: form.isErrorProne });
+      store.updatePoint(params.id, {
+        content: form.content.trim(),
+        explanation: form.explanation.trim(),
+        difficulty: form.difficulty,
+        isErrorProne: form.isErrorProne,
+        reviewCount: form.reviewCount,
+        nextReviewAt: form.nextReviewAt,
+        manualReviewCount: form.manualReviewCount,
+        manualNextReviewAt: form.manualNextReviewAt,
+      });
     }
     clearDraft('point', entityId);
     toastSuccess('已保存');

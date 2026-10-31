@@ -349,7 +349,7 @@ function pointCard(p, chapterId) {
           e.stopPropagation();
           const img = await dbGet('images', imageId);
           if (!img) return;
-        
+
           const mask = el('div', { class: 'confirm-mask' }, [
             el('div', { class: 'confirm-box', style: { maxWidth: '300px' } }, [
               el('h3', { text: '操作图片' }),
@@ -463,6 +463,7 @@ function pointCard(p, chapterId) {
       el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
     ]) : null,
     allImageIds.length > 0 ? imageRow : null,
+    el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' } }, [
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📤 导出此知识点',
         onClick: (e) => { e.stopPropagation(); showExportMenu('point', p.id); },
@@ -504,7 +505,7 @@ function pointCard(p, chapterId) {
         type: 'checkbox', checked: isSelected, onChange: (e) => {
           if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
           renderChapterDetail({ params: { id: chapterId } });
-        }
+        },
       }),
     ]) : null,
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } }, [

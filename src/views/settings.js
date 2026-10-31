@@ -1,21 +1,19 @@
 import { el, clear } from '../utils/dom.js';
 import * as store from '../store.js';
-import { navigate } from '../router.js';
-import { applyTheme, setTheme } from '../ui/theme.js';
+import { setTheme } from '../ui/theme.js';
 import { exportFullBackup, importFullBackup } from './exporter.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
-import { confirmBox } from '../ui/confirm.js';
 
 export function renderSettings() {
   const view = document.getElementById('view');
   clear(view);
   document.getElementById('page-title').textContent = '设置';
-  document.getElementById('btn-back').classList.add('hidden');
+  document.getElementById('btn-back').classList.remove('hidden');
 
   const settings = store.getSettings();
 
   // 主题
-  const themeRow = el('div', { class: 'section' }, [
+  view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '主题' })]),
     el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
       el('div', { style: { display: 'flex', gap: '8px' } }, [
@@ -24,8 +22,7 @@ export function renderSettings() {
         themeBtn('暗色', 'dark', settings.theme),
       ]),
     ]),
-  ]);
-  view.appendChild(themeRow);
+  ]));
 
   // 备份
   view.appendChild(el('div', { class: 'section' }, [
@@ -36,12 +33,7 @@ export function renderSettings() {
       el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
         el('button', {
           class: 'btn btn-primary', text: '📦 全量导出',
-          onClick: async () => {
-            try {
-              await exportFullBackup();
-              toastSuccess('已导出');
-            } catch (e) { toastError('导出失败：' + e.message); }
-          },
+          onClick: () => exportOptionsDialog(),
         }),
         el('button', {
           class: 'btn btn-ghost', text: '📥 导入备份',
@@ -63,12 +55,11 @@ export function renderSettings() {
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '关于' })]),
     el('div', { class: 'section-body', style: { paddingTop: '12px', fontSize: '13px', color: 'var(--text-2)' } }, [
-      el('div', { text: '资料复习系统 · 纯前端本地存储' }),
+      el('div', { text: '考公复习系统 · 纯前端本地存储' }),
       el('div', { text: '数据保存在浏览器本地，请定期备份', style: { marginTop: '4px' } }),
     ]),
   ]));
 
-  // 存储用量计算
   if (navigator.storage?.estimate) {
     navigator.storage.estimate().then(est => {
       const used = (est.usage / 1024 / 1024).toFixed(2);
@@ -92,30 +83,122 @@ export function renderSettings() {
       },
     });
   }
+}
 
-  function importBackupDialog() {
-    const input = el('input', { type: 'file', accept: '.zip', style: { display: 'none' } });
-    input.onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const r = await confirmBox({
-        title: '导入备份',
-        message: '导入会合并到现有数据（按 UUID 去重）。是否继续？',
-        confirmText: '合并导入',
-        cancelText: '取消',
-        extra: { label: '覆盖全部', value: 'overwrite' },
-      });
-      if (r === false) return;
-      try {
-        await importFullBackup(file, r === 'overwrite' ? 'overwrite' : 'merge');
-        toastSuccess('导入完成，即将刷新');
-        setTimeout(() => location.reload(), 1000);
-      } catch (err) {
-        toastError('导入失败：' + err.message);
-      }
-    };
-    document.body.appendChild(input);
-    input.click();
-    setTimeout(() => input.remove(), 60000);
+// ============ 导出选项弹窗 ============
+function exportOptionsDialog() {
+  const options = { data: true, images: true, audios: true, tape: true, exports: true };
+
+  const mask = el('div', { class: 'confirm-mask' }, [
+    el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
+      el('h3', { text: '选择导出内容' }),
+      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', margin: '16px 0' } }, [
+        checkRow('数据（任务/章节/知识点）', 'data'),
+        checkRow('图片', 'images'),
+        checkRow('录音', 'audios'),
+        checkRow('胶带和纸张', 'tape'),
+        checkRow('可读文本（md/txt/html）', 'exports'),
+      ]),
+      el('div', { class: 'confirm-actions' }, [
+        el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+        el('button', {
+          class: 'btn btn-primary', text: '导出',
+          onClick: async () => {
+            mask.remove();
+            try {
+              await exportFullBackup(options);
+              toastSuccess('已导出');
+            } catch (e) { toastError('导出失败：' + e.message); }
+          },
+        }),
+      ]),
+    ]),
+  ]);
+  document.body.appendChild(mask);
+
+  function checkRow(label, key) {
+    return el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+      el('input', { type: 'checkbox', checked: options[key], onChange: (e) => { options[key] = e.target.checked; } }),
+      label,
+    ]);
   }
+}
+
+// ============ 导入预览弹窗 ============
+function importBackupDialog() {
+  const input = el('input', { type: 'file', accept: '.zip', style: { display: 'none' } });
+  input.onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      if (!window.JSZip) throw new Error('JSZip 未加载');
+      const zip = await window.JSZip.loadAsync(file);
+      const dataFile = zip.file('data.json');
+      if (!dataFile) throw new Error('不是有效的备份文件');
+      const data = JSON.parse(await dataFile.async('string'));
+
+      const tasks = data.tasks || [];
+      const chapters = data.chapters || [];
+      const points = data.points || [];
+      const imgCount = Object.keys(zip.files).filter(f => f.startsWith('images/')).length;
+      const audioCount = Object.keys(zip.files).filter(f => f.startsWith('audios/')).length;
+
+      const mask = el('div', { class: 'confirm-mask' }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '420px' } }, [
+          el('h3', { text: '导入预览' }),
+          el('div', { style: { fontSize: '14px', lineHeight: '1.8', margin: '12px 0' } }, [
+            el('div', { text: `任务：${tasks.length} 个` }),
+            el('div', { text: `章节：${chapters.length} 个` }),
+            el('div', { text: `知识点：${points.length} 个` }),
+            el('div', { text: `图片：${imgCount} 张` }),
+            el('div', { text: `录音：${audioCount} 条` }),
+            el('div', { text: `导出时间：${data.exportAt ? new Date(data.exportAt).toLocaleString() : '未知'}`, style: { color: 'var(--text-2)', fontSize: '12px', marginTop: '8px' } }),
+            imgCount === 0 ? el('div', {
+              style: { color: 'var(--danger)', fontSize: '13px', marginTop: '8px', padding: '8px', background: 'rgba(239,71,111,.08)', borderRadius: '6px' },
+              text: '⚠️ 此备份不含图片，导入后知识点里的图片会缺失。',
+            }) : null,
+            audioCount === 0 && (data.audioIndex || []).length > 0 ? el('div', {
+              style: { color: 'var(--danger)', fontSize: '13px', marginTop: '8px', padding: '8px', background: 'rgba(239,71,111,.08)', borderRadius: '6px' },
+              text: '⚠️ 此备份不含录音文件，导入后录音会无法播放。',
+            }) : null,
+          ]),
+          el('p', { text: '选择导入方式：', style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '12px' } }),
+          el('div', { class: 'confirm-actions', style: { marginTop: '12px', flexWrap: 'wrap' } }, [
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+            el('button', {
+              class: 'btn btn-ghost', text: '合并导入',
+              onClick: async () => {
+                mask.remove();
+                try {
+                  const stats = await importFullBackup(file, 'merge');
+                  const msg = `导入完成：任务 ${stats.tasks}，章节 ${stats.chapters}，知识点 ${stats.points}，图片 ${stats.images}，录音 ${stats.audios}` +
+                    (stats.skippedPoints > 0 ? `（跳过 ${stats.skippedPoints} 个孤儿知识点）` : '');
+                  toastSuccess(msg);
+                  setTimeout(() => location.reload(), 1500);
+                } catch (err) { toastError('导入失败：' + err.message); }
+              },
+            }),
+            el('button', {
+              class: 'btn btn-danger', text: '覆盖全部',
+              onClick: async () => {
+                if (!confirm('覆盖会清空现有数据，确定吗？')) return;
+                mask.remove();
+                try {
+                  const stats = await importFullBackup(file, 'overwrite');
+                  toastSuccess(`覆盖导入完成：${stats.tasks} 任务，${stats.chapters} 章节，${stats.points} 知识点`);
+                  setTimeout(() => location.reload(), 1500);
+                } catch (err) { toastError('导入失败：' + err.message); }
+              },
+            }),
+          ]),
+        ]),
+      ]);
+      document.body.appendChild(mask);
+    } catch (err) {
+      toastError('读取备份失败：' + err.message);
+    }
+  };
+  document.body.appendChild(input);
+  input.click();
+  setTimeout(() => input.remove(), 60000);
 }

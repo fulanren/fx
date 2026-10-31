@@ -71,7 +71,6 @@ export function renderAnnotator({ params, query }) {
     const W = img.width;
     const H = img.height;
 
-    // ============ DOM 结构 ============
     const wrap = el('div', { class: 'annotator-wrap' });
     const canvasWrap = el('div', { class: 'canvas-wrap' });
 
@@ -95,11 +94,9 @@ export function renderAnnotator({ params, query }) {
     wrap.appendChild(canvasWrap);
     view.appendChild(wrap);
 
-    // 缩放比例标签
     const zoomLabel = el('div', { class: 'zoom-label', text: '100%' });
     wrap.appendChild(zoomLabel);
 
-    // 加载已有标注（笔迹）
     if (img.annotatedBlob && img.annotatedBlob !== img.originalBlob) {
       const annotUrl = URL.createObjectURL(img.annotatedBlob);
       const annotImg = new Image();
@@ -108,11 +105,9 @@ export function renderAnnotator({ params, query }) {
       ctx.drawImage(annotImg, 0, 0);
     }
 
-    // 胶带 / 纸张重绘
     paperLayer.redraw();
     tapeLayer.redraw();
 
-    // ============ 工具栏 ============
     const toolBar = el('div', { class: 'annotator-toolbar' });
     function setActiveTool(id) {
       currentTool = id;
@@ -133,7 +128,6 @@ export function renderAnnotator({ params, query }) {
     });
     view.appendChild(toolBar);
 
-    // ============ 子工具栏（胶带/纸张专属） ============
     const subBar = el('div', { class: 'sub-toolbar' });
     view.appendChild(subBar);
 
@@ -145,16 +139,12 @@ export function renderAnnotator({ params, query }) {
       if (currentTool === 'tape') {
         if (!tapeToolbar) {
           tapeToolbar = renderTapeToolbar(tapeLayer, async () => {
-            // 切换自定义花样时弹上传
             const fileInput = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
             fileInput.onchange = async (e) => {
               const file = e.target.files[0];
               if (!file) return;
               const pid = await patternCropModal(file);
-              if (pid) {
-                tapeLayer.setPatternImage(pid);
-                toastSuccess('花样已选用');
-              }
+              if (pid) { tapeLayer.setPatternImage(pid); toastSuccess('花样已选用'); }
             };
             document.body.appendChild(fileInput);
             fileInput.click();
@@ -162,7 +152,6 @@ export function renderAnnotator({ params, query }) {
           });
         }
         subBar.appendChild(tapeToolbar);
-        // 添加胶带显示/隐藏控制
         subBar.appendChild(el('div', { class: 'tape-row' }, [
           el('button', { class: 'btn btn-sm btn-ghost', text: '👁 全部显示', onClick: () => { tapeLayer.showAll(); toastSuccess('已显示所有胶带'); } }),
           el('button', { class: 'btn btn-sm btn-ghost', text: '🙈 全部隐藏', onClick: () => { tapeLayer.hideAll(); toastSuccess('已隐藏所有胶带'); } }),
@@ -172,7 +161,6 @@ export function renderAnnotator({ params, query }) {
           paperToolbar = renderPaperToolbar(paperLayer);
           paperToolbar.addEventListener('paper-added', () => {
             dirty = true;
-            // 切换到文本编辑提示
             setTimeout(() => {
               const sel = paperLayer.getSelected();
               if (sel) {
@@ -186,7 +174,6 @@ export function renderAnnotator({ params, query }) {
       }
     }
 
-    // ============ 颜色 & 宽度 ============
     const colorBar = el('div', { class: 'annotator-colorbar' });
     COLORS.forEach(c => {
       const dot = el('button', {
@@ -212,7 +199,6 @@ export function renderAnnotator({ params, query }) {
     ]);
     view.appendChild(widthRow);
 
-    // ============ 底部操作 ============
     const actionBar = el('div', { class: 'annotator-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '↶ 撤销', onClick: undo }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '🗑 清除', onClick: clearAll }),
@@ -220,7 +206,6 @@ export function renderAnnotator({ params, query }) {
     ]);
     view.appendChild(actionBar);
 
-    // ============ 撤销栈 ============
     const undoStack = [];
     function pushUndo() {
       const strokeSnap = ctx.getImageData(0, 0, W, H);
@@ -235,17 +220,12 @@ export function renderAnnotator({ params, query }) {
       const prev = undoStack.pop();
       if (!prev) { toastError('没有可撤销的操作'); return; }
       ctx.putImageData(prev.stroke, 0, 0);
-      paperLayer.setTapes ? null : null;
-      // 恢复纸张和胶带
-      const restorePapers = prev.paper;
-      const restoreTapes = prev.tape;
-      // 直接替换内部数组
       paperLayer.getPapers().length = 0;
-      restorePapers.forEach(p => paperLayer.getPapers().push(p));
+      prev.paper.forEach(p => paperLayer.getPapers().push(p));
       store.savePaper(imageId, paperLayer.getPapers());
       paperLayer.redraw();
       tapeLayer.getTapes().length = 0;
-      restoreTapes.forEach(t => tapeLayer.getTapes().push(t));
+      prev.tape.forEach(t => tapeLayer.getTapes().push(t));
       store.saveTape(imageId, tapeLayer.getTapes());
       tapeLayer.redraw();
       dirty = true;
@@ -264,7 +244,6 @@ export function renderAnnotator({ params, query }) {
       }
     }
 
-    // ============ 手势处理 ============
     let drawing = false;
     let startPt = null;
     let points = [];
@@ -286,8 +265,6 @@ export function renderAnnotator({ params, query }) {
       zoomLabel.textContent = Math.round(scale * 100) + '%';
     }
 
-    // 所有 canvas 共用一个事件层（strokeCanvas 在最上面接收点击）
-    // 但纸张和胶带在上层，需要让它们不拦截
     paperCanvas.style.pointerEvents = 'none';
     tapeCanvas.style.pointerEvents = 'none';
 
@@ -302,39 +279,39 @@ export function renderAnnotator({ params, query }) {
         return;
       }
 
-      // 抓手
       if (currentTool === 'hand') {
         drawing = 'pan';
         startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
         return;
       }
 
-      // 纸张工具：点击选中已有纸张，或在空白处新建
       if (currentTool === 'paper') {
         const pt = canvasToImage(e.clientX, e.clientY);
         const hit = paperLayer.hitTest(pt.x, pt.y);
         if (hit) {
           paperLayer.select(hit);
-          // 开始拖动
           paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, paper: hit };
           drawing = 'paper-drag';
           return;
-        } else {
-          // 不新建，让用户点上面样式按钮
-          return;
-        }
+        } else return;
       }
 
-      // 胶带工具
       if (currentTool === 'tape') {
+        const pt = canvasToImage(e.clientX, e.clientY);
+        const hit = tapeLayer.hitTest(pt.x, pt.y);
+        if (hit) {
+          // 点中已有胶带 → 切换显隐
+          tapeLayer.toggleVisible(hit.id);
+          dirty = true;
+          return;
+        }
+        // 没点中 → 开始画新胶带
         pushUndo();
         drawing = true;
-        const pt = canvasToImage(e.clientX, e.clientY);
         points = [pt];
         return;
       }
 
-      // 笔迹 / 橡皮 / 图形
       strokeCanvas.setPointerCapture(e.pointerId);
 
       if (currentTool === 'pen' || currentTool === 'eraser') {
@@ -405,11 +382,9 @@ export function renderAnnotator({ params, query }) {
         drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
       } else if (currentTool === 'eraser') {
         eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
-        // 同时擦除胶带
         tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
       } else if (currentTool === 'tape') {
         points.push(pt);
-        // 实时预览：清除 tapeCanvas 后重绘所有 + 当前
         const tempTape = {
           id: '__temp__',
           points: points,
@@ -511,7 +486,6 @@ export function renderAnnotator({ params, query }) {
       paperDragOffset = null;
     });
 
-    // 滚轮缩放
     wrap.addEventListener('wheel', (e) => {
       e.preventDefault();
       const delta = e.deltaY > 0 ? 0.9 : 1.1;
@@ -519,7 +493,6 @@ export function renderAnnotator({ params, query }) {
       updateTransform();
     }, { passive: false });
 
-    // 点击空白处取消纸张选中
     strokeCanvas.addEventListener('click', (e) => {
       if (currentTool === 'paper') {
         const pt = canvasToImage(e.clientX, e.clientY);
@@ -527,7 +500,6 @@ export function renderAnnotator({ params, query }) {
       }
     });
 
-    // ============ 保存 ============
     async function saveAll(showToast = false) {
       const merged = document.createElement('canvas');
       merged.width = W;
@@ -543,14 +515,12 @@ export function renderAnnotator({ params, query }) {
         annotatedBlob: blob,
         updatedAt: new Date().toISOString(),
       });
-      // 胶带和纸张已实时存 localStorage，这里再存一次确保
       store.saveTape(imageId, tapeLayer.getTapes());
       store.savePaper(imageId, paperLayer.getPapers());
       dirty = false;
       if (showToast) toastSuccess('已保存');
     }
 
-    // 首次渲染子工具栏
     updateSubToolbar();
   });
 }

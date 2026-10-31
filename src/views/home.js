@@ -17,7 +17,7 @@ let expandedTasks = getExpanded();
 
 function saveExpanded() {
   try { localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expandedTasks])); }
-  catch {}
+  catch { }
 }
 
 // ============ 多选状态 ============
@@ -36,6 +36,7 @@ export function renderHome() {
     view.appendChild(el('div', { class: 'banner banner-warn' }, [
       el('span', { text: `📌 今日待复习 ${due.length} 个知识点` }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '去复习', onClick: () => navigate('#/review') }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '管理', onClick: () => openDueManager(due) }),
     ]));
   }
 
@@ -185,13 +186,13 @@ function taskCard(task) {
       chapters.length === 0
         ? [el('div', { style: { fontSize: '13px', color: 'var(--text-2)', padding: '4px 0' }, text: '还没有章节' })]
         : chapters.map(c => el('div', {
-            class: 'chapter-item',
-            style: { padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' },
-            onClick: (e) => { e.stopPropagation(); navigate(`#/chapter/${c.id}`); },
-          }, [
-            el('span', { text: c.name, style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }),
-            el('span', { style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px', flexShrink: '0' }, text: `💡 ${store.getPoints(c.id).length}` }),
-          ]))
+          class: 'chapter-item',
+          style: { padding: '8px 10px', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' },
+          onClick: (e) => { e.stopPropagation(); navigate(`#/chapter/${c.id}`); },
+        }, [
+          el('span', { text: c.name, style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }),
+          el('span', { style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px', flexShrink: '0' }, text: `💡 ${store.getPoints(c.id).length}` }),
+        ]))
     ) : null,
     !multiSelectMode ? el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit/task/${task.id}`) }),
@@ -207,8 +208,8 @@ function taskCard(task) {
       }),
     ]) : null,
     !multiSelectMode ? el('div', { class: 'move-btns' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↑', onClick: (e) => { e.stopPropagation(); store.reorderTasks(swap(store.getTasks().map(t=>t.id), task.id, -1)); renderHome(); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↓', onClick: (e) => { e.stopPropagation(); store.reorderTasks(swap(store.getTasks().map(t=>t.id), task.id, 1)); renderHome(); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '↑', onClick: (e) => { e.stopPropagation(); store.reorderTasks(swap(store.getTasks().map(t => t.id), task.id, -1)); renderHome(); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '↓', onClick: (e) => { e.stopPropagation(); store.reorderTasks(swap(store.getTasks().map(t => t.id), task.id, 1)); renderHome(); } }),
     ]) : null,
   ]);
 }
@@ -228,53 +229,212 @@ export function renderSidebar() {
   sidebar.classList.remove('hidden');
   const tree = document.getElementById('sidebar-tree');
   if (!tree) return;
+
+  // 读取展开状态
+  let state;
+  try {
+    state = JSON.parse(localStorage.getItem('kg_sidebar_tree_state') || '{}');
+  } catch { state = {}; }
+  if (!state.tasks) state.tasks = [];
+  if (!state.chapters) state.chapters = [];
+
+  function saveState() {
+    localStorage.setItem('kg_sidebar_tree_state', JSON.stringify(state));
+  }
+  function toggleTask(id) {
+    const i = state.tasks.indexOf(id);
+    if (i >= 0) state.tasks.splice(i, 1); else state.tasks.push(id);
+    saveState(); renderSidebar();
+  }
+  function toggleChapter(id) {
+    const i = state.chapters.indexOf(id);
+    if (i >= 0) state.chapters.splice(i, 1); else state.chapters.push(id);
+    saveState(); renderSidebar();
+  }
+
   clear(tree);
 
-  let expanded;
-  try { expanded = new Set(JSON.parse(localStorage.getItem('kg_sidebar_expanded') || '[]')); }
-  catch { expanded = new Set(); }
-
-  function saveSidebarExpanded() {
-    localStorage.setItem('kg_sidebar_expanded', JSON.stringify([...expanded]));
+  const tasks = store.getTasks();
+  if (tasks.length === 0) {
+    tree.appendChild(el('div', {
+      style: { fontSize: '13px', color: 'var(--text-2)', padding: '12px' },
+      text: '暂无任务',
+    }));
+    return;
   }
 
-  store.getTasks().forEach(t => {
-    const chapters = store.getChapters(t.id);
-    const isOpen = expanded.has(t.id);
+  tasks.forEach(task => {
+    const taskOpen = state.tasks.includes(task.id);
+    const chapters = store.getChapters(task.id);
 
-    const taskName = el('div', {
+    // 任务行
+    const taskRow = el('div', {
       class: 'tree-task-name',
-      style: { display: 'flex', alignItems: 'center', gap: '6px' },
-      onClick: () => navigate(`#/chapter-list/${t.id}`),
+      style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' },
     }, [
       el('span', {
-        style: { cursor: 'pointer', width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)' },
-        text: isOpen ? '▾' : '▸',
-        onClick: (e) => {
-          e.stopPropagation();
-          if (expanded.has(t.id)) expanded.delete(t.id);
-          else expanded.add(t.id);
-          saveSidebarExpanded();
-          renderSidebar();
-        },
+        style: { width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '12px' },
+        text: taskOpen ? '▾' : '▸',
+        onClick: (e) => { e.stopPropagation(); toggleTask(task.id); },
       }),
-      el('span', { text: t.name, style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }),
+      el('span', {
+        style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+        text: task.name,
+        onClick: () => navigate(`#/chapter-list/${task.id}`),
+      }),
     ]);
 
-    const chapterList = isOpen ? el('div', { class: 'tree-chapters' },
-      chapters.length === 0
-        ? [el('div', { style: { fontSize: '12px', color: 'var(--text-2)', padding: '4px 10px' }, text: '暂无章节' })]
-        : chapters.map(c => el('div', {
+    const taskNode = el('div', { class: 'tree-task' }, [taskRow]);
+
+    // 章节列表
+    if (taskOpen) {
+      if (chapters.length === 0) {
+        taskNode.appendChild(el('div', {
+          style: { fontSize: '12px', color: 'var(--text-2)', padding: '4px 10px 4px 24px' },
+          text: '暂无章节',
+        }));
+      } else {
+        const chList = el('div', { class: 'tree-chapters' });
+        chapters.forEach(ch => {
+          const chOpen = state.chapters.includes(ch.id);
+          const points = store.getPoints(ch.id);
+
+          const chRow = el('div', {
             class: 'tree-chapter',
-            text: c.name,
-            onClick: () => navigate(`#/chapter/${c.id}`),
-          }))
-    ) : null;
+            style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' },
+          }, [
+            el('span', {
+              style: { width: '16px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '11px' },
+              text: chOpen ? '▾' : '▸',
+              onClick: (e) => { e.stopPropagation(); toggleChapter(ch.id); },
+            }),
+            el('span', {
+              style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+              text: ch.name,
+              onClick: () => navigate(`#/chapter/${ch.id}`),
+            }),
+          ]);
 
-    tree.appendChild(el('div', { class: 'tree-task' }, [taskName, chapterList]));
+          chList.appendChild(chRow);
+
+          // 知识点列表
+          if (chOpen) {
+            if (points.length === 0) {
+              chList.appendChild(el('div', {
+                style: { fontSize: '12px', color: 'var(--text-2)', padding: '4px 10px 4px 40px' },
+                text: '暂无知识点',
+              }));
+            } else {
+              const ptList = el('div', { style: { paddingLeft: '20px' } });
+              points.forEach(p => {
+                ptList.appendChild(el('div', {
+                  style: { fontSize: '13px', color: 'var(--text-2)', padding: '4px 8px', borderRadius: '6px', cursor: 'pointer', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+                  text: p.content,
+                  onClick: () => navigate(`#/chapter/${ch.id}`),
+                }));
+              });
+              chList.appendChild(ptList);
+            }
+          }
+        });
+        taskNode.appendChild(chList);
+      }
+    }
+
+    tree.appendChild(taskNode);
   });
+}
 
-  if (store.getTasks().length === 0) {
-    tree.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', padding: '12px' }, text: '暂无任务' }));
-  }
+function openDueManager(due) {
+  const selected = new Set();
+
+  const list = el('div', { style: { maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } },
+    due.map(p => {
+      const ch = store.getChapter(p.chapterId);
+      return el('label', {
+        style: { display: 'flex', alignItems: 'flex-start', gap: '8px', padding: '8px', borderBottom: '1px solid rgba(0,0,0,.06)', cursor: 'pointer' },
+      }, [
+        el('input', {
+          type: 'checkbox',
+          onChange: (e) => {
+            if (e.target.checked) selected.add(p.id);
+            else selected.delete(p.id);
+          },
+        }),
+        el('div', { style: { flex: '1' } }, [
+          el('div', { style: { fontSize: '14px', fontWeight: '600' }, text: p.content.slice(0, 50) }),
+          ch ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }, text: ch.name }) : null,
+        ]),
+      ]);
+    })
+  );
+
+  const mask = el('div', { class: 'confirm-mask' }, [
+    el('div', { class: 'confirm-box', style: { maxWidth: '480px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' } }, [
+      el('h3', { text: '管理今日待复习' }),
+      el('p', { text: '勾选不想今天复习的知识点，选择处理方式', style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '8px' } }),
+      list,
+      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' } }, [
+        el('div', { style: { display: 'flex', gap: '8px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全选',
+            onClick: () => {
+              due.forEach(p => selected.add(p.id));
+              list.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选',
+            onClick: () => {
+              selected.clear();
+              list.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+            },
+          }),
+        ]),
+        el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-primary', text: '今天跳过',
+            onClick: () => {
+              if (selected.size === 0) { alert('请先勾选'); return; }
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              tomorrow.setHours(0, 0, 0, 0);
+              selected.forEach(id => store.snoozePoint(id, tomorrow.toISOString()));
+              mask.remove();
+              toastSuccess(`已跳过 ${selected.size} 个知识点，明天再出现`);
+              renderHome();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '3 天后',
+            onClick: () => {
+              if (selected.size === 0) { alert('请先勾选'); return; }
+              const d = new Date();
+              d.setDate(d.getDate() + 3);
+              d.setHours(0, 0, 0, 0);
+              selected.forEach(id => store.snoozePoint(id, d.toISOString()));
+              mask.remove();
+              toastSuccess(`已推迟 ${selected.size} 个知识点 3 天`);
+              renderHome();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-danger', text: '永久排除',
+            onClick: () => {
+              if (selected.size === 0) { alert('请先勾选'); return; }
+              if (!confirm(`永久排除 ${selected.size} 个知识点，不再出现在待复习里？可在「复习 → 全部」里恢复。`)) return;
+              selected.forEach(id => store.excludePoint(id));
+              mask.remove();
+              toastSuccess(`已排除 ${selected.size} 个知识点`);
+              renderHome();
+            },
+          }),
+        ]),
+        el('div', { style: { textAlign: 'right' } }, [
+          el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => mask.remove() }),
+        ]),
+      ]),
+    ]),
+  ]);
+  document.body.appendChild(mask);
 }

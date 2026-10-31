@@ -20,13 +20,6 @@ import { renderAnnotator } from './views/annotator.js';
 import { renderComposer } from './views/composer.js';
 import { renderSettings } from './views/settings.js';
 import { renderHelp } from './views/help.js';
-import { togglePomodoro } from './ui/pomodoro.js';
-
-// 在按钮绑定区加：
-const btnPomo = document.getElementById('btn-pomo');
-if (btnPomo) btnPomo.addEventListener('click', () => togglePomodoro());
-const btnTrash = document.getElementById('btn-trash');
-if (btnTrash) btnTrash.addEventListener('click', () => navigate('#/trash'));
 
 async function boot() {
   migrate();
@@ -90,7 +83,9 @@ async function boot() {
     } else if (hash.startsWith('#/chapter-list/')) {
       navigate('#/');
     } else {
-      navigate('#/');
+      // 回收站、帮助、设置、搜索、速记等，回上一页
+      if (history.length > 1) history.back();
+      else navigate('#/');
     }
   };
 

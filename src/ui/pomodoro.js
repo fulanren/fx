@@ -1,11 +1,11 @@
 import { el } from '../utils/dom.js';
 
 const STORAGE_KEY = 'kg_pomodoro_state';
+const POS_KEY = 'kg_pomodoro_pos';
 
 let floatEl = null;
 let rafId = null;
 
-// 状态：mode(work/break), remaining(ms), running(bool), workMs, breakMs
 function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
@@ -40,9 +40,7 @@ function buildFloat() {
   const progressBar = el('div', {
     style: { width: '60px', height: '4px', background: 'rgba(0,0,0,.1)', borderRadius: '2px', overflow: 'hidden' },
   }, [
-    el('div', {
-      style: { height: '100%', background: 'var(--primary)', width: '0%', transition: 'width .3s' },
-    }),
+    el('div', { style: { height: '100%', background: 'var(--primary)', width: '0%', transition: 'width .3s' } }),
   ]);
 
   const btnToggle = el('button', { class: 'pomo-btn', text: state.running ? '⏸' : '▶', onClick: toggleRunning });
@@ -64,6 +62,52 @@ function buildFloat() {
   floatEl._progressBar = progressBar;
   floatEl._btnToggle = btnToggle;
   document.body.appendChild(floatEl);
+
+  // 恢复位置
+  try {
+    const pos = JSON.parse(localStorage.getItem(POS_KEY) || 'null');
+    if (pos && typeof pos.left === 'number') {
+      floatEl.style.left = pos.left + 'px';
+      floatEl.style.top = pos.top + 'px';
+      floatEl.style.right = 'auto';
+      floatEl.style.bottom = 'auto';
+    }
+  } catch {}
+
+  // 拖拽
+  let dragging = false;
+  let startX = 0, startY = 0, startLeft = 0, startTop = 0;
+  floatEl.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button')) return;
+    dragging = true;
+    startX = e.clientX;
+    startY = e.clientY;
+    const rect = floatEl.getBoundingClientRect();
+    startLeft = rect.left;
+    startTop = rect.top;
+    floatEl.setPointerCapture(e.pointerId);
+    floatEl.style.cursor = 'grabbing';
+  });
+  floatEl.addEventListener('pointermove', (e) => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    const left = Math.max(0, Math.min(window.innerWidth - floatEl.offsetWidth, startLeft + dx));
+    const top = Math.max(0, Math.min(window.innerHeight - floatEl.offsetHeight, startTop + dy));
+    floatEl.style.left = left + 'px';
+    floatEl.style.top = top + 'px';
+    floatEl.style.right = 'auto';
+    floatEl.style.bottom = 'auto';
+  });
+  floatEl.addEventListener('pointerup', (e) => {
+    if (!dragging) return;
+    dragging = false;
+    floatEl.releasePointerCapture(e.pointerId);
+    floatEl.style.cursor = '';
+    const rect = floatEl.getBoundingClientRect();
+    localStorage.setItem(POS_KEY, JSON.stringify({ left: rect.left, top: rect.top }));
+  });
+
   render();
 }
 
@@ -147,7 +191,6 @@ function openSettings() {
   const mask = el('div', { class: 'confirm-mask' }, [
     el('div', { class: 'confirm-box', style: { maxWidth: '340px' } }, [
       el('h3', { text: '番茄钟设置' }),
-
       el('div', { class: 'field', style: { marginTop: '12px' } }, [
         el('label', { text: '专注时长' }),
         el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
@@ -157,7 +200,6 @@ function openSettings() {
           el('span', { text: '秒', style: { color: 'var(--text-2)' } }),
         ]),
       ]),
-
       el('div', { class: 'field' }, [
         el('label', { text: '休息时长' }),
         el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
@@ -167,7 +209,6 @@ function openSettings() {
           el('span', { text: '秒', style: { color: 'var(--text-2)' } }),
         ]),
       ]),
-
       el('div', { class: 'confirm-actions' }, [
         el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
         el('button', {
@@ -205,7 +246,6 @@ function notify(text) {
       });
     }
   }
-  // 页面内也提示
   import('./toast.js').then(({ toastSuccess }) => toastSuccess(text));
 }
 
