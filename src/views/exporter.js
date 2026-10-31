@@ -1,0 +1,429 @@
+import * as store from '../store.js';
+import { dbGet } from '../db.js';
+import { fmtDate } from '../utils/date.js';
+
+// ============ 收集数据 ============
+async function collectData(scope, id) {
+  if (scope === 'point') {
+    const p = store.getPoint(id);
+    if (!p) return null;
+    const ch = store.getChapter(p.chapterId);
+    const task = ch ? store.getTask(ch.taskId) : null;
+    return { task, chapter: ch, points: [p] };
+  }
+  if (scope === 'chapter') {
+    const ch = store.getChapter(id);
+    if (!ch) return null;
+    const task = store.getTask(ch.taskId);
+    return { task, chapter: ch, points: store.getPoints(ch.id) };
+  }
+  if (scope === 'task') {
+    const task = store.getTask(id);
+    if (!task) return null;
+    const chapters = store.getChapters(task.id);
+    const allPoints = [];
+    chapters.forEach(c => {
+      const pts = store.getPoints(c.id);
+      pts.forEach(p => allPoints.push({ ...p, _chapterName: c.name }));
+    });
+    return { task, chapters, points: allPoints };
+  }
+  return null;
+}
+
+// ============ 收集图片 ============
+async function collectImages(points) {
+  const images = [];
+  for (const p of points) {
+    const ids = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
+    for (const id of ids) {
+      const img = await dbGet('images', id);
+      if (!img) continue;
+      const blob = img.annotatedBlob || img.originalBlob;
+      if (!blob) continue;
+      images.push({ pointId: p.id, imageId: id, blob, type: img.type || 'image' });
+    }
+  }
+  return images;
+}
+
+// ============ Markdown ============
+function toMarkdown(data, images) {
+  const lines = [];
+  if (data.task) {
+    lines.push(`# 任务：${data.task.name}`);
+    if (data.task.note) lines.push(`> ${data.task.note}`);
+    lines.push('');
+  }
+  const chapters = data.chapters || (data.chapter ? [data.chapter] : []);
+  const pointsByChapter = {};
+  data.points.forEach(p => {
+    const cid = p.chapterId;
+    if (!pointsByChapter[cid]) pointsByChapter[cid] = [];
+    pointsByChapter[cid].push(p);
+  });
+
+  chapters.forEach(ch => {
+    lines.push(`## 章节：${ch.name}`);
+    if (ch.book) lines.push(`- 书籍：${ch.book}`);
+    if (ch.part) lines.push(`- 页码：${ch.part}`);
+    if (ch.note) lines.push(`- 备注：${ch.note}`);
+    lines.push('');
+
+    const pts = pointsByChapter[ch.id] || [];
+    pts.forEach((p, i) => {
+      lines.push(`### 知识点 ${i + 1}`);
+      lines.push(`**内容**：${p.content}`);
+      if (p.explanation) lines.push(`\n**解释**：${p.explanation}`);
+      const pImgs = images.filter(im => im.pointId === p.id);
+      if (pImgs.length) {
+        lines.push(`\n**图片**：`);
+        pImgs.forEach((im, j) => {
+          lines.push(`![fig${j + 1}](images/${im.imageId}.png)`);
+        });
+      }
+      lines.push(`\n**复习状态**：已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}`);
+      if (p.reviewHistory && p.reviewHistory.length) {
+        lines.push(`\n**背诵历史**：`);
+        lines.push(`| 日期 | 自评 | 间隔变化 |`);
+        lines.push(`|---|---|---|`);
+        p.reviewHistory.slice(-10).forEach(r => {
+          lines.push(`| ${fmtDate(r.at)} | ${r.rating} | ${r.prevInterval}→${r.nextInterval} 天 |`);
+        });
+      }
+      lines.push('\n---\n');
+    });
+  });
+  return lines.join('\n');
+}
+
+// ============ HTML ============
+function toHtml(data, images) {
+  const md = toMarkdown(data, images);
+  const html = md
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/!\[(.+?)\]\((.+?)\)/g, '<img alt="$1" src="$2" style="max-width:100%;border-radius:8px;margin:8px 0">')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/\n/g, '<br>');
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>导出</title>
+<style>
+body{font-family:-apple-system,"PingFang SC",sans-serif;max-width:800px;margin:0 auto;padding:20px;line-height:1.7;color:#2B2D42}
+h1{color:#5FA8C7;border-bottom:2px solid #8ECAE6;padding-bottom:8px}
+h2{color:#2B2D42;margin-top:24px}
+h3{color:#5FA8C7}
+blockquote{border-left:4px solid #8ECAE6;margin:8px 0;padding:4px 12px;color:#666;background:#f9f9f9}
+table{border-collapse:collapse;margin:8px 0;font-size:13px}
+th,td{border:1px solid #ddd;padding:4px 8px;text-align:left}
+img{max-width:100%;border-radius:8px;margin:8px 0}
+hr{border:none;border-top:1px dashed #ddd;margin:16px 0}
+@media print{body{padding:0}}
+</style></head><body>${html}</body></html>`;
+}
+
+// ============ 纯文本 ============
+export function toPlainText(data) {
+  const lines = [];
+  if (data.task) {
+    lines.push(`任务：${data.task.name}`);
+    if (data.task.note) lines.push(`备注：${data.task.note}`);
+    lines.push('');
+  }
+  const chapters = data.chapters || (data.chapter ? [data.chapter] : []);
+  const pointsByChapter = {};
+  data.points.forEach(p => {
+    if (!pointsByChapter[p.chapterId]) pointsByChapter[p.chapterId] = [];
+    pointsByChapter[p.chapterId].push(p);
+  });
+
+  chapters.forEach(ch => {
+    lines.push(`【章节】${ch.name}`);
+    if (ch.book) lines.push(`书籍：${ch.book}`);
+    if (ch.part) lines.push(`页码：${ch.part}`);
+    lines.push('');
+    const pts = pointsByChapter[ch.id] || [];
+    pts.forEach((p, i) => {
+      lines.push(`${i + 1}. ${p.content}`);
+      if (p.explanation) lines.push(`   解释：${p.explanation}`);
+      const imgCount = (p.imageIds || []).length + (p.compositeImageIds || []).length;
+      if (imgCount > 0) lines.push(`   [含 ${imgCount} 张图片]`);
+      lines.push(`   已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}`);
+      lines.push('');
+    });
+    lines.push('------------------------');
+    lines.push('');
+  });
+  return lines.join('\n');
+}
+
+// ============ PDF（新标签页 + 打印） ============
+export async function exportAsPdf(scope, id, options = {}) {
+  const data = await collectData(scope, id);
+  if (!data) throw new Error('数据不存在');
+  const images = options.includeImages !== false ? await collectImages(data.points) : [];
+  const html = await buildPrintHtml(data, images, options);
+
+  const win = window.open('', '_blank');
+  if (!win) throw new Error('弹窗被拦截，请允许弹窗后重试');
+  win.document.write(html);
+  win.document.close();
+  setTimeout(() => {
+    try { win.print(); } catch (e) {}
+  }, 600);
+}
+
+async function buildPrintHtml(data, images, options) {
+  const includeImages = options.includeImages !== false;
+  const chapters = data.chapters || (data.chapter ? [data.chapter] : []);
+  const pointsByChapter = {};
+  data.points.forEach(p => {
+    if (!pointsByChapter[p.chapterId]) pointsByChapter[p.chapterId] = [];
+    pointsByChapter[p.chapterId].push(p);
+  });
+
+  const imgMap = {};
+  if (includeImages) {
+    for (const im of images) {
+      imgMap[im.imageId] = await blobToBase64(im.blob);
+    }
+  }
+
+  let bodyHtml = '';
+  if (data.task) {
+    bodyHtml += `<h1>${esc(data.task.name)}</h1>`;
+    if (data.task.note) bodyHtml += `<p class="note">${esc(data.task.note)}</p>`;
+  }
+
+  chapters.forEach(ch => {
+    bodyHtml += `<h2>${esc(ch.name)}</h2>`;
+    if (ch.book || ch.part) bodyHtml += `<p class="meta">${esc(ch.book || '')} ${esc(ch.part || '')}</p>`;
+    const pts = pointsByChapter[ch.id] || [];
+    pts.forEach((p, i) => {
+      bodyHtml += `<div class="point">`;
+      bodyHtml += `<h3>${i + 1}. ${esc(p.content)}</h3>`;
+      if (p.explanation) bodyHtml += `<p class="explain">${esc(p.explanation)}</p>`;
+      const ids = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
+      if (includeImages && ids.length) {
+        bodyHtml += `<div class="imgs">`;
+        ids.forEach(id2 => { if (imgMap[id2]) bodyHtml += `<img src="${imgMap[id2]}">`; });
+        bodyHtml += `</div>`;
+      }
+      bodyHtml += `<p class="status">已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}</p>`;
+      bodyHtml += `</div>`;
+    });
+  });
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="UTF-8"><title>复习单</title>
+<style>
+@page { size: A4; margin: 15mm; }
+* { box-sizing: border-box; }
+body { font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; line-height: 1.7; color: #2B2D42; }
+h1 { font-size: 22px; color: #5FA8C7; border-bottom: 2px solid #8ECAE6; padding-bottom: 6px; }
+h2 { font-size: 18px; margin-top: 20px; border-left: 4px solid #8ECAE6; padding-left: 8px; }
+h3 { font-size: 15px; margin: 12px 0 4px; }
+.note { color: #666; font-size: 13px; }
+.meta { color: #888; font-size: 12px; margin: 2px 0 8px; }
+.point { margin-bottom: 16px; page-break-inside: avoid; }
+.explain { font-size: 14px; color: #444; background: #f9f9f9; padding: 8px 12px; border-radius: 6px; margin: 6px 0; }
+.status { font-size: 12px; color: #999; margin-top: 4px; }
+.imgs { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.imgs img { max-width: 100%; max-height: 300px; border-radius: 6px; border: 1px solid #eee; }
+@media print { .point { page-break-inside: avoid; } }
+</style></head><body>${bodyHtml}</body></html>`;
+}
+
+// ============ 导出入口 ============
+export async function exportContent(scope, id, options = {}) {
+  const { includeImages = true, format = 'zip' } = options;
+  const data = await collectData(scope, id);
+  if (!data) throw new Error('数据不存在');
+  const images = includeImages ? await collectImages(data.points) : [];
+
+  // 纯文本
+  if (format === 'txt') {
+    const txt = toPlainText(data);
+    downloadBlob(new Blob([txt], { type: 'text/plain;charset=utf-8' }), `export_${scope}_${Date.now()}.txt`);
+    return;
+  }
+
+  // PDF
+  if (format === 'pdf') {
+    await exportAsPdf(scope, id, { includeImages });
+    return;
+  }
+
+  const md = toMarkdown(data, images);
+  const html = toHtml(data, images);
+
+  if (format === 'md') {
+    downloadBlob(new Blob([md], { type: 'text/markdown' }), `export_${scope}_${Date.now()}.md`);
+    return;
+  }
+  if (format === 'html') {
+    let htmlWithImages = html;
+    for (const im of images) {
+      const base64 = await blobToBase64(im.blob);
+      htmlWithImages = htmlWithImages.replace(`images/${im.imageId}.png`, base64);
+    }
+    downloadBlob(new Blob([htmlWithImages], { type: 'text/html' }), `export_${scope}_${Date.now()}.html`);
+    return;
+  }
+  if (format === 'zip') {
+    if (!window.JSZip) throw new Error('JSZip 未加载');
+    const zip = new window.JSZip();
+    zip.file('content.md', md);
+    zip.file('content.html', html);
+    zip.file('data.json', JSON.stringify({ ...data, _exportAt: new Date().toISOString() }, null, 2));
+    const imgFolder = zip.folder('images');
+    for (const im of images) {
+      imgFolder.file(`${im.imageId}.png`, im.blob);
+    }
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, `export_${scope}_${Date.now()}.zip`);
+    return;
+  }
+  throw new Error('未知导出格式：' + format);
+}
+
+// ============ 全量备份 ============
+export async function exportFullBackup() {
+  if (!window.JSZip) throw new Error('JSZip 未加载');
+  const zip = new window.JSZip();
+
+  const data = {
+    tasks: JSON.parse(localStorage.getItem('kg_tasks') || '[]'),
+    chapters: JSON.parse(localStorage.getItem('kg_chapters') || '[]'),
+    points: JSON.parse(localStorage.getItem('kg_points') || '[]'),
+    inbox: JSON.parse(localStorage.getItem('kg_inbox') || '[]'),
+    recycle: JSON.parse(localStorage.getItem('kg_recycle_bin') || '[]'),
+    settings: JSON.parse(localStorage.getItem('kg_settings') || '{}'),
+    audioIndex: JSON.parse(localStorage.getItem('kg_audio_index') || '[]'),
+    patterns: JSON.parse(localStorage.getItem('kg_patterns') || '[]'),
+    schemaVersion: Number(localStorage.getItem('kg_schema_version') || 1),
+    exportAt: new Date().toISOString(),
+  };
+  zip.file('data.json', JSON.stringify(data, null, 2));
+
+  const { dbAll } = await import('../db.js');
+  const images = await dbAll('images');
+  const imgFolder = zip.folder('images');
+  for (const img of images) {
+    if (img.annotatedBlob) imgFolder.file(`${img.id}_annotated.png`, img.annotatedBlob);
+    if (img.originalBlob && img.originalBlob !== img.annotatedBlob) {
+      imgFolder.file(`${img.id}_original.png`, img.originalBlob);
+    }
+  }
+
+  const audios = await dbAll('audios');
+  const audioFolder = zip.folder('audios');
+  for (const a of audios) {
+    audioFolder.file(`${a.id}.webm`, a.blob);
+  }
+
+  const tapeData = {};
+  const paperData = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k.startsWith('kg_tape_')) tapeData[k] = JSON.parse(localStorage.getItem(k));
+    if (k.startsWith('kg_paper_')) paperData[k] = JSON.parse(localStorage.getItem(k));
+  }
+  zip.file('tape.json', JSON.stringify(tapeData));
+  zip.file('paper.json', JSON.stringify(paperData));
+
+  const blob = await zip.generateAsync({ type: 'blob' });
+  downloadBlob(blob, `backup_full_${Date.now()}.zip`);
+  localStorage.setItem('kg_last_backup_at', new Date().toISOString());
+}
+
+// ============ 导入 ============
+export async function importFullBackup(file, mode = 'merge') {
+  if (!window.JSZip) throw new Error('JSZip 未加载');
+  const zip = await window.JSZip.loadAsync(file);
+  const dataFile = zip.file('data.json');
+  if (!dataFile) throw new Error('不是有效的备份文件');
+  const data = JSON.parse(await dataFile.async('string'));
+
+  if (mode === 'overwrite') {
+    localStorage.setItem('kg_tasks', JSON.stringify(data.tasks || []));
+    localStorage.setItem('kg_chapters', JSON.stringify(data.chapters || []));
+    localStorage.setItem('kg_points', JSON.stringify(data.points || []));
+    localStorage.setItem('kg_inbox', JSON.stringify(data.inbox || []));
+    localStorage.setItem('kg_recycle_bin', JSON.stringify(data.recycle || []));
+    localStorage.setItem('kg_settings', JSON.stringify(data.settings || {}));
+    localStorage.setItem('kg_audio_index', JSON.stringify(data.audioIndex || []));
+    localStorage.setItem('kg_patterns', JSON.stringify(data.patterns || []));
+  } else {
+    ['tasks', 'chapters', 'points', 'inbox'].forEach(key => {
+      const existing = JSON.parse(localStorage.getItem(`kg_${key}`) || '[]');
+      const existingIds = new Set(existing.map(x => x.id));
+      const incoming = (data[key] || []).filter(x => !existingIds.has(x.id));
+      localStorage.setItem(`kg_${key}`, JSON.stringify([...existing, ...incoming]));
+    });
+  }
+
+  const imgFolder = zip.folder('images');
+  if (imgFolder) {
+    const { dbPut } = await import('../db.js');
+    const files = Object.keys(zip.files).filter(f => f.startsWith('images/') && f.endsWith('.png'));
+    for (const f of files) {
+      const blob = await zip.file(f).async('blob');
+      const name = f.replace('images/', '').replace('.png', '');
+      const isOriginal = name.endsWith('_original');
+      const id = name.replace('_annotated', '').replace('_original', '');
+      const existing = await dbGet('images', id);
+      const record = existing || { id, width: 0, height: 0, createdAt: new Date().toISOString() };
+      if (isOriginal) record.originalBlob = blob;
+      else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
+      await dbPut('images', record);
+    }
+  }
+
+  const { dbPut } = await import('../db.js');
+  const audioFiles = Object.keys(zip.files).filter(f => f.startsWith('audios/') && f.endsWith('.webm'));
+  for (const f of audioFiles) {
+    const blob = await zip.file(f).async('blob');
+    const id = f.replace('audios/', '').replace('.webm', '');
+    await dbPut('audios', { id, blob, mimeType: 'audio/webm', createdAt: new Date().toISOString() });
+  }
+
+  const tapeFile = zip.file('tape.json');
+  if (tapeFile) {
+    const tapeData = JSON.parse(await tapeFile.async('string'));
+    Object.entries(tapeData).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+  }
+  const paperFile = zip.file('paper.json');
+  if (paperFile) {
+    const paperData = JSON.parse(await paperFile.async('string'));
+    Object.entries(paperData).forEach(([k, v]) => localStorage.setItem(k, JSON.stringify(v)));
+  }
+}
+
+// ============ 工具 ============
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+function esc(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
