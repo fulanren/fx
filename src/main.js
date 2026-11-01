@@ -54,7 +54,6 @@ async function boot() {
 
   startRouter();
 
-  // ============ 顶栏 ⋮ 菜单 ============
   const btnMore = document.getElementById('btn-more');
   if (btnMore) {
     btnMore.addEventListener('click', (e) => {
@@ -63,7 +62,6 @@ async function boot() {
     });
   }
 
-  // ============ 返回按钮统一处理 ============
   const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
@@ -91,7 +89,6 @@ async function boot() {
     }
   };
 
-  // ============ 路由切换时清空顶栏动态按钮 ============
   window.addEventListener('hashchange', () => {
     if (!location.hash.startsWith('#/annotate/')) {
       const dyn = document.getElementById('topbar-dynamic');
@@ -111,7 +108,6 @@ async function boot() {
   });
 }
 
-// ============ ⋮ 菜单 ============
 function openMoreMenu() {
   const existing = document.getElementById('more-menu');
   if (existing) { existing.remove(); return; }
@@ -177,7 +173,6 @@ function openMoreMenu() {
   }, 50);
 }
 
-// ============ 侧边栏 ============
 function initSidebar() {
   const sidebar = document.getElementById('sidebar');
   const resizer = document.getElementById('sidebar-resizer');
@@ -267,7 +262,6 @@ function initSidebar() {
   }
 }
 
-// ============ 存储错误页 ============
 function showStorageError() {
   const view = document.getElementById('view');
   view.innerHTML = `
@@ -289,7 +283,3 @@ boot().catch(e => {
   console.error('启动失败', e);
   toastError('启动失败：' + e.message);
 });
-body.sidebar-open #main {
-  margin-left: min(var(--sidebar-w, 280px), 80vw);
-  transition: margin-left .25s;
-}
