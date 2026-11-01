@@ -46,13 +46,6 @@ export function createTapeLayer(canvas, W, H, imageId) {
       ctx.moveTo(t.points[0].x, t.points[0].y);
       for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
       ctx.stroke();
-      // 方头：两端补矩形，让端头平整
-      if (t.shape === 'line-square' && t.points.length >= 2) {
-        const first = t.points[0], last = t.points[t.points.length - 1];
-        const half = t.width / 2;
-        ctx.fillRect(first.x - half, first.y - half, t.width, t.width);
-        ctx.fillRect(last.x - half, last.y - half, t.width, t.width);
-      }
     } else if (t.shape === 'rect') {
       const p0 = t.points[0], p1 = t.points[t.points.length - 1];
       ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
@@ -64,7 +57,6 @@ export function createTapeLayer(canvas, W, H, imageId) {
       ctx.fill();
     }
 
-    // 波点花样
     if (t.pattern === 'dots') {
       ctx.save();
       ctx.globalCompositeOperation = 'source-atop';
@@ -82,7 +74,6 @@ export function createTapeLayer(canvas, W, H, imageId) {
       ctx.restore();
     }
 
-    // 擦除路径
     if (t.erasedPath && t.erasedPath.length) {
       ctx.globalCompositeOperation = 'destination-out';
       t.erasedPath.forEach(p => {
@@ -118,7 +109,7 @@ export function createTapeLayer(canvas, W, H, imageId) {
     },
     hitTest(x, y) {
       for (let i = tapes.length - 1; i >= 0; i--) {
-        if (tapes[i].visible && hitTape(tapes[i], x, y, 0)) return tapes[i];
+        if (hitTape(tapes[i], x, y, 0)) return tapes[i];
       }
       return null;
     },
@@ -167,7 +158,6 @@ function pointToSegment(px, py, x1, y1, x2, y2) {
 export function renderTapeToolbar(tapeLayer, onPatternChange) {
   const bar = el('div', { class: 'tape-toolbar' });
 
-  // 形状
   const shapeRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '形状' }),
     ...TAPE_SHAPES.map(s => el('button', {
@@ -181,7 +171,6 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     })),
   ]);
 
-  // 花样
   const patternRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '花样' }),
     ...TAPE_PATTERNS.map(p => el('button', {
@@ -196,7 +185,6 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     })),
   ]);
 
-  // 宽度：滑块 + 数字
   const widthNum = el('input', {
     type: 'number', min: '4', max: '300', value: String(tapeLayer.getWidth()),
     style: { width: '56px', padding: '4px 6px', fontSize: '13px' },
@@ -221,7 +209,6 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     widthNum,
   ]);
 
-  // 颜色
   const colors = ['#FFD166', '#EF476F', '#06D6A0', '#118AB2', '#CDB4DB', '#FFFFFF'];
   const colorRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '颜色' }),

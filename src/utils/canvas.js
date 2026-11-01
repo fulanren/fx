@@ -29,11 +29,12 @@ export function drawArrow(ctx, x1, y1, x2, y2, color, width) {
   ctx.lineTo(x2, y2);
   ctx.stroke();
   const angle = Math.atan2(y2 - y1, x2 - x1);
-  const headLen = Math.max(12, width * 3);
+  const headLen = Math.max(16, width * 4);
+  const headAngle = Math.PI / 7;
   ctx.beginPath();
   ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - headLen * Math.cos(angle - Math.PI / 6), y2 - headLen * Math.sin(angle - Math.PI / 6));
-  ctx.lineTo(x2 - headLen * Math.cos(angle + Math.PI / 6), y2 - headLen * Math.sin(angle + Math.PI / 6));
+  ctx.lineTo(x2 - headLen * Math.cos(angle - headAngle), y2 - headLen * Math.sin(angle - headAngle));
+  ctx.lineTo(x2 - headLen * Math.cos(angle + headAngle), y2 - headLen * Math.sin(angle + headAngle));
   ctx.closePath();
   ctx.fill();
   ctx.restore();

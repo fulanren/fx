@@ -339,15 +339,18 @@ function pointCard(p, chapterId) {
                       class: 'btn btn-ghost', text: '✏️ 标注',
                       onClick: () => { mask.remove(); navigate(`#/annotate/${imageId}?pointId=${p.id}`); },
                     }),
-                img.type !== 'composite' ? el('button', {
-                  class: 'btn btn-ghost', text: '🔤 提取文字',
-                  onClick: async () => {
-                    mask.remove();
-                    const { runOCR, renderOcrResult } = await import('../views/ocr.js');
-                    const result = await runOCR(imageId);
-                    if (result) await renderOcrResult(imageId, result.text, p.id);
-                  },
-                }) : null,
+                    el('button', {
+                      class: 'btn btn-danger', text: '🗑 删除',
+                      onClick: async () => {
+                        mask.remove();
+                        if (!confirm('删除这张图片？')) return;
+                        const { dbDelete } = await import('../db.js');
+                        await dbDelete('images', imageId);
+                        store.removeImageFromPoint(p.id, imageId);
+                        toastSuccess('已删除');
+                        renderChapterDetail({ params: { id: chapterId } });
+                      },
+                    }),
               ]),
               el('div', { class: 'confirm-actions', style: { marginTop: '12px' } }, [
                 el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),

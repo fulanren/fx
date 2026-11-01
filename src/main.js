@@ -289,3 +289,7 @@ boot().catch(e => {
   console.error('启动失败', e);
   toastError('启动失败：' + e.message);
 });
+body.sidebar-open #main {
+  margin-left: min(var(--sidebar-w, 280px), 80vw);
+  transition: margin-left .25s;
+}

@@ -26,7 +26,7 @@ const TOOLS = [
   { id: 'hand', label: '✋' },
 ];
 
-const COLORS = ['#EF476F', '#F78C6B', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#FFFFFF'];
+const COLORS = ['#EF476F', '#F78C6B', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#FFFFFF', 'transparent'];
 
 const TOOL_NAMES = {
   pen: '画笔', eraser: '橡皮', 'circle-erase': '圈擦', text: '文字',
@@ -35,6 +35,10 @@ const TOOL_NAMES = {
 };
 
 export function renderAnnotator({ params, query }) {
+  if (window.__annotatorActive && window.__annotatorCleanup) {
+    try { window.__annotatorCleanup(); } catch {}
+  }
+  window.__annotatorActive = true;
   const imageId = params.id;
   const pointId = query.pointId;
   const view = document.getElementById('view');
@@ -97,8 +101,20 @@ export function renderAnnotator({ params, query }) {
     const tapeLayer = createTapeLayer(tapeCanvas, W, H, imageId);
 
     canvasWrap.appendChild(base);
-    canvasWrap.appendChild(strokeCanvas);
     canvasWrap.appendChild(paperCanvas);
+    canvasWrap.appendChild(strokeCanvas);
+    const previewCanvas = el('canvas', {
+      class: 'preview-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '5' },
+    });
+    previewCanvas.width = W;
+    previewCanvas.height = H;
+    const previewCtx = previewCanvas.getContext('2d');
+    canvasWrap.appendChild(previewCanvas);
+
+    function clearPreview() {
+      previewCtx.clearRect(0, 0, W, H);
+    }
     canvasWrap.appendChild(tapeCanvas);
     wrap.appendChild(canvasWrap);
     view.appendChild(wrap);
@@ -173,6 +189,20 @@ export function renderAnnotator({ params, query }) {
       });
       document.body.appendChild(tooltipEl);
     }
+    function attachLongPress(btn, text) {
+      let timer = null;
+      btn.addEventListener('pointerdown', () => {
+        timer = setTimeout(() => showTooltip(btn, text), 500);
+      });
+      btn.addEventListener('pointerup', () => {
+        clearTimeout(timer);
+        setTimeout(hideTooltip, 800);
+      });
+      btn.addEventListener('pointerleave', () => {
+        clearTimeout(timer);
+        hideTooltip();
+      });
+    }
     function hideTooltip() {
       if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
     }
@@ -205,7 +235,21 @@ export function renderAnnotator({ params, query }) {
       onClick: () => {
         penOnly = !penOnly;
         penOnlyBtn.classList.toggle('active', penOnly);
+        toastSuccess(penOnly ? '防触控已开启' : '防触控已关闭');
       },
+    });
+    penOnlyBtn.addEventListener('pointerdown', () => {
+      longPressTimer = setTimeout(() => {
+        showTooltip(penOnlyBtn, penOnly ? '防触控开启中' : '防触控关闭中');
+      }, 500);
+    });
+    penOnlyBtn.addEventListener('pointerup', () => {
+      clearTimeout(longPressTimer);
+      setTimeout(hideTooltip, 800);
+    });
+    penOnlyBtn.addEventListener('pointerleave', () => {
+      clearTimeout(longPressTimer);
+      hideTooltip();
     });
     toolBar.appendChild(penOnlyBtn);
     view.appendChild(toolBar);
@@ -404,6 +448,15 @@ export function renderAnnotator({ params, query }) {
               el('option', { value: 'left', text: '← 左侧' }),
               el('option', { value: 'right', text: '→ 右侧' }),
             ]),
+            el('div', { class: 'field' }, [
+              el('label', { text: '扩展到' }),
+              el('select', { id: 'expand-target' }, [
+                el('option', { value: 'custom', text: '自定义像素' }),
+                el('option', { value: 'image', text: '与图片一致' }),
+                el('option', { value: 'pdf', text: '与 PDF 页面一致（A4）' }),
+                el('option', { value: 'paper', text: '与纸张一致' }),
+              ]),
+            ]),
           ]),
           el('div', { class: 'field' }, [
             el('label', { text: '扩展像素' }),
@@ -490,6 +543,13 @@ export function renderAnnotator({ params, query }) {
               el('input', { type: 'color', id: 'text-color', value: currentColor }),
             ]),
           ]),
+          el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' } }, [
+            el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' } }, [
+              el('input', { type: 'checkbox', id: 'text-no-bg' }),
+              '无色背景',
+            ]),
+            el('input', { type: 'color', id: 'text-bg', value: '#FFFFFF', style: { width: '32px', height: '32px', border: 'none' } }),
+          ]),
           el('div', { class: 'field' }, [
             el('label', { text: '字体' }),
             el('select', { id: 'text-font' }, [
@@ -497,6 +557,13 @@ export function renderAnnotator({ params, query }) {
               el('option', { value: 'serif', text: '宋体' }),
               el('option', { value: 'monospace', text: '等宽' }),
             ]),
+          ]),
+          el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px' } }, [
+            el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' } }, [
+              el('input', { type: 'checkbox', id: 'text-no-bg' }),
+              '无色背景',
+            ]),
+            el('input', { type: 'color', id: 'text-bg', value: '#FFFFFF', style: { width: '32px', height: '32px', border: 'none' } }),
           ]),
           el('div', { class: 'confirm-actions' }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
@@ -507,12 +574,24 @@ export function renderAnnotator({ params, query }) {
                 const size = Number(document.getElementById('text-size').value) || 20;
                 const color = document.getElementById('text-color').value;
                 const font = document.getElementById('text-font').value;
+                const noBg = document.getElementById('text-no-bg').checked;
+                const bg = document.getElementById('text-bg').value;
                 if (!text) { alert('请输入文字'); return; }
                 pushUndo();
                 ctx.save();
-                ctx.fillStyle = color;
                 ctx.font = `${size}px ${font}`;
-                ctx.fillText(text, pos.x, pos.y);
+                const lines = text.split('\n');
+                const maxW = Math.max(...lines.map(l => ctx.measureText(l).width));
+                const lineH = size + 4;
+                const totalH = lines.length * lineH;
+                if (!noBg) {
+                  ctx.fillStyle = bg;
+                  ctx.fillRect(pos.x - 4, pos.y - size, maxW + 8, totalH + 4);
+                }
+                ctx.fillStyle = color;
+                lines.forEach((line, i) => {
+                  ctx.fillText(line, pos.x, pos.y + i * lineH);
+                });
                 ctx.restore();
                 dirty = true;
                 mask.remove();
@@ -699,6 +778,15 @@ export function renderAnnotator({ params, query }) {
       } else if (currentTool === 'eraser') {
         eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
         tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
+        // 预览圈
+        clearPreview();
+        previewCtx.save();
+        previewCtx.strokeStyle = 'rgba(59,130,246,.8)';
+        previewCtx.lineWidth = 2;
+        previewCtx.beginPath();
+        previewCtx.arc(pt.x, pt.y, currentWidth * 2, 0, Math.PI * 2);
+        previewCtx.stroke();
+        previewCtx.restore();
       } else if (currentTool === 'tape') {
         points.push(pt);
         const tempTape = {
@@ -755,6 +843,7 @@ export function renderAnnotator({ params, query }) {
     }
 
     strokeCanvas.addEventListener('pointerup', (e) => {
+      clearPreview();
       pointers.delete(e.pointerId);
 
       if (drawing === 'pan') { drawing = false; return; }
@@ -804,6 +893,7 @@ export function renderAnnotator({ params, query }) {
     });
 
     strokeCanvas.addEventListener('pointercancel', (e) => {
+      clearPreview();
       pointers.delete(e.pointerId);
       drawing = false;
       paperDragOffset = null;
@@ -912,5 +1002,11 @@ export function renderAnnotator({ params, query }) {
     }
 
     updateSubToolbar();
+
+    window.__annotatorCleanup = () => {
+      window.__annotatorActive = false;
+      const wrap = document.querySelector('.annotator-wrap');
+      if (wrap) wrap.remove();
+    };
   });
 }

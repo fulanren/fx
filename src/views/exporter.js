@@ -577,7 +577,19 @@ export async function importFullBackup(file, mode = 'merge') {
 }
 
 // ============ 工具 ============
-function downloadBlob(blob, filename) {
+async function downloadBlob(blob, filename) {
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({ suggestedName: filename });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      return;
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+    }
+  }
+  // 兜底：普通下载
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
