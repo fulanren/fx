@@ -166,8 +166,12 @@ export function renderEditPoint({ params, query }) {
 
     if (isNew) {
       imgBody.appendChild(el('div', {
-        style: { fontSize: '13px', color: 'var(--text-2)', padding: '8px 0' },
-        text: '保存知识点后，可以在这里添加图片、导入 PDF 或合成图片。',
+        style: { fontSize: '13px', color: 'var(--text-2)', padding: '8px 0', marginBottom: '8px' },
+        text: '先保存知识点，保存后可以在这里添加图片、导入 PDF 或合成图片。',
+      }));
+      imgBody.appendChild(el('button', {
+        class: 'btn btn-sm btn-primary', text: '保存并继续',
+        onClick: () => doSave(),
       }));
     } else {
       import('./imageList.js').then(({ renderImageList }) => {
