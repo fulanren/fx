@@ -87,7 +87,7 @@ export function renderSettings() {
 
 // ============ 导出选项弹窗 ============
 function exportOptionsDialog() {
-  const options = { data: true, images: true, audios: true, tape: true, exports: true };
+  const options = { data: true, images: true, audios: true, tape: true, exports: true, pdf: true };
 
   const mask = el('div', { class: 'confirm-mask' }, [
     el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
@@ -98,6 +98,7 @@ function exportOptionsDialog() {
         checkRow('录音', 'audios'),
         checkRow('胶带和纸张', 'tape'),
         checkRow('可读文本（md/txt/html）', 'exports'),
+        checkRow('PDF（每个任务的打印版）', 'pdf'),
       ]),
       el('div', { class: 'confirm-actions' }, [
         el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),

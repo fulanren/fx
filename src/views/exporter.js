@@ -82,7 +82,7 @@ function toMarkdown(data, images) {
           lines.push(`![fig${j + 1}](images/${im.imageId}.png)`);
         });
       }
-      lines.push(`\n**复习状态**：已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}`);
+      lines.push(`\n**复习状态**：已背 ${p.reviewCount} 遍 · 难记度 ${p.difficulty} · 下次 ${fmtDate(p.nextReviewAt)}`);
       if (p.reviewHistory && p.reviewHistory.length) {
         lines.push(`\n**背诵历史**：`);
         lines.push(`| 日期 | 自评 | 间隔变化 |`);
@@ -152,7 +152,7 @@ export function toPlainText(data) {
       if (p.explanation) lines.push(`   解释：${p.explanation}`);
       const imgCount = (p.imageIds || []).length + (p.compositeImageIds || []).length;
       if (imgCount > 0) lines.push(`   [含 ${imgCount} 张图片]`);
-      lines.push(`   已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}`);
+      lines.push(`   已背 ${p.reviewCount} 遍 · 难记度 ${p.difficulty} · 下次 ${fmtDate(p.nextReviewAt)}`);
       lines.push('');
     });
     lines.push('------------------------');
@@ -213,7 +213,7 @@ async function buildPrintHtml(data, images, options) {
         ids.forEach(id2 => { if (imgMap[id2]) bodyHtml += `<img src="${imgMap[id2]}">`; });
         bodyHtml += `</div>`;
       }
-      bodyHtml += `<p class="status">已背 ${p.reviewCount} 遍 · 难度 ${p.difficulty}/10 · 下次 ${fmtDate(p.nextReviewAt)}</p>`;
+      bodyHtml += `<p class="status">已背 ${p.reviewCount} 遍 · 难记度 ${p.difficulty} · 下次 ${fmtDate(p.nextReviewAt)}</p>`;
       bodyHtml += `</div>`;
     });
   });
@@ -297,6 +297,7 @@ export async function exportFullBackup(options = {}) {
     audios: includeAudios = true,
     tape: includeTape = true,
     exports: includeExports = true,
+    pdf: includePdf = true,
   } = options;
 
   if (!window.JSZip) throw new Error('JSZip 未加载');
@@ -394,6 +395,24 @@ export async function exportFullBackup(options = {}) {
     }
   }
 
+  if (includePdf) {
+    for (const task of (data.tasks || [])) {
+      const chapters = (data.chapters || []).filter(c => c.taskId === task.id);
+      const points = [];
+      chapters.forEach(c => {
+        (data.points || []).filter(p => p.chapterId === c.id).forEach(p => points.push(p));
+      });
+      if (points.length === 0) continue;
+
+      const taskData = { task, chapters, points };
+      const safeTask = task.name.replace(/[\\/:*?"<>|]/g, '_');
+      const dateStr = new Date().toISOString().slice(0, 10);
+
+      const printHtml = await buildPrintHtml(taskData, [], { includeImages: false });
+      zip.file(`pdf/${safeTask}_${dateStr}_打印版.html`, printHtml);
+    }
+  }
+
   const blob = await zip.generateAsync({ type: 'blob' });
   downloadBlob(blob, `backup_full_${Date.now()}.zip`);
   localStorage.setItem('kg_last_backup_at', new Date().toISOString());
@@ -411,39 +430,29 @@ export async function importFullBackup(file, mode = 'merge') {
 
   function normalizeTask(t) {
     return {
-      id: t.id,
-      name: t.name || '未命名任务',
-      note: t.note || '',
-      order: t.order ?? 0,
-      createdAt: t.createdAt || new Date().toISOString(),
-      updatedAt: t.updatedAt || new Date().toISOString(),
-      deletedAt: t.deletedAt || null,
+      id: t.id, name: t.name || '未命名任务', note: t.note || '',
+      order: t.order ?? 0, createdAt: t.createdAt || new Date().toISOString(),
+      updatedAt: t.updatedAt || new Date().toISOString(), deletedAt: t.deletedAt || null,
+      attachments: Array.isArray(t.attachments) ? t.attachments : [],
     };
   }
   function normalizeChapter(c) {
     return {
-      id: c.id,
-      taskId: c.taskId,
-      name: c.name || '未命名章节',
-      book: c.book || '',
-      part: c.part || '',
-      note: c.note || '',
-      order: c.order ?? 0,
-      createdAt: c.createdAt || new Date().toISOString(),
-      updatedAt: c.updatedAt || new Date().toISOString(),
-      deletedAt: c.deletedAt || null,
+      id: c.id, taskId: c.taskId, name: c.name || '未命名章节',
+      book: c.book || '', part: c.part || '', note: c.note || '',
+      order: c.order ?? 0, createdAt: c.createdAt || new Date().toISOString(),
+      updatedAt: c.updatedAt || new Date().toISOString(), deletedAt: c.deletedAt || null,
+      attachments: Array.isArray(c.attachments) ? c.attachments : [],
     };
   }
   function normalizePoint(p) {
     return {
-      id: p.id,
-      chapterId: p.chapterId,
-      content: p.content || '',
-      explanation: p.explanation || '',
+      id: p.id, chapterId: p.chapterId, content: p.content || '', explanation: p.explanation || '',
       imageIds: Array.isArray(p.imageIds) ? p.imageIds : [],
       compositeImageIds: Array.isArray(p.compositeImageIds) ? p.compositeImageIds : [],
       audioIds: Array.isArray(p.audioIds) ? p.audioIds : [],
       files: Array.isArray(p.files) ? p.files : [],
+      attachments: Array.isArray(p.attachments) ? p.attachments : [],
       reviewCount: typeof p.reviewCount === 'number' ? p.reviewCount : 0,
       difficulty: typeof p.difficulty === 'number' ? p.difficulty : 5,
       intervalDays: typeof p.intervalDays === 'number' ? p.intervalDays : 0,
@@ -455,6 +464,8 @@ export async function importFullBackup(file, mode = 'merge') {
       createdAt: p.createdAt || new Date().toISOString(),
       updatedAt: p.updatedAt || new Date().toISOString(),
       deletedAt: p.deletedAt || null,
+      manualReviewCount: !!p.manualReviewCount,
+      manualNextReviewAt: !!p.manualNextReviewAt,
     };
   }
 
