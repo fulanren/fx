@@ -33,7 +33,7 @@ export function renderImageList(point, onRefresh) {
 
   // 上传按钮
   const fileInput = el('input', {
-    type: 'file', accept: 'image/*', multiple: true,style: { display: 'none' },
+    type: 'file', accept: 'image/*', multiple: true,id: 'hidden-image-input',style: { display: 'none' },
     onChange: async (e) => {
       const files = [...e.target.files];
       for (const file of files) {
@@ -54,10 +54,6 @@ export function renderImageList(point, onRefresh) {
     },
   });
 
-  const uploadBtn = el('button', {
-    class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
-    onClick: () => fileInput.click(),
-  });
 
   // 粘贴上传
   const onPaste = async (e) => {
@@ -85,7 +81,6 @@ export function renderImageList(point, onRefresh) {
   document.addEventListener('paste', onPaste);
 
   container.appendChild(fileInput);
-  container.appendChild(uploadBtn);
   container.appendChild(list);
 
   return container;

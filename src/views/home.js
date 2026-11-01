@@ -50,9 +50,18 @@ export function renderHome() {
     view.appendChild(el('div', { class: 'batch-bar' }, [
       el('span', { text: `已选 ${selectedIds.size} 项` }),
       el('button', {
-        class: 'btn btn-sm btn-ghost', text: '全选',
+        class: 'btn btn-sm btn-ghost',
+        text: (() => {
+          const tasks = store.getTasks();
+          return tasks.length > 0 && selectedIds.size === tasks.length ? '取消全选' : '全选';
+        })(),
         onClick: () => {
-          store.getTasks().forEach(t => selectedIds.add(t.id));
+          const tasks = store.getTasks();
+          if (tasks.length > 0 && selectedIds.size === tasks.length) {
+            selectedIds.clear();
+          } else {
+            tasks.forEach(t => selectedIds.add(t.id));
+          }
           renderHome();
         },
       }),

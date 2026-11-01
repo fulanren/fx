@@ -7,6 +7,7 @@ import { toastSuccess } from '../ui/toast.js';
 import { fmtDate } from '../utils/date.js';
 import { attachSpeechButton } from '../ui/speech.js';
 import { audioRecorderModal, getAudiosForPoint, renderAudioList } from './audio.js';
+import { isMobile } from '../utils/platform.js';
 
 export function renderEditPoint({ params, query }) {
   const isNew = params.id === 'new';
@@ -38,14 +39,14 @@ export function renderEditPoint({ params, query }) {
   contentInput.value = form.content;
   const contentRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
     contentInput,
-    attachSpeechButton(contentInput),
+    isMobile ? null : attachSpeechButton(contentInput),
   ]);
 
   const explainInput = el('textarea', { placeholder: '文字解释（可选）', onInput: e => { form.explanation = e.target.value; queueSave(); } });
   explainInput.value = form.explanation;
   const explainRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
     explainInput,
-    attachSpeechButton(explainInput),
+    isMobile ? null : attachSpeechButton(explainInput),
   ]);
 
   // ============ 难记度按钮组 ============
@@ -147,10 +148,12 @@ export function renderEditPoint({ params, query }) {
     let collapsed = false;
     const body = el('div', { class: 'section-body' }, children);
     const arrow = el('span', { class: 'section-arrow', text: '▾' });
-    const head = el('div', { class: 'section-head', onClick: () => {
-      collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
-      arrow.textContent = collapsed ? '▸' : '▾';
-    } }, [el('span', { text: title }), arrow]);
+    const head = el('div', {
+      class: 'section-head', onClick: () => {
+        collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
+        arrow.textContent = collapsed ? '▸' : '▾';
+      }
+    }, [el('span', { text: title }), arrow]);
     return el('div', { class: 'section' }, [head, body]);
   }
 
@@ -160,8 +163,8 @@ export function renderEditPoint({ params, query }) {
     el('div', { class: 'field' }, [el('label', { text: '文字解释' }), explainRow]),
   ]));
 
-  // ============ 图片 + PDF + 合成 ============
-  if (!isNew) {
+  // ============ 图片 + PDF + 合成（新建时提示先保存） ============
+  {
     const imgBody = el('div', { class: 'section-body' });
     const imgSection = el('div', { class: 'section' }, [
       el('div', { class: 'section-head' }, [el('span', { text: '解释图片' })]),
@@ -169,53 +172,65 @@ export function renderEditPoint({ params, query }) {
     ]);
     view.appendChild(imgSection);
 
-    import('./imageList.js').then(({ renderImageList }) => {
-      const refresh = () => {
-        imgBody.innerHTML = '';
-        const refreshed = store.getPoint(params.id);
-        if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
+    if (isNew) {
+      imgBody.appendChild(el('div', {
+        style: { fontSize: '13px', color: 'var(--text-2)', padding: '8px 0' },
+        text: '保存知识点后，可以在这里添加图片、导入 PDF 或合成图片。',
+      }));
+    } else {
+      import('./imageList.js').then(({ renderImageList }) => {
+        const refresh = () => {
+          imgBody.innerHTML = '';
+          const refreshed = store.getPoint(params.id);
+          if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
 
-        imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
-            onClick: async () => {
-              const { pdfImportModal } = await import('../views/pdfImport.js');
-              await pdfImportModal(params.id);
-              refresh();
-            },
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
-            onClick: () => {
-              const input = document.querySelector('#image-section-body input[type="file"]');
-              if (input) input.click();
-            },
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '🖼 合成图片',
-            onClick: () => {
-              const pt = store.getPoint(params.id);
-              const count = ((pt && pt.imageIds) ? pt.imageIds.length : 0);
-              if (count < 2) { alert('至少需要 2 张图片才能合成，当前有 ' + count + ' 张'); return; }
-              navigate(`#/compose?pointId=${params.id}`);
-            },
-          }),
-        ]));
-      };
-      refresh();
-    });
+          imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+            el('button', {
+              class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
+              onClick: async () => {
+                const { pdfImportModal } = await import('../views/pdfImport.js');
+                await pdfImportModal(params.id);
+                refresh();
+              },
+            }),
+            el('button', {
+              class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
+              onClick: () => {
+                const input = document.getElementById('hidden-image-input');
+                if (input) input.click();
+                else alert('图片上传组件未加载，请刷新页面重试');
+              },
+            }),
+            el('button', {
+              class: 'btn btn-sm btn-ghost', text: '🖼 合成图片',
+              onClick: () => {
+                const pt = store.getPoint(params.id);
+                const count = ((pt && pt.imageIds) ? pt.imageIds.length : 0);
+                if (count < 2) { alert('至少需要 2 张图片才能合成，当前有 ' + count + ' 张'); return; }
+                navigate(`#/compose?pointId=${params.id}`);
+              },
+            }),
+          ]));
+        };
+        refresh();
+      });
+    }
   }
 
   // ============ 复习设置 ============
   view.appendChild(makeSection('复习设置', [
     el('div', { class: 'field' }, [
-      el('label', { text: '难记度（1=一看就会，10=反复记不住）' }),
+      el('label', { text: '难记度' }),
       difficultyRow,
     ]),
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' } }, [
-      errorBtn,
+    el('div', { style: { marginTop: '12px', padding: '12px', background: 'rgba(0,0,0,.03)', borderRadius: '10px' } }, [
+      el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '8px' }, text: '复习状态（手动设置）' }),
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' } }, [
+        errorBtn,
+        manualBtn,
+      ]),
+      manualRow,
     ]),
-    !isNew ? el('div', { style: { marginTop: '12px' } }, [manualBtn, manualRow]) : null,
   ]));
 
   // ============ 录音 ============

@@ -6,6 +6,7 @@ import * as store from './store.js';
 import { toastError } from './ui/toast.js';
 import { initTheme } from './ui/theme.js';
 import { initShortcuts } from './ui/shortcuts.js';
+import { el } from './utils/dom.js';
 
 import { renderHome, renderSidebar } from './views/home.js';
 import { renderChapterList, renderChapterDetail } from './views/chapter.js';
@@ -53,14 +54,16 @@ async function boot() {
 
   startRouter();
 
-  const btnSearch = document.getElementById('btn-search');
-  const btnInbox = document.getElementById('btn-inbox');
-  const btnHelp = document.getElementById('btn-help');
-  if (btnSearch) btnSearch.addEventListener('click', () => navigate('#/search'));
-  if (btnInbox) btnInbox.addEventListener('click', () => navigate('#/inbox'));
-  if (btnHelp) btnHelp.addEventListener('click', () => navigate('#/help'));
+  // ============ 顶栏 ⋮ 菜单 ============
+  const btnMore = document.getElementById('btn-more');
+  if (btnMore) {
+    btnMore.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openMoreMenu();
+    });
+  }
 
-  // 返回按钮统一处理
+  // ============ 返回按钮统一处理 ============
   const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
@@ -83,11 +86,18 @@ async function boot() {
     } else if (hash.startsWith('#/chapter-list/')) {
       navigate('#/');
     } else {
-      // 回收站、帮助、设置、搜索、速记等，回上一页
       if (history.length > 1) history.back();
       else navigate('#/');
     }
   };
+
+  // ============ 路由切换时清空顶栏动态按钮 ============
+  window.addEventListener('hashchange', () => {
+    if (!location.hash.startsWith('#/annotate/')) {
+      const dyn = document.getElementById('topbar-dynamic');
+      if (dyn) dyn.innerHTML = '';
+    }
+  });
 
   initShortcuts();
   initSidebar();
@@ -99,6 +109,73 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) flushAll();
   });
+}
+
+// ============ ⋮ 菜单 ============
+function openMoreMenu() {
+  const existing = document.getElementById('more-menu');
+  if (existing) { existing.remove(); return; }
+
+  const items = [
+    { icon: '📚', label: '背诵', href: '#/' },
+    { icon: '🎯', label: '复习', href: '#/review' },
+    { icon: '🔍', label: '搜索', href: '#/search' },
+    { icon: '📥', label: '速记', href: '#/inbox' },
+    { icon: '🗑', label: '回收站', href: '#/trash' },
+    { icon: '❓', label: '帮助', href: '#/help' },
+    { icon: '⚙️', label: '设置', href: '#/settings' },
+  ];
+
+  const menu = el('div', {
+    id: 'more-menu',
+    style: {
+      position: 'fixed',
+      top: '56px',
+      right: '12px',
+      background: 'var(--card)',
+      borderRadius: '12px',
+      boxShadow: 'var(--shadow-lg)',
+      padding: '6px',
+      zIndex: '999',
+      minWidth: '160px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '2px',
+    },
+  });
+
+  items.forEach(it => {
+    menu.appendChild(el('a', {
+      href: it.href,
+      style: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: '10px',
+        padding: '10px 14px',
+        borderRadius: '8px',
+        textDecoration: 'none',
+        color: 'var(--text)',
+        fontSize: '15px',
+      },
+      onClick: () => menu.remove(),
+    }, [
+      el('span', { text: it.icon }),
+      el('span', { text: it.label }),
+    ]));
+  });
+
+  document.body.appendChild(menu);
+
+  // 点外部关闭
+  setTimeout(() => {
+    const close = (e) => {
+      if (!menu.contains(e.target) && e.target.id !== 'btn-more') {
+        menu.remove();
+        document.removeEventListener('pointerdown', close, true);
+      }
+    };
+    document.addEventListener('pointerdown', close, true);
+  }, 50);
 }
 
 function initSidebar() {

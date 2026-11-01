@@ -131,7 +131,7 @@ html, body {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  padding-bottom: calc(64px + var(--safe-b));
+  padding-bottom: 0;
 }
 
 #topbar {
@@ -185,19 +185,7 @@ html, body {
   margin: 0 auto;
 }
 
-#bottombar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 60;
-  display: flex; justify-content: space-around;
-  background: var(--card);
-  border-top: 1px solid rgba(0,0,0,.06);
-  padding: 8px 0 calc(8px + var(--safe-b));
-}
-#bottombar a {
-  flex: 1; text-align: center; text-decoration: none;
-  color: var(--text-2); font-size: 12px; padding: 8px 0;
-  min-height: 44px;
-}
-#bottombar a.active { color: var(--primary-dark); font-weight: 600; }
+
 
 @media (min-width: 1024px) {
   #bottombar { display: none; }
@@ -248,13 +236,12 @@ html, body {
 .btn-sm { padding: 6px 12px; font-size: 13px; border-radius: 8px; min-height: 36px; }
 
 .fab {
-  position: fixed; right: 20px; bottom: calc(84px + var(--safe-b)); z-index: 55;
+  position: fixed; right: 20px; bottom: calc(24px + var(--safe-b));
   width: 56px; height: 56px; border-radius: 50%;
   background: var(--primary); color: #fff;
   border: none; font-size: 28px; line-height: 1;
   box-shadow: var(--shadow-lg); cursor: pointer;
 }
-@media (min-width: 1024px) { .fab { bottom: 24px; } }
 .fab:active { transform: scale(.94); }
 
 /* ============ 表单 ============ */

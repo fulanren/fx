@@ -18,7 +18,6 @@ const TAPE_PATTERNS = [
 export function createTapeLayer(canvas, W, H, imageId) {
   const ctx = canvas.getContext('2d');
   let tapes = store.getTape(imageId);
-  let currentTape = null;
   let tool = 'line-round';
   let pattern = 'solid';
   let color = '#FFD166';
@@ -35,21 +34,25 @@ export function createTapeLayer(canvas, W, H, imageId) {
 
   function drawTape(ctx, t) {
     ctx.save();
-    if (t.pattern === 'custom' && t.patternImageId) {
-      // 自定义花样先占位，异步加载后重绘
-    }
     ctx.fillStyle = t.color;
     ctx.strokeStyle = t.color;
     ctx.lineWidth = t.width;
-    ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
 
     if (t.shape === 'line-round' || t.shape === 'line-square') {
-      if (t.points.length < 2) return;
+      ctx.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
+      if (t.points.length < 2) { ctx.restore(); return; }
       ctx.beginPath();
       ctx.moveTo(t.points[0].x, t.points[0].y);
       for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
       ctx.stroke();
+      // 方头：两端补矩形，让端头平整
+      if (t.shape === 'line-square' && t.points.length >= 2) {
+        const first = t.points[0], last = t.points[t.points.length - 1];
+        const half = t.width / 2;
+        ctx.fillRect(first.x - half, first.y - half, t.width, t.width);
+        ctx.fillRect(last.x - half, last.y - half, t.width, t.width);
+      }
     } else if (t.shape === 'rect') {
       const p0 = t.points[0], p1 = t.points[t.points.length - 1];
       ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
@@ -59,6 +62,24 @@ export function createTapeLayer(canvas, W, H, imageId) {
       ctx.beginPath();
       ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
       ctx.fill();
+    }
+
+    // 波点花样
+    if (t.pattern === 'dots') {
+      ctx.save();
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(255,255,255,.55)';
+      const step = Math.max(6, t.width * 0.8);
+      for (let x = 0; x < W; x += step) {
+        for (let y = 0; y < H; y += step) {
+          if (hitTape(t, x, y, 0)) {
+            ctx.beginPath();
+            ctx.arc(x, y, Math.max(2, t.width / 6), 0, Math.PI * 2);
+            ctx.fill();
+          }
+        }
+      }
+      ctx.restore();
     }
 
     // 擦除路径
@@ -126,7 +147,6 @@ function hitTape(t, x, y, r) {
     const rad = Math.hypot(p1.x - p0.x, p1.y - p0.y);
     return Math.hypot(x - p0.x, y - p0.y) <= rad + r;
   }
-  // 线段
   for (let i = 0; i < t.points.length - 1; i++) {
     const a = t.points[i], b = t.points[i + 1];
     const dist = pointToSegment(x, y, a.x, a.y, b.x, b.y);
@@ -176,14 +196,29 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     })),
   ]);
 
-  // 宽度
+  // 宽度：滑块 + 数字
+  const widthNum = el('input', {
+    type: 'number', min: '4', max: '300', value: String(tapeLayer.getWidth()),
+    style: { width: '56px', padding: '4px 6px', fontSize: '13px' },
+    onInput: (e) => {
+      const v = Math.max(4, Math.min(300, Number(e.target.value) || 8));
+      tapeLayer.setWidth(v);
+      widthRange.value = v;
+    },
+  });
+  const widthRange = el('input', {
+    type: 'range', min: '4', max: '300', value: String(tapeLayer.getWidth()),
+    style: { flex: '1' },
+    onInput: (e) => {
+      const v = Number(e.target.value);
+      tapeLayer.setWidth(v);
+      widthNum.value = v;
+    },
+  });
   const widthRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '宽度' }),
-    el('input', {
-      type: 'range', min: '8', max: '80', value: String(tapeLayer.getWidth()),
-      style: { flex: '1' },
-      onInput: (e) => tapeLayer.setWidth(Number(e.target.value)),
-    }),
+    widthRange,
+    widthNum,
   ]);
 
   // 颜色

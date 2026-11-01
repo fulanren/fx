@@ -63,7 +63,18 @@ export function renderChapterList({ params }) {
   if (chMulti) {
     view.appendChild(el('div', { class: 'batch-bar' }, [
       el('span', { text: `已选 ${chSelected.size} 项` }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { chapters.forEach(c => chSelected.add(c.id)); renderChapterList({ params }); } }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        text: chapters.length > 0 && chSelected.size === chapters.length ? '取消全选' : '全选',
+        onClick: () => {
+          if (chapters.length > 0 && chSelected.size === chapters.length) {
+            chSelected.clear();
+          } else {
+            chapters.forEach(c => chSelected.add(c.id));
+          }
+          renderChapterList({ params });
+        },
+      }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { chMulti = false; chSelected.clear(); renderChapterList({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions' }, [
@@ -211,7 +222,18 @@ export function renderChapterDetail({ params }) {
   if (ptMulti) {
     view.appendChild(el('div', { class: 'batch-bar' }, [
       el('span', { text: `已选 ${ptSelected.size} 项` }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { points.forEach(p => ptSelected.add(p.id)); renderChapterDetail({ params }); } }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        text: points.length > 0 && ptSelected.size === points.length ? '取消全选' : '全选',
+        onClick: () => {
+          if (points.length > 0 && ptSelected.size === points.length) {
+            ptSelected.clear();
+          } else {
+            points.forEach(p => ptSelected.add(p.id));
+          }
+          renderChapterDetail({ params });
+        },
+      }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap' } }, [
@@ -414,7 +436,7 @@ function pointCard(p, chapterId) {
     audioBlock,
     el('div', { class: 'card-meta', style: { marginBottom: '8px' } }, [
       (p.manualReviewCount || p.reviewCount > 0) ? el('span', { text: `📚 已背 ${p.reviewCount} 遍` }) : null,
-      el('span', { text: `🔥 难度 ${p.difficulty}/10` }),
+      el('span', { text: `🔥 难记度 ${p.difficulty}` }),
       (p.manualNextReviewAt || p.reviewCount > 0) ? el('span', { text: `📅 下次 ${fmtDate(p.nextReviewAt)}` }) : null,
       p.isErrorProne ? el('span', { text: '❗ 易错', style: { color: 'var(--danger)' } }) : null,
     ]),

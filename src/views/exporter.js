@@ -341,6 +341,7 @@ export async function exportFullBackup(options = {}) {
       if (img.originalBlob && img.originalBlob !== img.annotatedBlob) {
         imgFolder.file(`${img.id}_original.png`, img.originalBlob);
       }
+      if (img.strokeBlob) imgFolder.file(`${img.id}_stroke.png`, img.strokeBlob);
     }
   }
 
@@ -527,10 +528,12 @@ export async function importFullBackup(file, mode = 'merge') {
         const blob = await zip.file(f).async('blob');
         const name = f.replace('images/', '').replace('.png', '');
         const isOriginal = name.endsWith('_original');
-        const id = name.replace('_annotated', '').replace('_original', '');
+        const isStroke = name.endsWith('_stroke');
+        const id = name.replace('_annotated', '').replace('_original', '').replace('_stroke', '');
         const existing = await dbGet('images', id);
         const record = existing || { id, width: 0, height: 0, createdAt: new Date().toISOString() };
         if (isOriginal) record.originalBlob = blob;
+        else if (isStroke) record.strokeBlob = blob;
         else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
         await dbPut('images', record);
         stats.images++;

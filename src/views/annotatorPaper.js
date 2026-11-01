@@ -15,8 +15,7 @@ export function createPaperLayer(canvas, W, H, imageId) {
   const ctx = canvas.getContext('2d');
   let papers = store.getPaper(imageId);
   let selected = null;
-  let editing = false;
-  let textInput = null;
+  let editingText = null; // 正在编辑文字的纸张
 
   function redraw() {
     ctx.clearRect(0, 0, W, H);
@@ -31,16 +30,13 @@ export function createPaperLayer(canvas, W, H, imageId) {
     ctx.rotate((p.rotation || 0) * Math.PI / 180);
     ctx.translate(-p.w / 2, -p.h / 2);
 
-    // 阴影
     ctx.shadowColor = 'rgba(0,0,0,.12)';
     ctx.shadowBlur = 6;
     ctx.shadowOffsetY = 2;
 
-    // 背景
     ctx.fillStyle = p.bgColor || '#FFFFFF';
     ctx.fillRect(0, 0, p.w, p.h);
 
-    // 纹理
     if (p.style === 'lined') {
       ctx.shadowColor = 'transparent';
       ctx.strokeStyle = '#E5E7EB';
@@ -76,7 +72,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
       ctx.fillRect(0, 0, p.w, 8);
     }
 
-    // 文字
     if (p.text) {
       ctx.shadowColor = 'transparent';
       ctx.fillStyle = p.textStyle?.color || '#2B2D42';
@@ -118,7 +113,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(0, 0, p.w, p.h);
     ctx.setLineDash([]);
-    // 8 个控制点
     [[0,0],[p.w/2,0],[p.w,0],[p.w,p.h/2],[p.w,p.h],[p.w/2,p.h],[0,p.h],[0,p.h/2]].forEach(([x, y]) => {
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#3B82F6';
@@ -134,7 +128,8 @@ export function createPaperLayer(canvas, W, H, imageId) {
       const style = PAPER_STYLES.find(s => s.id === styleId) || PAPER_STYLES[0];
       const p = {
         id: uuid(),
-        x: W * 0.3, y: H * 0.3, w: Math.min(200, W * 0.4), h: Math.min(200, H * 0.3),
+        x: W * 0.3, y: H * 0.3,
+        w: Math.min(200, W * 0.4), h: Math.min(200, H * 0.3),
         rotation: 0,
         style: style.id, bgColor: style.bg,
         text: '', textStyle: { fontSize: 16, color: '#2B2D42', align: 'left' },
@@ -166,7 +161,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
       for (let i = papers.length - 1; i >= 0; i--) {
         const p = papers[i];
         if (p.visible === false) continue;
-        // 简化：不考虑旋转
         if (x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h) return p;
       }
       return null;
@@ -192,6 +186,33 @@ export function createPaperLayer(canvas, W, H, imageId) {
       store.savePaper(imageId, papers);
       redraw();
     },
+    setStyle(patch) {
+      if (!selected) return;
+      Object.assign(selected, patch);
+      store.savePaper(imageId, papers);
+      redraw();
+    },
+    // 拖拽调整大小
+    startResize(handle, startX, startY) {
+      if (!selected) return null;
+      const orig = { x: selected.x, y: selected.y, w: selected.w, h: selected.h };
+      return {
+        move(clientX, clientY) {
+          const dx = clientX - startX;
+          const dy = clientY - startY;
+          let { x, y, w, h } = orig;
+          if (handle.includes('e')) w = Math.max(60, orig.w + dx);
+          if (handle.includes('s')) h = Math.max(40, orig.h + dy);
+          if (handle.includes('w')) { w = Math.max(60, orig.w - dx); x = orig.x + (orig.w - w); }
+          if (handle.includes('n')) { h = Math.max(40, orig.h - dy); y = orig.y + (orig.h - h); }
+          selected.x = x; selected.y = y; selected.w = w; selected.h = h;
+          redraw();
+        },
+        end() {
+          store.savePaper(imageId, papers);
+        },
+      };
+    },
     redraw,
     save() { store.savePaper(imageId, papers); },
   };
@@ -199,6 +220,8 @@ export function createPaperLayer(canvas, W, H, imageId) {
 
 export function renderPaperToolbar(paperLayer) {
   const bar = el('div', { class: 'paper-toolbar' });
+
+  // 样式
   bar.appendChild(el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '样式' }),
     ...PAPER_STYLES.map(s => el('button', {
@@ -210,13 +233,51 @@ export function renderPaperToolbar(paperLayer) {
     })),
   ]));
 
+  // 自定义颜色
+  const colorInput = el('input', {
+    type: 'color', value: '#FFFFFF',
+    style: { width: '32px', height: '32px', border: 'none', background: 'transparent', cursor: 'pointer' },
+    onInput: (e) => {
+      paperLayer.setStyle({ bgColor: e.target.value });
+    },
+  });
   bar.appendChild(el('div', { class: 'tape-row' }, [
-    el('button', { class: 'btn btn-sm btn-ghost', text: '✏️ 编辑文字', onClick: () => {
-      const sel = paperLayer.getSelected();
-      if (!sel) { alert('请先选中一张纸'); return; }
-      const text = prompt('输入文字', sel.text || '');
-      if (text !== null) paperLayer.setText(text);
-    } }),
+    el('span', { class: 'tape-label', text: '背景色' }),
+    colorInput,
+  ]));
+
+  // 文字样式
+  bar.appendChild(el('div', { class: 'tape-row' }, [
+    el('span', { class: 'tape-label', text: '文字' }),
+    el('button', {
+      class: 'tape-chip', text: '编辑文字',
+      onClick: () => {
+        const sel = paperLayer.getSelected();
+        if (!sel) { alert('请先选中一张纸'); return; }
+        const text = prompt('输入文字', sel.text || '');
+        if (text !== null) paperLayer.setText(text);
+      },
+    }),
+    el('input', {
+      type: 'number', min: '10', max: '48', value: '16',
+      style: { width: '56px', padding: '4px 6px', fontSize: '13px' },
+      onInput: (e) => {
+        const sel = paperLayer.getSelected();
+        if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: Number(e.target.value) } });
+      },
+    }),
+    el('input', {
+      type: 'color', value: '#2B2D42',
+      style: { width: '32px', height: '32px', border: 'none', background: 'transparent', cursor: 'pointer' },
+      onInput: (e) => {
+        const sel = paperLayer.getSelected();
+        if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, color: e.target.value } });
+      },
+    }),
+  ]));
+
+  // 操作
+  bar.appendChild(el('div', { class: 'tape-row' }, [
     el('button', { class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => paperLayer.duplicateSelected() }),
     el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: () => paperLayer.removeSelected() }),
   ]));
