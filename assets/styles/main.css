@@ -196,6 +196,14 @@ html, body {
 @media (max-width: 1023px) {
   #sidebar:not(.overlay) { display: none !important; }
   #sidebar.overlay { display: block !important; width: min(var(--sidebar-w, 280px), 80vw); }
+
+  body.sidebar-open #main {
+    margin-left: min(var(--sidebar-w, 280px), 80vw);
+    transition: margin-left .25s;
+  }
+  #sidebar.overlay {
+    transition: transform .25s;
+  }
 }
 /* ============================================================
    第 2 部分：卡片 / 按钮 / 表单 / 区块 / Toast / 确认框 / 批量

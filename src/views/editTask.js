@@ -41,6 +41,28 @@ export function renderEditTask({ params }) {
     ]),
   ]));
 
+  // ============ 附件区块 ============
+  if (!isNew) {
+    const attBody = el('div', { class: 'section-body' });
+    view.appendChild(el('div', { class: 'section' }, [
+      el('div', { class: 'section-head' }, [el('span', { text: '📎 附件' })]),
+      attBody,
+    ]));
+    import('../ui/attachmentModal.js').then(({ attachmentModal, renderAttachmentList }) => {
+      const refresh = () => {
+        attBody.innerHTML = '';
+        attBody.appendChild(renderAttachmentList('task', params.id, refresh));
+        attBody.appendChild(el('div', { style: { marginTop: '8px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📎 添加附件',
+            onClick: () => attachmentModal('task', params.id, refresh),
+          }),
+        ]));
+      };
+      refresh();
+    });
+  }
+
   const status = el('div', { class: 'save-status' });
   view.appendChild(el('div', { class: 'edit-footer' }, [
     status,

@@ -558,3 +558,36 @@ export function addCompositeToPoint(pointId, imageId) {
   list[i].updatedAt = now();
   write(K.points, list);
 }
+// ============ 附件 ============
+export function addAttachment(entity, entityId, attachment) {
+  const keyMap = { task: K.tasks, chapter: K.chapters, point: K.points };
+  const key = keyMap[entity];
+  if (!key) return;
+  const list = read(key);
+  const i = list.findIndex(x => x.id === entityId);
+  if (i < 0) return;
+  if (!list[i].attachments) list[i].attachments = [];
+  list[i].attachments.push(attachment);
+  list[i].updatedAt = now();
+  write(key, list);
+}
+
+export function removeAttachment(entity, entityId, attachmentId) {
+  const keyMap = { task: K.tasks, chapter: K.chapters, point: K.points };
+  const key = keyMap[entity];
+  if (!key) return;
+  const list = read(key);
+  const i = list.findIndex(x => x.id === entityId);
+  if (i < 0) return;
+  list[i].attachments = (list[i].attachments || []).filter(a => a.id !== attachmentId);
+  list[i].updatedAt = now();
+  write(key, list);
+}
+
+export function getAttachments(entity, entityId) {
+  const keyMap = { task: K.tasks, chapter: K.chapters, point: K.points };
+  const key = keyMap[entity];
+  if (!key) return [];
+  const item = read(key).find(x => x.id === entityId);
+  return item?.attachments || [];
+}

@@ -6,8 +6,8 @@ import { confirmBox } from '../ui/confirm.js';
 import { toastSuccess } from '../ui/toast.js';
 import { fmtDate } from '../utils/date.js';
 import { attachSpeechButton } from '../ui/speech.js';
-import { audioRecorderModal, getAudiosForPoint, renderAudioList } from './audio.js';
 import { isMobile } from '../utils/platform.js';
+import { audioRecorderModal, getAudiosForPoint, renderAudioList } from './audio.js';
 
 export function renderEditPoint({ params, query }) {
   const isNew = params.id === 'new';
@@ -34,7 +34,6 @@ export function renderEditPoint({ params, query }) {
     manualNextReviewAt: !!original.manualNextReviewAt,
   };
 
-  // ============ 输入控件 ============
   const contentInput = el('textarea', { placeholder: '知识点内容（必填）', onInput: e => { form.content = e.target.value; queueSave(); } });
   contentInput.value = form.content;
   const contentRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
@@ -49,7 +48,6 @@ export function renderEditPoint({ params, query }) {
     isMobile ? null : attachSpeechButton(explainInput),
   ]);
 
-  // ============ 难记度按钮组 ============
   const difficultyBtns = [];
   const difficultyRow = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } },
     Array.from({ length: 10 }, (_, i) => {
@@ -71,7 +69,6 @@ export function renderEditPoint({ params, query }) {
     })
   );
 
-  // ============ 易错按钮 ============
   const errorBtn = el('button', {
     class: `btn btn-sm ${form.isErrorProne ? 'btn-danger' : 'btn-ghost'}`,
     text: form.isErrorProne ? '❗ 易错' : '标记易错',
@@ -84,7 +81,6 @@ export function renderEditPoint({ params, query }) {
     },
   });
 
-  // ============ 手动设置遍数/日期（默认隐藏） ============
   let showManual = !!(original.manualReviewCount || original.manualNextReviewAt);
 
   const manualRow = el('div', {
@@ -118,7 +114,6 @@ export function renderEditPoint({ params, query }) {
     },
   });
 
-  // ============ 草稿恢复 ============
   const draft = loadDraft('point', entityId);
   if (draft && hasChanges(original, draft.data)) {
     setTimeout(async () => {
@@ -148,22 +143,19 @@ export function renderEditPoint({ params, query }) {
     let collapsed = false;
     const body = el('div', { class: 'section-body' }, children);
     const arrow = el('span', { class: 'section-arrow', text: '▾' });
-    const head = el('div', {
-      class: 'section-head', onClick: () => {
-        collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
-        arrow.textContent = collapsed ? '▸' : '▾';
-      }
-    }, [el('span', { text: title }), arrow]);
+    const head = el('div', { class: 'section-head', onClick: () => {
+      collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
+      arrow.textContent = collapsed ? '▸' : '▾';
+    } }, [el('span', { text: title }), arrow]);
     return el('div', { class: 'section' }, [head, body]);
   }
 
-  // ============ 基本信息 ============
   view.appendChild(makeSection('基本信息', [
     el('div', { class: 'field' }, [el('label', { text: '内容' }), contentRow]),
     el('div', { class: 'field' }, [el('label', { text: '文字解释' }), explainRow]),
   ]));
 
-  // ============ 图片 + PDF + 合成（新建时提示先保存） ============
+  // ============ 图片 + PDF + 合成 ============
   {
     const imgBody = el('div', { class: 'section-body' });
     const imgSection = el('div', { class: 'section' }, [
@@ -217,6 +209,28 @@ export function renderEditPoint({ params, query }) {
     }
   }
 
+  // ============ 附件 ============
+  if (!isNew) {
+    const attBody = el('div', { class: 'section-body' });
+    view.appendChild(el('div', { class: 'section' }, [
+      el('div', { class: 'section-head' }, [el('span', { text: '📎 附件' })]),
+      attBody,
+    ]));
+    import('../ui/attachmentModal.js').then(({ attachmentModal, renderAttachmentList }) => {
+      const refresh = () => {
+        attBody.innerHTML = '';
+        attBody.appendChild(renderAttachmentList('point', params.id, refresh));
+        attBody.appendChild(el('div', { style: { marginTop: '8px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📎 添加附件',
+            onClick: () => attachmentModal('point', params.id, refresh),
+          }),
+        ]));
+      };
+      refresh();
+    });
+  }
+
   // ============ 复习设置 ============
   view.appendChild(makeSection('复习设置', [
     el('div', { class: 'field' }, [
@@ -263,7 +277,6 @@ export function renderEditPoint({ params, query }) {
     refreshAudios();
   }
 
-  // ============ 底部操作 ============
   view.appendChild(el('div', { class: 'edit-footer' }, [
     status,
     el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => goBack() }),
