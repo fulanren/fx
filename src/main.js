@@ -166,7 +166,6 @@ function openMoreMenu() {
 
   document.body.appendChild(menu);
 
-  // 点外部关闭
   setTimeout(() => {
     const close = (e) => {
       if (!menu.contains(e.target) && e.target.id !== 'btn-more') {
@@ -178,6 +177,7 @@ function openMoreMenu() {
   }, 50);
 }
 
+// ============ 侧边栏 ============
 function initSidebar() {
   const sidebar = document.getElementById('sidebar');
   const resizer = document.getElementById('sidebar-resizer');
@@ -265,7 +265,9 @@ function initSidebar() {
     sidebar.classList.add('overlay');
     document.body.classList.add('sidebar-open');
   }
+}
 
+// ============ 存储错误页 ============
 function showStorageError() {
   const view = document.getElementById('view');
   view.innerHTML = `
