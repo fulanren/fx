@@ -8,58 +8,6 @@ import { mergeModal } from '../ui/mergeModal.js';
 import { makeSortable } from '../ui/sortable.js';
 import { dbGet } from '../db.js';
 
-function showImportMenu(pointId, onDone) {
-  const fileImg = el('input', {
-    type: 'file', accept: 'image/*', multiple: true, style: { display: 'none' },
-    onChange: async (e) => {
-      const files = [...e.target.files];
-      if (!files.length) return;
-      const { dbPut } = await import('../db.js');
-      const { uuid } = await import('../utils/id.js');
-      for (const file of files) {
-        if (!file.type.startsWith('image/')) continue;
-        const bitmap = await createImageBitmap(file);
-        const imageId = uuid();
-        await dbPut('images', {
-          id: imageId, type: 'original',
-          originalBlob: file, annotatedBlob: file,
-          width: bitmap.width, height: bitmap.height, dpr: 1,
-          createdAt: new Date().toISOString(),
-        });
-        store.addImageToPoint(pointId, imageId);
-      }
-      toastSuccess(`已导入 ${files.length} 张图片`);
-      onDone && onDone();
-    },
-  });
-  document.body.appendChild(fileImg);
-  setTimeout(() => fileImg.remove(), 60000);
-
-  const mask = el('div', { class: 'confirm-mask' }, [
-    el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
-      el('h3', { text: '导入' }),
-      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' } }, [
-        el('button', {
-          class: 'btn btn-ghost', text: '🖼 从相册/文件选图片（可多选）',
-          onClick: () => { mask.remove(); fileImg.click(); },
-        }),
-        el('button', {
-          class: 'btn btn-ghost', text: '📄 从 PDF 选页导入',
-          onClick: async () => {
-            mask.remove();
-            const { pdfImportModal } = await import('../views/pdfImport.js');
-            await pdfImportModal(pointId);
-          },
-        }),
-      ]),
-      el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
-        el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-      ]),
-    ]),
-  ]);
-  document.body.appendChild(mask);
-}
-
 // ============ 导出格式选择菜单 ============
 function showExportMenu(scope, id) {
   const mask = el('div', { class: 'confirm-mask' }, [
@@ -202,12 +150,10 @@ function chapterCard(c, taskId) {
     },
   }, [
     chMulti ? el('div', { class: 'select-box' }, [
-      el('input', {
-        type: 'checkbox', checked: isSelected, onChange: (e) => {
-          if (e.target.checked) chSelected.add(c.id); else chSelected.delete(c.id);
-          renderChapterList({ params: { taskId } });
-        }
-      }),
+      el('input', { type: 'checkbox', checked: isSelected, onChange: (e) => {
+        if (e.target.checked) chSelected.add(c.id); else chSelected.delete(c.id);
+        renderChapterList({ params: { taskId } });
+      } }),
     ]) : null,
     el('div', { class: 'card-title', text: c.name }),
     el('div', { class: 'card-meta' }, [
@@ -272,33 +218,27 @@ export function renderChapterDetail({ params }) {
       el('button', { class: 'btn btn-sm btn-primary', text: '全部记得', onClick: () => { store.batchRatePoints([...ptSelected], 'remember'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全部模糊', onClick: () => { store.batchRatePoints([...ptSelected], 'vague'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全部忘了', onClick: () => { store.batchRatePoints([...ptSelected], 'forgot'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '设难度', onClick: () => {
-          const d = prompt('输入难记度 1-10', '5');
-          if (d && Number(d) >= 1 && Number(d) <= 10) {
-            store.batchUpdatePoints([...ptSelected], { difficulty: Number(d) });
-            toastSuccess('已更新难度');
-            ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
-          }
-        }
-      }),
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '今天复习', onClick: () => {
-          store.batchUpdatePoints([...ptSelected], { nextReviewAt: new Date().toISOString() });
-          toastSuccess('已设为今天复习');
+      el('button', { class: 'btn btn-sm btn-ghost', text: '设难度', onClick: () => {
+        const d = prompt('输入难记度 1-10', '5');
+        if (d && Number(d) >= 1 && Number(d) <= 10) {
+          store.batchUpdatePoints([...ptSelected], { difficulty: Number(d) });
+          toastSuccess('已更新难度');
           ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
         }
-      }),
-      el('button', {
-        class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
-          if (ptSelected.size === 0) return;
-          if (await confirmBox({ title: '删除', message: `删除 ${ptSelected.size} 个知识点？将进入回收站`, danger: true, confirmText: '删除' })) {
-            store.batchDeletePoints([...ptSelected]);
-            toastSuccess('已移入回收站');
-            ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
-          }
+      } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '今天复习', onClick: () => {
+        store.batchUpdatePoints([...ptSelected], { nextReviewAt: new Date().toISOString() });
+        toastSuccess('已设为今天复习');
+        ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+      } }),
+      el('button', { class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
+        if (ptSelected.size === 0) return;
+        if (await confirmBox({ title: '删除', message: `删除 ${ptSelected.size} 个知识点？将进入回收站`, danger: true, confirmText: '删除' })) {
+          store.batchDeletePoints([...ptSelected]);
+          toastSuccess('已移入回收站');
+          ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
         }
-      }),
+      } }),
     ]));
   } else {
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
@@ -339,6 +279,7 @@ function pointCard(p, chapterId) {
   let expanded = false;
   const isSelected = ptSelected.has(p.id);
 
+  // 图片缩略图
   const imageRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' } });
   const allImageIds = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
   if (allImageIds.length > 0) {
@@ -410,6 +351,7 @@ function pointCard(p, chapterId) {
     });
   }
 
+  // 录音列表
   const audioBlock = (p.audioIds && p.audioIds.length > 0)
     ? el('div', { style: { marginBottom: '8px' } }, [
       el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '🎙 录音' }),
@@ -471,9 +413,9 @@ function pointCard(p, chapterId) {
     ]),
     audioBlock,
     el('div', { class: 'card-meta', style: { marginBottom: '8px' } }, [
-      el('span', { text: `📚 已背 ${p.reviewCount} 遍` }),
+      (p.manualReviewCount || p.reviewCount > 0) ? el('span', { text: `📚 已背 ${p.reviewCount} 遍` }) : null,
       el('span', { text: `🔥 难度 ${p.difficulty}/10` }),
-      el('span', { text: `📅 下次 ${fmtDate(p.nextReviewAt)}` }),
+      (p.manualNextReviewAt || p.reviewCount > 0) ? el('span', { text: `📅 下次 ${fmtDate(p.nextReviewAt)}` }) : null,
       p.isErrorProne ? el('span', { text: '❗ 易错', style: { color: 'var(--danger)' } }) : null,
     ]),
     el('div', { class: 'card-actions' }, [
@@ -501,12 +443,10 @@ function pointCard(p, chapterId) {
     'data-id': p.id,
   }, [
     ptMulti ? el('div', { class: 'select-box' }, [
-      el('input', {
-        type: 'checkbox', checked: isSelected, onChange: (e) => {
-          if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
-          renderChapterDetail({ params: { id: chapterId } });
-        },
-      }),
+      el('input', { type: 'checkbox', checked: isSelected, onChange: (e) => {
+        if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
+        renderChapterDetail({ params: { id: chapterId } });
+      } }),
     ]) : null,
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } }, [
       el('div', { style: { flex: 1, fontWeight: '600', whiteSpace: 'pre-wrap' }, text: p.content }),
