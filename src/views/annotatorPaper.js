@@ -4,12 +4,17 @@ import { uuid } from '../utils/id.js';
 import { renderColorPicker } from '../ui/colorPicker.js';
 
 const PAPER_STYLES = [
-  { id: 'note', label: '📄 便签', bg: '#FDF6E3' },
-  { id: 'sticky', label: '🟨 便利贴', bg: '#FFF3B0' },
-  { id: 'lined', label: '📝 横线', bg: '#FFFFFF' },
-  { id: 'grid', label: '🗒 方格', bg: '#FFFFFF' },
-  { id: 'tag', label: '🏷 标签条', bg: '#FFFFFF' },
-  { id: 'blank', label: '🧾 空白', bg: '#FFFFFF' },
+  { id: 'note', label: '📄 便签', bg: '#FDF6E3', w: 200, h: 200 },
+  { id: 'sticky', label: '🟨 便利贴', bg: '#FFF3B0', w: 150, h: 150 },
+  { id: 'lined', label: '📝 横线', bg: '#FFFFFF', w: 300, h: 400 },
+  { id: 'grid', label: '🗒 方格', bg: '#FFFFFF', w: 200, h: 200 },
+  { id: 'tag', label: '🏷 标签条', bg: '#FFFFFF', w: 200, h: 40 },
+  { id: 'blank', label: '🧾 空白', bg: '#FFFFFF', w: 200, h: 200 },
+  { id: 'a4', label: '📃 A4 纸', bg: '#FFFFFF', w: 248, h: 351 },
+  { id: 'a5', label: '📃 A5 纸', bg: '#FFFFFF', w: 175, h: 248 },
+  { id: 'square', label: '⬜ 正方形', bg: '#FFFFFF', w: 200, h: 200 },
+  { id: 'wide', label: '▭ 宽矩形', bg: '#FFFFFF', w: 300, h: 150 },
+  { id: 'tall', label: '▯ 高矩形', bg: '#FFFFFF', w: 150, h: 300 },
 ];
 
 export function createPaperLayer(canvas, W, H, imageId) {
@@ -72,6 +77,55 @@ export function createPaperLayer(canvas, W, H, imageId) {
       ctx.fillRect(0, 0, p.w, 8);
     }
 
+    // 纸张内的画笔笔迹
+    if (p.strokes && p.strokes.length) {
+      ctx.shadowColor = 'transparent';
+      p.strokes.forEach(s => {
+        if (s.points.length < 2) return;
+        ctx.save();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(s.points[0].x, s.points[0].y);
+        for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
+        ctx.stroke();
+        ctx.restore();
+      });
+    }
+
+    // 纸张内的胶带
+    if (p.tapes && p.tapes.length) {
+      ctx.shadowColor = 'transparent';
+      p.tapes.forEach(t => {
+        ctx.save();
+        ctx.fillStyle = t.color;
+        ctx.strokeStyle = t.color;
+        ctx.lineWidth = t.width;
+        ctx.lineJoin = 'round';
+        if (t.shape === 'line-round' || t.shape === 'line-square') {
+          ctx.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
+          if (t.points.length < 2) { ctx.restore(); return; }
+          ctx.beginPath();
+          ctx.moveTo(t.points[0].x, t.points[0].y);
+          for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
+          ctx.stroke();
+        } else if (t.shape === 'rect') {
+          const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+          ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
+        } else if (t.shape === 'circle') {
+          const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+          const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+          ctx.beginPath();
+          ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+    }
+
+    // 文字
     if (p.text) {
       ctx.shadowColor = 'transparent';
       ctx.fillStyle = p.textStyle?.color || '#2B2D42';
@@ -81,10 +135,8 @@ export function createPaperLayer(canvas, W, H, imageId) {
       const tx = p.textStyle?.align === 'center' ? p.w / 2 : p.textStyle?.align === 'right' ? p.w - 12 : 12;
       const lines = wrapText(ctx, p.text, p.w - 24);
       lines.forEach((line, i) => {
-        lines.forEach((line, i) => {
-          const displayLine = line.replace(/ /g, '\u00A0');
-          ctx.fillText(displayLine, tx, fs + 8 + i * (fs + 4));
-        });
+        const displayLine = line.replace(/ /g, '\u00A0');
+        ctx.fillText(displayLine, tx, fs + 8 + i * (fs + 4));
       });
     }
 
@@ -122,6 +174,17 @@ export function createPaperLayer(canvas, W, H, imageId) {
       ctx.fillRect(x - 4, y - 4, 8, 8);
       ctx.strokeRect(x - 4, y - 4, 8, 8);
     });
+    // 旋转手柄：顶部中间上方 20px
+    ctx.beginPath();
+    ctx.moveTo(p.w / 2, 0);
+    ctx.lineTo(p.w / 2, -20);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(p.w / 2, -20, 6, 0, Math.PI * 2);
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = '#3B82F6';
+    ctx.fill();
+    ctx.stroke();
     ctx.restore();
   }
 
@@ -132,10 +195,13 @@ export function createPaperLayer(canvas, W, H, imageId) {
       const p = {
         id: uuid(),
         x: W * 0.3, y: H * 0.3,
-        w: Math.min(200, W * 0.4), h: Math.min(200, H * 0.3),
+        w: Math.min(style.w || 200, W * 0.5),
+        h: Math.min(style.h || 200, H * 0.5),
         rotation: 0,
         style: style.id, bgColor: style.bg,
         text: '', textStyle: { fontSize: 16, color: '#2B2D42', align: 'left' },
+        strokes: [],
+        tapes: [],
         visible: true, zIndex: papers.length,
         createdAt: new Date().toISOString(),
       };
@@ -154,7 +220,7 @@ export function createPaperLayer(canvas, W, H, imageId) {
     },
     duplicateSelected() {
       if (!selected) return;
-      const copy = { ...selected, id: uuid(), x: selected.x + 20, y: selected.y + 20 };
+      const copy = { ...selected, id: uuid(), x: selected.x + 20, y: selected.y + 20, strokes: JSON.parse(JSON.stringify(selected.strokes || [])), tapes: JSON.parse(JSON.stringify(selected.tapes || [])) };
       papers.push(copy);
       selected = copy;
       store.savePaper(imageId, papers);
@@ -164,7 +230,15 @@ export function createPaperLayer(canvas, W, H, imageId) {
       for (let i = papers.length - 1; i >= 0; i--) {
         const p = papers[i];
         if (p.visible === false) continue;
-        if (x >= p.x && x <= p.x + p.w && y >= p.y && y <= p.y + p.h) return p;
+        // 反旋转到纸张局部坐标
+        const cx = p.x + p.w / 2;
+        const cy = p.y + p.h / 2;
+        const angle = -(p.rotation || 0) * Math.PI / 180;
+        const dx = x - cx;
+        const dy = y - cy;
+        const lx = dx * Math.cos(angle) - dy * Math.sin(angle) + p.w / 2;
+        const ly = dx * Math.sin(angle) + dy * Math.cos(angle) + p.h / 2;
+        if (lx >= 0 && lx <= p.w && ly >= 0 && ly <= p.h) return p;
       }
       return null;
     },
@@ -213,6 +287,25 @@ export function createPaperLayer(canvas, W, H, imageId) {
         end() { store.savePaper(imageId, papers); },
       };
     },
+
+    startRotate(startX, startY) {
+      if (!selected) return null;
+      const cx = selected.x + selected.w / 2;
+      const cy = selected.y + selected.h / 2;
+      const startAngle = Math.atan2(startY - cy, startX - cx);
+      const origRotation = selected.rotation || 0;
+      return {
+        move(clientX, clientY) {
+          const angle = Math.atan2(clientY - cy, clientX - cx);
+          let deg = origRotation + (angle - startAngle) * 180 / Math.PI;
+          // 吸附 15°
+          deg = Math.round(deg / 15) * 15;
+          selected.rotation = deg;
+          redraw();
+        },
+        end() { store.savePaper(imageId, papers); },
+      };
+    },
     redraw,
     save() { store.savePaper(imageId, papers); },
   };
@@ -251,14 +344,37 @@ export function renderPaperToolbar(paperLayer) {
         if (text !== null) paperLayer.setText(text);
       },
     }),
-    el('input', {
-      type: 'number', min: '10', max: '48', value: '16',
-      style: { width: '56px', padding: '4px 6px', fontSize: '13px' },
-      onInput: (e) => {
-        const sel = paperLayer.getSelected();
-        if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: Number(e.target.value) } });
-      },
-    }),
+    (() => {
+      const sizeNum = el('input', {
+        type: 'number', min: '10', max: '48', value: '16',
+        style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
+        onInput: (e) => {
+          const sel = paperLayer.getSelected();
+          if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: Number(e.target.value) } });
+        },
+      });
+      const sizeMinus = el('button', {
+        class: 'btn btn-sm btn-ghost', text: '−',
+        style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
+        onClick: () => {
+          const v = Math.max(10, Number(sizeNum.value) - 1);
+          sizeNum.value = v;
+          const sel = paperLayer.getSelected();
+          if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: v } });
+        },
+      });
+      const sizePlus = el('button', {
+        class: 'btn btn-sm btn-ghost', text: '+',
+        style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
+        onClick: () => {
+          const v = Math.min(48, Number(sizeNum.value) + 1);
+          sizeNum.value = v;
+          const sel = paperLayer.getSelected();
+          if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: v } });
+        },
+      });
+      return el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } }, [sizeMinus, sizeNum, sizePlus]);
+    })(),
     renderColorPicker({
       current: '#2B2D42',
       onChange: (c) => {

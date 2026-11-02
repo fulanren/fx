@@ -34,6 +34,8 @@ const TOOL_NAMES = {
   tape: '胶带', paper: '纸张', hand: '抓手',
 };
 
+const DEFAULT_LAYER_ORDER = ['base', 'stroke', 'text', 'paper', 'paperStroke', 'tape'];
+
 export function renderAnnotator({ params, query }) {
   if (window.__annotatorActive && window.__annotatorCleanup) {
     try { window.__annotatorCleanup(); } catch { }
@@ -151,13 +153,28 @@ export function renderAnnotator({ params, query }) {
     }
 
     // 固定顺序：底图 < 笔迹 < 文字 < 胶带 < 纸张 < 预览
-    canvasWrap.appendChild(base);
-    canvasWrap.appendChild(strokeCanvas);
-    canvasWrap.appendChild(textCanvas);
-    canvasWrap.appendChild(tapeCanvas);
-    canvasWrap.appendChild(paperCanvas);
-    canvasWrap.appendChild(paperStrokeCanvas);
-    canvasWrap.appendChild(previewCanvas);
+    const layerMap = {
+      base: base,
+      stroke: strokeCanvas,
+      text: textCanvas,
+      paper: paperCanvas,
+      paperStroke: paperStrokeCanvas,
+      tape: tapeCanvas,
+    };
+
+    function applyLayerOrder(order) {
+      const previewEl = previewCanvas;
+      [...canvasWrap.children].forEach(child => {
+        if (child !== previewEl) canvasWrap.removeChild(child);
+      });
+      order.forEach(key => {
+        if (layerMap[key]) canvasWrap.appendChild(layerMap[key]);
+      });
+      canvasWrap.appendChild(previewEl);
+    }
+
+    let currentLayerOrder = [...DEFAULT_LAYER_ORDER];
+    applyLayerOrder(currentLayerOrder);
     wrap.appendChild(canvasWrap);
     view.appendChild(wrap);
 
@@ -259,6 +276,9 @@ export function renderAnnotator({ params, query }) {
       mk('→', '右移', () => { offsetX -= 40; updateTransform(); });
       mk('↑', '上移', () => { offsetY += 40; updateTransform(); });
       mk('↓', '下移', () => { offsetY -= 40; updateTransform(); });
+      mk('🔍+', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); });
+      mk('🔍-', '缩小', () => { scale = Math.max(0.3, scale / 1.25); updateTransform(); });
+      mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); });
       mk('↶', '撤销', undo);
       mk('🗑', '清除', clearAll);
       mk('➕', '扩展画布', openExpandDialog);
@@ -378,7 +398,7 @@ export function renderAnnotator({ params, query }) {
         });
         const waveMinus = el('button', {
           class: 'btn btn-sm btn-ghost', text: '−',
-          style: { minWidth: '32px', padding: '2px 8px' },
+          style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
           onClick: () => {
             waveAmplitude = Math.max(2, waveAmplitude - 1);
             waveRange.value = waveAmplitude;
@@ -387,7 +407,7 @@ export function renderAnnotator({ params, query }) {
         });
         const wavePlus = el('button', {
           class: 'btn btn-sm btn-ghost', text: '+',
-          style: { minWidth: '32px', padding: '2px 8px' },
+          style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
           onClick: () => {
             waveAmplitude = Math.min(30, waveAmplitude + 1);
             waveRange.value = waveAmplitude;
@@ -400,6 +420,35 @@ export function renderAnnotator({ params, query }) {
           waveMinus,
           waveNum,
           wavePlus,
+        ]));
+      } else if (currentTool === 'rect') {
+        let borderColor = window.__rectBorderColor || currentColor;
+        let fillColor = window.__rectFillColor || 'none';
+
+        const borderPicker = renderColorPicker({
+          current: borderColor,
+          onChange: (c) => {
+            borderColor = c;
+            window.__rectBorderColor = c;
+          },
+        });
+
+        const fillPicker = renderColorPicker({
+          current: fillColor,
+          onChange: (c) => {
+            fillColor = c;
+            window.__rectFillColor = c;
+          },
+          allowNone: true,
+        });
+
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '边框' }),
+          borderPicker,
+        ]));
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '填充' }),
+          fillPicker,
         ]));
       }
     }
@@ -435,7 +484,7 @@ export function renderAnnotator({ params, query }) {
     });
     const widthMinus = el('button', {
       class: 'btn btn-sm btn-ghost', text: '−',
-      style: { minWidth: '32px', padding: '2px 8px' },
+      style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
       onClick: () => {
         const v = Math.max(1, currentWidth - 1);
         currentWidth = v;
@@ -446,7 +495,7 @@ export function renderAnnotator({ params, query }) {
     });
     const widthPlus = el('button', {
       class: 'btn btn-sm btn-ghost', text: '+',
-      style: { minWidth: '32px', padding: '2px 8px' },
+      style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
       onClick: () => {
         const v = Math.min(100, currentWidth + 1);
         currentWidth = v;
@@ -572,40 +621,54 @@ export function renderAnnotator({ params, query }) {
         ),
       ]);
 
+      const sizePresetField = el('div', { class: 'field' }, [
+        el('label', { text: '预设尺寸' }),
+        el('select', { id: 'expand-preset' }, [
+          el('option', { value: 'custom', text: '自定义像素' }),
+          el('option', { value: 'a4', text: 'A4（2480×3508）' }),
+          el('option', { value: 'a3', text: 'A3（3508×4961）' }),
+          el('option', { value: 'a5', text: 'A5（1748×2480）' }),
+          el('option', { value: 'square', text: '正方形（2000×2000）' }),
+          el('option', { value: '16:9', text: '16:9（2560×1440）' }),
+          el('option', { value: '4:3', text: '4:3（2048×1536）' }),
+          el('option', { value: 'original', text: '与图片一致' }),
+        ]),
+      ]);
+
+      const styleField = el('div', { class: 'field' }, [
+        el('label', { text: '扩展样式' }),
+        el('select', { id: 'expand-style' }, [
+          el('option', { value: 'solid', text: '纯色' }),
+          el('option', { value: 'transparent', text: '透明' }),
+          el('option', { value: 'lined', text: '横线纸' }),
+          el('option', { value: 'grid', text: '方格纸' }),
+          el('option', { value: 'dots', text: '点阵' }),
+          el('option', { value: 'custom-image', text: '自定义图片平铺' }),
+        ]),
+      ]);
+
+      const styleColorField = el('div', {
+        class: 'field',
+        id: 'expand-style-color-field',
+      }, [
+        el('label', { text: '颜色' }),
+        el('input', { type: 'color', id: 'expand-style-color', value: '#FFFFFF' }),
+      ]);
+
+      const styleImageField = el('div', {
+        class: 'field',
+        id: 'expand-style-image-field',
+        style: { display: 'none' },
+      }, [
+        el('label', { text: '自定义图片' }),
+        el('input', { type: 'file', id: 'expand-style-image', accept: 'image/*' }),
+      ]);
+
       const previewText = el('div', {
         id: 'expand-preview',
         style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px' },
         text: `即将扩展为：${W} × ${H} px`,
       });
-
-      function updatePreview() {
-        const dir = document.getElementById('expand-dir').value;
-        const target = document.getElementById('expand-target').value;
-        let px = Math.max(50, Math.min(2000, Number(document.getElementById('expand-px').value) || 200));
-        let newW = W, newH = H;
-
-        if (target === 'image') {
-          newW = img.width;
-          newH = img.height;
-        } else if (target === 'pdf') {
-          const A4W = 2480, A4H = 3508;
-          if (dir === 'top' || dir === 'bottom') newH = Math.max(H, A4H);
-          else newW = Math.max(W, A4W);
-        } else if (target === 'paper') {
-          const selId = document.getElementById('expand-paper-id')?.value;
-          const sel = papers.find(p => p.id === selId);
-          if (sel) {
-            if (dir === 'top' || dir === 'bottom') newH = H + Math.round(sel.h);
-            else newW = W + Math.round(sel.w);
-          }
-        } else {
-          if (dir === 'top' || dir === 'bottom') newH = H + px;
-          else newW = W + px;
-        }
-
-        const el2 = document.getElementById('expand-preview');
-        if (el2) el2.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}）`;
-      }
 
       const dirSelect = el('select', {
         id: 'expand-dir',
@@ -617,42 +680,137 @@ export function renderAnnotator({ params, query }) {
         el('option', { value: 'right', text: '→ 右侧' }),
       ]);
 
-      const targetSelect = el('select', {
-        id: 'expand-target',
+      const presetSelect = el('select', {
+        id: 'expand-preset',
         onChange: (e) => {
-          paperSelectField.style.display = e.target.value === 'paper' ? 'block' : 'none';
+          if (e.target.value !== 'custom') {
+            pxInput.disabled = true;
+            pxInput.value = '';
+          } else {
+            pxInput.disabled = false;
+            pxInput.value = '200';
+          }
           updatePreview();
         },
       }, [
         el('option', { value: 'custom', text: '自定义像素' }),
-        el('option', { value: 'image', text: '与图片一致（缩放到原图大小）' }),
-        el('option', { value: 'pdf', text: '与 A4 PDF 一致' }),
-        el('option', { value: 'paper', text: '与纸张一致' }),
+        el('option', { value: 'a4', text: 'A4（2480×3508）' }),
+        el('option', { value: 'a3', text: 'A3（3508×4961）' }),
+        el('option', { value: 'a5', text: 'A5（1748×2480）' }),
+        el('option', { value: 'square', text: '正方形（2000×2000）' }),
+        el('option', { value: '16:9', text: '16:9（2560×1440）' }),
+        el('option', { value: '4:3', text: '4:3（2048×1536）' }),
+        el('option', { value: 'original', text: '与图片一致' }),
       ]);
 
-      const pxInput = el('input', {
-        type: 'number', id: 'expand-px', value: '200', min: '50', max: '2000',
+      const styleSelect = el('select', {
+        id: 'expand-style',
+        onChange: (e) => {
+          const v = e.target.value;
+          styleColorField.style.display = (v === 'transparent' || v === 'custom-image') ? 'none' : 'block';
+          styleImageField.style.display = v === 'custom-image' ? 'block' : 'none';
+          updatePreview();
+        },
+      }, [
+        el('option', { value: 'solid', text: '纯色' }),
+        el('option', { value: 'transparent', text: '透明' }),
+        el('option', { value: 'lined', text: '横线纸' }),
+        el('option', { value: 'grid', text: '方格纸' }),
+        el('option', { value: 'dots', text: '点阵' }),
+        el('option', { value: 'custom-image', text: '自定义图片平铺' }),
+      ]);
+
+      const styleColorInput = el('input', {
+        type: 'color', id: 'expand-style-color', value: '#FFFFFF',
         onInput: updatePreview,
       });
 
+      const styleImageInput = el('input', {
+        type: 'file', id: 'expand-style-image', accept: 'image/*',
+        onChange: updatePreview,
+      });
+
+      const customColorInput = el('input', {
+        type: 'color',
+        id: 'expand-custom-color',
+        value: '#FFFFFF',
+        onInput: updatePreview,
+      });
+
+      const pxInput = el('input', {
+        type: 'number', id: 'expand-px', value: '200', min: '50', max: '5000',
+        onInput: updatePreview,
+      });
+
+      function updatePreview() {
+        const dir = dirSelect.value;
+        const preset = presetSelect.value;
+        let newW = W, newH = H;
+
+        if (preset === 'original') {
+          newW = img.width;
+          newH = img.height;
+        } else if (preset === 'a4') {
+          newW = 2480; newH = 3508;
+        } else if (preset === 'a3') {
+          newW = 3508; newH = 4961;
+        } else if (preset === 'a5') {
+          newW = 1748; newH = 2480;
+        } else if (preset === 'square') {
+          newW = 2000; newH = 2000;
+        } else if (preset === '16:9') {
+          newW = 2560; newH = 1440;
+        } else if (preset === '4:3') {
+          newW = 2048; newH = 1536;
+        } else {
+          const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
+          if (dir === 'top' || dir === 'bottom') newH = H + px;
+          else newW = W + px;
+        }
+
+        const style = styleSelect.value;
+        const styleLabels = {
+          solid: '纯色',
+          transparent: '透明',
+          lined: '横线纸',
+          grid: '方格纸',
+          dots: '点阵',
+          'custom-image': '自定义图片平铺',
+        };
+
+        const el2 = document.getElementById('expand-preview');
+        if (el2) el2.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}），扩展样式：${styleLabels[style] || style}`;
+      }
+
       const mask = el('div', { class: 'confirm-mask' }, [
-        el('div', { class: 'confirm-box', style: { maxWidth: '380px' } }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
           el('h3', { text: '扩展画布' }),
           el('div', { class: 'field' }, [el('label', { text: '方向' }), dirSelect]),
-          el('div', { class: 'field' }, [el('label', { text: '扩展到' }), targetSelect]),
+          el('div', { class: 'field' }, [el('label', { text: '预设尺寸' }), presetSelect]),
+          el('div', { class: 'field' }, [el('label', { text: '扩展像素（自定义时有效）' }), pxInput]),
           paperSelectField,
-          el('div', { class: 'field' }, [el('label', { text: '扩展像素' }), pxInput]),
+          styleField,
+          styleColorField,
+          styleImageField,
           previewText,
           el('div', { class: 'confirm-actions' }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
             el('button', {
               class: 'btn btn-primary', text: '扩展',
               onClick: async () => {
-                const dir = document.getElementById('expand-dir').value;
-                const target = document.getElementById('expand-target').value;
-                let px = Math.max(50, Math.min(2000, Number(document.getElementById('expand-px').value) || 200));
+                const dir = dirSelect.value;
+                const preset = presetSelect.value;
+                const style = styleSelect.value;
+                const styleColor = styleColorInput.value;
 
-                if (target === 'image') {
+                let customImageBlob = null;
+                if (style === 'custom-image') {
+                  const f = styleImageInput.files?.[0];
+                  if (!f) { toastError('请选择自定义图片'); return; }
+                  customImageBlob = f;
+                }
+
+                if (preset === 'original') {
                   if (W === img.width && H === img.height) {
                     toastError('当前已是原图大小'); return;
                   }
@@ -661,22 +819,25 @@ export function renderAnnotator({ params, query }) {
                   return;
                 }
 
-                if (target === 'pdf') {
-                  const A4W = 2480, A4H = 3508;
-                  if (dir === 'top' || dir === 'bottom') px = A4H - H;
-                  else px = A4W - W;
-                  if (px <= 0) { toastError('当前尺寸已超过 A4，无需扩展'); return; }
-                } else if (target === 'paper') {
-                  const selId = document.getElementById('expand-paper-id')?.value;
-                  const sel = papers.find(p => p.id === selId);
-                  if (!sel) { toastError('请先选择纸张'); return; }
-                  if (dir === 'top' || dir === 'bottom') px = Math.max(50, Math.round(sel.h));
-                  else px = Math.max(50, Math.round(sel.w));
+                let targetW = W, targetH = H;
+                if (preset === 'a4') { targetW = 2480; targetH = 3508; }
+                else if (preset === 'a3') { targetW = 3508; targetH = 4961; }
+                else if (preset === 'a5') { targetW = 1748; targetH = 2480; }
+                else if (preset === 'square') { targetW = 2000; targetH = 2000; }
+                else if (preset === '16:9') { targetW = 2560; targetH = 1440; }
+                else if (preset === '4:3') { targetW = 2048; targetH = 1536; }
+                else {
+                  const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
+                  if (dir === 'top' || dir === 'bottom') targetH = H + px;
+                  else targetW = W + px;
                 }
 
-                if (px <= 0) { toastError('无需扩展'); return; }
+                if (targetW <= W && targetH <= H && preset !== 'custom') {
+                  toastError('目标尺寸不大于当前画布'); return;
+                }
+
                 mask.remove();
-                await doExpand(dir, px);
+                await doExpandWithStyle(targetW, targetH, style, styleColor, customImageBlob);
               },
             }),
           ]),
@@ -684,19 +845,19 @@ export function renderAnnotator({ params, query }) {
       ]);
       document.body.appendChild(mask);
 
-      const paperSelect = document.getElementById('expand-paper-id');
-      if (paperSelect) paperSelect.addEventListener('change', updatePreview);
-
       updatePreview();
     }
 
-    function openLayerPanel() {
-      let order = store.getLayerOrder();
+
+
+        function openLayerPanel() {
+      const tempOrder = [...currentLayerOrder];
       const labels = {
         base: '🖼 底图',
-        paper: '📄 纸张',
         stroke: '✏️ 笔迹',
         text: 'T 文字',
+        paper: '📄 纸张',
+        paperStroke: '✏️ 纸张笔迹',
         tape: '🎗️ 胶带',
       };
 
@@ -704,34 +865,26 @@ export function renderAnnotator({ params, query }) {
 
       function renderList() {
         list.innerHTML = '';
-        order.forEach((key, i) => {
+        tempOrder.forEach((key, i) => {
           const row = el('div', {
-            style: {
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              padding: '10px 12px',
-              background: 'var(--bg)',
-              borderRadius: '8px',
-              border: '1px solid rgba(0,0,0,.06)',
-            },
+            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.06)' },
           }, [
             el('span', { style: { flex: '1', fontWeight: '600' }, text: labels[key] || key }),
             el('button', {
-              class: 'btn btn-sm btn-ghost', text: '↑',
-              disabled: i === 0,
+              class: 'btn btn-sm btn-ghost', text: '↑', disabled: i === 0,
               onClick: () => {
                 if (i === 0) return;
-                [order[i - 1], order[i]] = [order[i], order[i - 1]];
+                [tempOrder[i - 1], tempOrder[i]] = [tempOrder[i], tempOrder[i - 1]];
+                applyLayerOrder(tempOrder);
                 renderList();
               },
             }),
             el('button', {
-              class: 'btn btn-sm btn-ghost', text: '↓',
-              disabled: i === order.length - 1,
+              class: 'btn btn-sm btn-ghost', text: '↓', disabled: i === tempOrder.length - 1,
               onClick: () => {
-                if (i === order.length - 1) return;
-                [order[i + 1], order[i]] = [order[i], order[i + 1]];
+                if (i === tempOrder.length - 1) return;
+                [tempOrder[i + 1], tempOrder[i]] = [tempOrder[i], tempOrder[i + 1]];
+                applyLayerOrder(tempOrder);
                 renderList();
               },
             }),
@@ -742,21 +895,35 @@ export function renderAnnotator({ params, query }) {
       renderList();
 
       const mask = el('div', { class: 'confirm-mask' }, [
-        el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '380px' } }, [
           el('h3', { text: '图层顺序' }),
-          el('p', { text: '从下到上排列，越往下越在底层', style: { fontSize: '13px', color: 'var(--text-2)' } }),
+          el('p', { text: '从下到上排列。点「保存」永久生效，点「取消」恢复默认', style: { fontSize: '13px', color: 'var(--text-2)' } }),
           list,
-          el('div', { class: 'confirm-actions' }, [
-            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+          el('div', { class: 'confirm-actions', style: { flexWrap: 'wrap' } }, [
+            el('button', {
+              class: 'btn btn-ghost', text: '恢复默认',
+              onClick: () => {
+                tempOrder.length = 0;
+                tempOrder.push(...DEFAULT_LAYER_ORDER);
+                applyLayerOrder(tempOrder);
+                renderList();
+              },
+            }),
+            el('button', {
+              class: 'btn btn-ghost', text: '取消',
+              onClick: () => {
+                applyLayerOrder(DEFAULT_LAYER_ORDER);
+                currentLayerOrder = [...DEFAULT_LAYER_ORDER];
+                mask.remove();
+              },
+            }),
             el('button', {
               class: 'btn btn-primary', text: '保存',
               onClick: () => {
-                store.saveLayerOrder(order);
+                currentLayerOrder = [...tempOrder];
+                store.saveLayerOrder(currentLayerOrder);
                 mask.remove();
-                toastSuccess('图层顺序已保存，即将刷新');
-                setTimeout(() => {
-                  renderAnnotator({ params: { id: imageId }, query: { pointId } });
-                }, 500);
+                toastSuccess('图层顺序已保存');
               },
             }),
           ]),
@@ -817,6 +984,158 @@ export function renderAnnotator({ params, query }) {
       setTimeout(() => {
         location.reload();
       }, 500);
+    }
+
+    async function doExpandToSize(newW, newH, bgColor) {
+      const dx = 0;
+      const dy = 0;
+
+      const newOriginal = document.createElement('canvas');
+      newOriginal.width = newW; newOriginal.height = newH;
+      const octx = newOriginal.getContext('2d');
+      if (bgColor === 'transparent') {
+        octx.clearRect(0, 0, newW, newH);
+      } else {
+        octx.fillStyle = bgColor;
+        octx.fillRect(0, 0, newW, newH);
+      }
+      octx.drawImage(baseImg, dx, dy);
+
+      const newStroke = document.createElement('canvas');
+      newStroke.width = newW; newStroke.height = newH;
+      newStroke.getContext('2d').drawImage(strokeCanvas, dx, dy);
+
+      const newPaperStroke = document.createElement('canvas');
+      newPaperStroke.width = newW; newPaperStroke.height = newH;
+      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, dx, dy);
+
+      paperLayer.getPapers().forEach(p => { p.x += dx; p.y += dy; });
+      tapeLayer.getTapes().forEach(t => { t.points.forEach(pt => { pt.x += dx; pt.y += dy; }); });
+      textLayer.getItems().forEach(t => { t.x += dx; t.y += dy; });
+      store.savePaper(imageId, paperLayer.getPapers());
+      store.saveTape(imageId, tapeLayer.getTapes());
+      store.saveTextItems(imageId, textLayer.getItems());
+
+      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
+      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
+      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
+      const annotatedBlob = await new Promise(r => {
+        const m = document.createElement('canvas');
+        m.width = newW; m.height = newH;
+        const mctx = m.getContext('2d');
+        mctx.drawImage(newOriginal, 0, 0);
+        mctx.drawImage(newStroke, 0, 0);
+        mctx.drawImage(newPaperStroke, 0, 0);
+        m.toBlob(r, 'image/png');
+      });
+
+      await putImageCached({
+        ...img,
+        originalBlob, strokeBlob, paperStrokeBlob, annotatedBlob,
+        width: newW, height: newH,
+        updatedAt: new Date().toISOString(),
+      });
+
+      toastSuccess(`已扩展为 ${newW}×${newH}，即将刷新`);
+      setTimeout(() => location.reload(), 500);
+    }
+
+    async function doExpandWithStyle(newW, newH, style, color, customImageBlob) {
+      const newOriginal = document.createElement('canvas');
+      newOriginal.width = newW;
+      newOriginal.height = newH;
+      const octx = newOriginal.getContext('2d');
+
+      // 1. 绘制背景样式
+      if (style === 'transparent') {
+        octx.clearRect(0, 0, newW, newH);
+      } else if (style === 'solid') {
+        octx.fillStyle = color;
+        octx.fillRect(0, 0, newW, newH);
+      } else if (style === 'lined') {
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, newW, newH);
+        octx.strokeStyle = '#E5E7EB';
+        octx.lineWidth = 1;
+        for (let y = 24; y < newH; y += 24) {
+          octx.beginPath();
+          octx.moveTo(0, y);
+          octx.lineTo(newW, y);
+          octx.stroke();
+        }
+      } else if (style === 'grid') {
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, newW, newH);
+        octx.strokeStyle = 'rgba(219,234,254,.8)';
+        octx.lineWidth = 1;
+        for (let x = 0; x < newW; x += 20) {
+          octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, newH); octx.stroke();
+        }
+        for (let y = 0; y < newH; y += 20) {
+          octx.beginPath(); octx.moveTo(0, y); octx.lineTo(newW, y); octx.stroke();
+        }
+      } else if (style === 'dots') {
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, newW, newH);
+        octx.fillStyle = 'rgba(142,202,230,.5)';
+        for (let x = 0; x < newW; x += 20) {
+          for (let y = 0; y < newH; y += 20) {
+            octx.beginPath();
+            octx.arc(x, y, 2, 0, Math.PI * 2);
+            octx.fill();
+          }
+        }
+      } else if (style === 'custom-image' && customImageBlob) {
+        const imgUrl = URL.createObjectURL(customImageBlob);
+        const customImg = new Image();
+        customImg.src = imgUrl;
+        await new Promise(r => { customImg.onload = r; });
+        const pattern = octx.createPattern(customImg, 'repeat');
+        octx.fillStyle = pattern;
+        octx.fillRect(0, 0, newW, newH);
+        URL.revokeObjectURL(imgUrl);
+      } else {
+        octx.fillStyle = '#FFFFFF';
+        octx.fillRect(0, 0, newW, newH);
+      }
+
+      // 2. 画原图
+      octx.drawImage(baseImg, 0, 0);
+
+      const newStroke = document.createElement('canvas');
+      newStroke.width = newW; newStroke.height = newH;
+      newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0);
+
+      const newPaperStroke = document.createElement('canvas');
+      newPaperStroke.width = newW; newPaperStroke.height = newH;
+      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, 0, 0);
+
+      store.savePaper(imageId, paperLayer.getPapers());
+      store.saveTape(imageId, tapeLayer.getTapes());
+      store.saveTextItems(imageId, textLayer.getItems());
+
+      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
+      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
+      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
+      const annotatedBlob = await new Promise(r => {
+        const m = document.createElement('canvas');
+        m.width = newW; m.height = newH;
+        const mctx = m.getContext('2d');
+        mctx.drawImage(newOriginal, 0, 0);
+        mctx.drawImage(newStroke, 0, 0);
+        mctx.drawImage(newPaperStroke, 0, 0);
+        m.toBlob(r, 'image/png');
+      });
+
+      await putImageCached({
+        ...img,
+        originalBlob, strokeBlob, paperStrokeBlob, annotatedBlob,
+        width: newW, height: newH,
+        updatedAt: new Date().toISOString(),
+      });
+
+      toastSuccess(`已扩展为 ${newW}×${newH}，即将刷新`);
+      setTimeout(() => location.reload(), 500);
     }
 
     async function doResizeToOriginal(newW, newH) {
@@ -968,7 +1287,13 @@ export function renderAnnotator({ params, query }) {
         dirty = true;
         ta.remove();
       }
-      ta.addEventListener('blur', finish);
+      let blurTimer = null;
+      ta.addEventListener('blur', () => {
+        blurTimer = setTimeout(finish, 200);
+      });
+      ta.addEventListener('focus', () => {
+        if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
+      });
       ta.addEventListener('keydown', (e) => {
         if (e.key === 'Escape') { ta.remove(); }
         if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) finish();
@@ -1024,6 +1349,7 @@ export function renderAnnotator({ params, query }) {
       if (currentTool === 'hand') {
         drawing = 'pan';
         startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
+        panMoved = false;
         return;
       }
 
@@ -1050,6 +1376,20 @@ export function renderAnnotator({ params, query }) {
           }
         }
 
+        // ← 这里加旋转手柄判断
+        if (sel) {
+          const cx = sel.x + sel.w / 2;
+          const cy = sel.y + sel.h / 2;
+          const rad = (sel.rotation || 0) * Math.PI / 180;
+          const hx = cx + Math.sin(rad) * (sel.h / 2 + 20);
+          const hy = cy - Math.cos(rad) * (sel.h / 2 + 20);
+          if (Math.hypot(pt.x - hx, pt.y - hy) < 14) {
+            paperDragOffset = paperLayer.startRotate(pt.x, pt.y);
+            drawing = 'paper-rotate';
+            return;
+          }
+        }
+
         const hit = paperLayer.hitTest(pt.x, pt.y);
         if (hit) {
           const now = Date.now();
@@ -1061,7 +1401,6 @@ export function renderAnnotator({ params, query }) {
           }
           paperLayer._lastClickId = hit.id;
           paperLayer._lastClickTime = now;
-
           paperLayer.select(hit);
           paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, paper: hit };
           drawing = 'paper-drag';
@@ -1071,6 +1410,21 @@ export function renderAnnotator({ params, query }) {
 
       if (currentTool === 'tape') {
         const pt = canvasToImage(e.clientX, e.clientY);
+        const hitPaper = paperLayer.hitTest(pt.x, pt.y);
+        if (hitPaper) {
+          if (!hitPaper._currentTape) {
+            hitPaper._currentTape = {
+              points: [{ x: pt.x - hitPaper.x, y: pt.y - hitPaper.y }],
+              width: tapeLayer.getWidth(),
+              color: tapeLayer.getColor(),
+              shape: tapeLayer.getTool(),
+            };
+          }
+          pushUndo();
+          drawing = true;
+          points = [pt];
+          return;
+        }
         const hit = tapeLayer.hitTest(pt.x, pt.y);
         if (hit) {
           tapeLayer.toggleVisible(hit.id);
@@ -1161,6 +1515,7 @@ export function renderAnnotator({ params, query }) {
       if (drawing === 'pan') {
         offsetX = e.clientX - startPt.x;
         offsetY = e.clientY - startPt.y;
+        panMoved = true
         updateTransform();
         return;
       }
@@ -1170,7 +1525,13 @@ export function renderAnnotator({ params, query }) {
         const p = paperDragOffset.paper;
         p.x = pt.x - paperDragOffset.dx;
         p.y = pt.y - paperDragOffset.dy;
-        paperLayer.redraw();
+        // 用 requestAnimationFrame 节流
+        if (!paperDragOffset._raf) {
+          paperDragOffset._raf = requestAnimationFrame(() => {
+            paperLayer.redraw();
+            paperDragOffset._raf = null;
+          });
+        }
         dirty = true;
         return;
       }
@@ -1201,37 +1562,90 @@ export function renderAnnotator({ params, query }) {
         return;
       }
 
+      if (drawing === 'paper-rotate') {
+        const pt = canvasToImage(e.clientX, e.clientY);
+        paperDragOffset.move(pt.x, pt.y);
+        dirty = true;
+        return;
+      }
+
       if (!drawing) return;
 
       const pt = canvasToImage(e.clientX, e.clientY);
 
       if (currentTool === 'pen') {
         points.push(pt);
-        drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
         const hitPaper = paperLayer.hitTest(pt.x, pt.y);
         if (hitPaper) {
-          drawSmoothPath(paperStrokeCtx, points.slice(-10), currentColor, currentWidth);
+          const relX = pt.x - hitPaper.x;
+          const relY = pt.y - hitPaper.y;
+          if (!hitPaper._currentStroke) {
+            hitPaper._currentStroke = { points: [], color: currentColor, width: currentWidth };
+          }
+          const lastPt = hitPaper._currentStroke.points[hitPaper._currentStroke.points.length - 1];
+          if (!lastPt || Math.hypot(relX - lastPt.x, relY - lastPt.y) > 1) {
+            hitPaper._currentStroke.points.push({ x: relX, y: relY });
+            paperLayer.redraw();
+          }
+        } else {
+          drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
         }
       } else if (currentTool === 'eraser') {
         eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
-        eraseCircle(paperStrokeCtx, pt.x, pt.y, currentWidth * 2);
         tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
         updateEraserPreview(pt, currentWidth * 2);
+
+        // 擦纸张内的笔迹和胶带
+        const hitPaper = paperLayer.hitTest(pt.x, pt.y);
+        if (hitPaper) {
+          const relX = pt.x - hitPaper.x;
+          const relY = pt.y - hitPaper.y;
+          let changed = false;
+          if (hitPaper.strokes) {
+            const before = hitPaper.strokes.length;
+            hitPaper.strokes = hitPaper.strokes.filter(s =>
+              !s.points.some(p => Math.hypot(p.x - relX, p.y - relY) < currentWidth * 2)
+            );
+            if (hitPaper.strokes.length !== before) changed = true;
+          }
+          if (hitPaper.tapes) {
+            const before = hitPaper.tapes.length;
+            hitPaper.tapes = hitPaper.tapes.filter(t =>
+              !t.points.some(p => Math.hypot(p.x - relX, p.y - relY) < currentWidth * 2 + t.width / 2)
+            );
+            if (hitPaper.tapes.length !== before) changed = true;
+          }
+          if (changed) {
+            paperLayer.save();
+            paperLayer.redraw();
+          }
+        }
       } else if (currentTool === 'tape') {
         points.push(pt);
-        const tempTape = {
-          id: '__temp__',
-          points: points,
-          width: tapeLayer.getWidth(),
-          pattern: tapeLayer.getPattern(),
-          patternImageId: null,
-          shape: tapeLayer.getTool(),
-          color: tapeLayer.getColor(),
-          visible: true,
-          erasedPath: [],
-        };
-        tapeLayer.redraw();
-        drawTempTape(tapeCanvas, tempTape);
+        const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
+        if (hitPaper) {
+          const relX = pt.x - hitPaper.x;
+          const relY = pt.y - hitPaper.y;
+          const lastPt = hitPaper._currentTape.points[hitPaper._currentTape.points.length - 1];
+          if (!lastPt || Math.hypot(relX - lastPt.x, relY - lastPt.y) > 1) {
+            hitPaper._currentTape.points.push({ x: relX, y: relY });
+            paperLayer.redraw();
+          }
+        } else {
+          const tempTape = {
+            id: '__temp__',
+            points: points,
+            width: tapeLayer.getWidth(),
+            pattern: tapeLayer.getPattern(),
+            patternImageId: null,
+            shape: tapeLayer.getTool(),
+            color: tapeLayer.getColor(),
+            visible: true,
+            erasedPath: [],
+          };
+          tapeLayer.redraw();
+          drawTempTape(tapeCanvas, tempTape);
+        }
       } else if (currentTool === 'circle-erase') {
         clearPreview();
         previewCtx.save();
@@ -1254,7 +1668,26 @@ export function renderAnnotator({ params, query }) {
         const snap = undoStack[undoStack.length - 1];
         if (snap) ctx.putImageData(snap.stroke, 0, 0);
         if (currentTool === 'arrow') drawArrow(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
-        else if (currentTool === 'rect') drawRect(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+        else if (currentTool === 'rect') {
+          const bc = window.__rectBorderColor || currentColor;
+          const fc = window.__rectFillColor || 'none';
+          const x = Math.min(startPt.x, pt.x);
+          const y = Math.min(startPt.y, pt.y);
+          const w = Math.abs(pt.x - startPt.x);
+          const h = Math.abs(pt.y - startPt.y);
+          if (fc !== 'none' && fc !== 'transparent') {
+            ctx.save();
+            ctx.fillStyle = fc;
+            ctx.globalAlpha = 0.4;
+            ctx.fillRect(x, y, w, h);
+            ctx.restore();
+          }
+          ctx.save();
+          ctx.strokeStyle = bc;
+          ctx.lineWidth = currentWidth;
+          ctx.strokeRect(x, y, w, h);
+          ctx.restore();
+        }
         else if (currentTool === 'line') drawLine(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
         else if (currentTool === 'wave') drawWave(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth, waveAmplitude);
       }
@@ -1288,12 +1721,22 @@ export function renderAnnotator({ params, query }) {
       c.restore();
     }
 
-    strokeCanvas.addEventListener('pointerup', (e) => {
+    strokeCanvas.addEventListener('pointerup', async (e) => {
       clearPreview();
       pointers.delete(e.pointerId);
 
-      if (drawing === 'pan') { drawing = false; return; }
+      if (drawing === 'pan') {
+        drawing = false;
+        if (!panMoved && currentTool === 'hand') {
+          setActiveTool('pen');
+        }
+        return;
+      }
       if (drawing === 'paper-drag') {
+        if (paperDragOffset._raf) {
+          cancelAnimationFrame(paperDragOffset._raf);
+          paperDragOffset._raf = null;
+        }
         paperLayer.save();
         drawing = false;
         paperDragOffset = null;
@@ -1317,24 +1760,52 @@ export function renderAnnotator({ params, query }) {
         paperDragOffset = null;
         return;
       }
+      if (drawing === 'paper-rotate') {
+        paperDragOffset.end();
+        drawing = false;
+        paperDragOffset = null;
+        return;
+      }
       if (!drawing) return;
 
-      if (currentTool === 'tape') {
-        if (points.length >= 2) {
-          const tape = {
-            id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
-            points: points,
-            width: tapeLayer.getWidth(),
-            pattern: tapeLayer.getPattern(),
-            patternImageId: null,
-            shape: tapeLayer.getTool(),
-            color: tapeLayer.getColor(),
-            visible: true,
-            erasedPath: [],
-          };
-          tapeLayer.addTape(tape);
-        }
-      } else if (currentTool === 'circle-erase') {
+            // 画笔结束：把纸张内的笔迹存进纸张
+            if (currentTool === 'pen') {
+              const hitPaper = paperLayer.getPapers().find(p => p._currentStroke);
+              if (hitPaper) {
+                if (!hitPaper.strokes) hitPaper.strokes = [];
+                hitPaper.strokes.push(hitPaper._currentStroke);
+                delete hitPaper._currentStroke;
+                paperLayer.save();
+                paperLayer.redraw();
+              }
+            }
+
+            if (currentTool === 'tape') {
+              const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
+              if (hitPaper) {
+                if (!hitPaper.tapes) hitPaper.tapes = [];
+                hitPaper.tapes.push(hitPaper._currentTape);
+                delete hitPaper._currentTape;
+                paperLayer.save();
+                paperLayer.redraw();
+              } else if (points.length >= 2) {
+                const tape = {
+                  id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
+                  points: points,
+                  width: tapeLayer.getWidth(),
+                  pattern: tapeLayer.getPattern(),
+                  patternImageId: tapeLayer.getPatternImageId ? tapeLayer.getPatternImageId() : null,
+                  shape: tapeLayer.getTool(),
+                  color: tapeLayer.getColor(),
+                  visible: true,
+                  erasedPath: [],
+                };
+                if (tape.pattern === 'custom' && tape.patternImageId) {
+                  await tapeLayer.loadPatternImage(tape.patternImageId);
+                }
+                tapeLayer.addTape(tape);
+              }
+            } else if (currentTool === 'circle-erase') {
         const pt = canvasToImage(e.clientX, e.clientY);
         if (eraseShape === 'rect') {
           eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
@@ -1345,6 +1816,27 @@ export function renderAnnotator({ params, query }) {
           eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
         }
         tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
+                // 擦纸张内的笔迹和胶带
+                paperLayer.getPapers().forEach(p => {
+                  if (p.x > Math.max(startPt.x, pt.x) || p.x + p.w < Math.min(startPt.x, pt.x) ||
+                      p.y > Math.max(startPt.y, pt.y) || p.y + p.h < Math.min(startPt.y, pt.y)) return;
+                  const minX = Math.min(startPt.x, pt.x) - p.x;
+                  const maxX = Math.max(startPt.x, pt.x) - p.x;
+                  const minY = Math.min(startPt.y, pt.y) - p.y;
+                  const maxY = Math.max(startPt.y, pt.y) - p.y;
+                  if (p.strokes) {
+                    p.strokes = p.strokes.filter(s =>
+                      !s.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
+                    );
+                  }
+                  if (p.tapes) {
+                    p.tapes = p.tapes.filter(t =>
+                      !t.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
+                    );
+                  }
+                });
+                paperLayer.save();
+                paperLayer.redraw();
       }
       drawing = false;
       points = [];
@@ -1402,6 +1894,7 @@ export function renderAnnotator({ params, query }) {
       });
 
       function finish() {
+        if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
         const val = ta.value;
         ta.remove();
         if (val !== paper.text) {

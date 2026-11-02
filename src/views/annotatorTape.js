@@ -25,7 +25,26 @@ export function createTapeLayer(canvas, W, H, imageId) {
   let width = 20;
   let patternImageId = null;
 
-  function redraw() {
+  const patternImages = new Map();
+
+  async function loadPatternImage(patternId) {
+    if (patternImages.has(patternId)) return patternImages.get(patternId);
+    const rec = await dbGet('patterns', patternId);
+    if (!rec || !rec.blob) return null;
+    const url = URL.createObjectURL(rec.blob);
+    const img = new Image();
+    img.src = url;
+    await new Promise(r => { img.onload = r; });
+    patternImages.set(patternId, img);
+    return img;
+  }
+
+  async function redraw() {
+    for (const t of tapes) {
+      if (t.pattern === 'custom' && t.patternImageId) {
+        await loadPatternImage(t.patternImageId);
+      }
+    }
     ctx.clearRect(0, 0, W, H);
     tapes.forEach(t => {
       if (!t.visible) return;
@@ -83,6 +102,39 @@ export function createTapeLayer(canvas, W, H, imageId) {
         ctx.fill();
       });
     }
+
+        // 自定义花样图案覆盖
+        if (t.pattern === 'custom' && t.patternImageId) {
+          const img = patternImages.get(t.patternImageId);
+          if (img) {
+            ctx.save();
+            ctx.globalCompositeOperation = 'source-atop';
+            const pattern = ctx.createPattern(img, 'repeat');
+            if (pattern) {
+              ctx.fillStyle = pattern;
+              if (t.shape === 'rect') {
+                const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+                ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
+              } else if (t.shape === 'circle') {
+                const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+                const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+                ctx.beginPath();
+                ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+                ctx.fill();
+              } else {
+                ctx.strokeStyle = pattern;
+                ctx.lineWidth = t.width;
+                ctx.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
+                ctx.lineJoin = 'round';
+                ctx.beginPath();
+                ctx.moveTo(t.points[0].x, t.points[0].y);
+                for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
+                ctx.stroke();
+              }
+            }
+            ctx.restore();
+          }
+        }
     ctx.restore();
   }
 
@@ -124,6 +176,8 @@ export function createTapeLayer(canvas, W, H, imageId) {
     getWidth() { return width; },
     setWidth(w) { width = w; },
     setPatternImage(id) { patternImageId = id; },
+    loadPatternImage,
+    getPatternImageId() { return patternImageId; },
   };
 }
 
@@ -186,15 +240,6 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     })),
   ]);
 
-  const widthNum = el('input', {
-    type: 'number', min: '4', max: '300', value: String(tapeLayer.getWidth()),
-    style: { width: '56px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
-    onInput: (e) => {
-      const v = Math.max(4, Math.min(300, Number(e.target.value) || 8));
-      tapeLayer.setWidth(v);
-      widthRange.value = v;
-    },
-  });
   const widthRange = el('input', {
     type: 'range', min: '4', max: '300', value: String(tapeLayer.getWidth()),
     style: { flex: '1' },
@@ -204,10 +249,41 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
       widthNum.value = v;
     },
   });
+  const widthNum = el('input', {
+    type: 'number', min: '4', max: '300', value: String(tapeLayer.getWidth()),
+    style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
+    onInput: (e) => {
+      const v = Math.max(4, Math.min(300, Number(e.target.value) || 8));
+      tapeLayer.setWidth(v);
+      widthRange.value = v;
+    },
+  });
+  const widthMinus = el('button', {
+    class: 'btn btn-sm btn-ghost', text: '−',
+    style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+    onClick: () => {
+      const v = Math.max(4, tapeLayer.getWidth() - 2);
+      tapeLayer.setWidth(v);
+      widthRange.value = v;
+      widthNum.value = v;
+    },
+  });
+  const widthPlus = el('button', {
+    class: 'btn btn-sm btn-ghost', text: '+',
+    style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+    onClick: () => {
+      const v = Math.min(300, tapeLayer.getWidth() + 2);
+      tapeLayer.setWidth(v);
+      widthRange.value = v;
+      widthNum.value = v;
+    },
+  });
   const widthRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '宽度' }),
     widthRange,
+    widthMinus,
     widthNum,
+    widthPlus,
   ]);
 
   const colorRow = el('div', { class: 'tape-row' }, [

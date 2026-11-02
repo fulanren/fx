@@ -20,7 +20,6 @@ export function patternCropModal(file) {
       const dispW = img.width * scale;
       const dispH = img.height * scale;
 
-      // 裁剪框默认居中，占 40%
       let cropX = dispW * 0.3, cropY = dispH * 0.3;
       let cropW = dispW * 0.4, cropH = dispH * 0.4;
 
@@ -38,15 +37,33 @@ export function patternCropModal(file) {
         },
       });
 
-      // 4 个角手柄
-      ['nw', 'ne', 'sw', 'se'].forEach(pos => {
+      function updateBox() {
+        cropBox.style.left = cropX + 'px';
+        cropBox.style.top = cropY + 'px';
+        cropBox.style.width = cropW + 'px';
+        cropBox.style.height = cropH + 'px';
+      }
+
+      // 8 个控制点
+      const handles = [
+        { id: 'nw', cursor: 'nwse-resize', left: '-7px', top: '-7px' },
+        { id: 'n', cursor: 'ns-resize', left: 'calc(50% - 7px)', top: '-7px' },
+        { id: 'ne', cursor: 'nesw-resize', left: 'calc(100% - 7px)', top: '-7px' },
+        { id: 'e', cursor: 'ew-resize', left: 'calc(100% - 7px)', top: 'calc(50% - 7px)' },
+        { id: 'se', cursor: 'nwse-resize', left: 'calc(100% - 7px)', top: 'calc(100% - 7px)' },
+        { id: 's', cursor: 'ns-resize', left: 'calc(50% - 7px)', top: 'calc(100% - 7px)' },
+        { id: 'sw', cursor: 'nesw-resize', left: '-7px', top: 'calc(100% - 7px)' },
+        { id: 'w', cursor: 'ew-resize', left: '-7px', top: 'calc(50% - 7px)' },
+      ];
+
+      handles.forEach(h => {
         const handle = el('div', {
           style: {
             position: 'absolute', width: '14px', height: '14px',
             background: '#fff', borderRadius: '50%', border: '1px solid #333',
-            cursor: pos + '-resize',
-            left: pos.includes('w') ? '-7px' : 'calc(100% - 7px)',
-            top: pos.includes('n') ? '-7px' : 'calc(100% - 7px)',
+            cursor: h.cursor,
+            left: h.left,
+            top: h.top,
           },
         });
         handle.addEventListener('pointerdown', (e) => {
@@ -55,16 +72,16 @@ export function patternCropModal(file) {
           const orig = { x: cropX, y: cropY, w: cropW, h: cropH };
           function move(ev) {
             const dx = ev.clientX - startX, dy = ev.clientY - startY;
-            if (pos.includes('e')) cropW = Math.max(20, orig.w + dx);
-            if (pos.includes('s')) cropH = Math.max(20, orig.h + dy);
-            if (pos.includes('w')) { cropW = Math.max(20, orig.w - dx); cropX = orig.x + dx; }
-            if (pos.includes('n')) { cropH = Math.max(20, orig.h - dy); cropY = orig.y + dy; }
-            cropX = Math.max(0, Math.min(dispW - cropW, cropX));
-            cropY = Math.max(0, Math.min(dispH - cropH, cropY));
-            cropBox.style.left = cropX + 'px';
-            cropBox.style.top = cropY + 'px';
-            cropBox.style.width = cropW + 'px';
-            cropBox.style.height = cropH + 'px';
+            let { x, y, w, h: hh } = orig;
+            if (h.id.includes('e')) w = Math.max(20, orig.w + dx);
+            if (h.id.includes('s')) hh = Math.max(20, orig.h + dy);
+            if (h.id.includes('w')) { w = Math.max(20, orig.w - dx); x = orig.x + (orig.w - w); }
+            if (h.id.includes('n')) { hh = Math.max(20, orig.h - dy); y = orig.y + (orig.h - hh); }
+            cropX = Math.max(0, Math.min(dispW - w, x));
+            cropY = Math.max(0, Math.min(dispH - hh, y));
+            cropW = w;
+            cropH = hh;
+            updateBox();
           }
           function up() {
             document.removeEventListener('pointermove', move);
@@ -85,8 +102,7 @@ export function patternCropModal(file) {
           const dx = ev.clientX - startX, dy = ev.clientY - startY;
           cropX = Math.max(0, Math.min(dispW - cropW, orig.x + dx));
           cropY = Math.max(0, Math.min(dispH - cropH, orig.y + dy));
-          cropBox.style.left = cropX + 'px';
-          cropBox.style.top = cropY + 'px';
+          updateBox();
         }
         function up() {
           document.removeEventListener('pointermove', move);
@@ -97,7 +113,7 @@ export function patternCropModal(file) {
       });
 
       const imgWrap = el('div', {
-        style: { position: 'relative', width: dispW + 'px', height: dispH + 'px', margin: '0 auto' },
+        style: { position: 'relative', width: dispW + 'px', height: dispH + 'px', margin: '0 auto', touchAction: 'none' },
       }, [imgEl, cropBox]);
 
       const mask = el('div', {
@@ -107,7 +123,7 @@ export function patternCropModal(file) {
           class: 'confirm-box', style: { maxWidth: '90vw', maxHeight: '90vh', overflow: 'auto', padding: '20px' },
         }, [
           el('h3', { text: '裁剪花样', style: { marginBottom: '12px' } }),
-          el('p', { text: '拖动边框调整裁剪区域，拖动框内移动', style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' } }),
+          el('p', { text: '拖动 8 个控制点调整裁剪区域，拖动框内移动', style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' } }),
           imgWrap,
           el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => { mask.remove(); resolve(null); } }),

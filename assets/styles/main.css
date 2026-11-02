@@ -380,12 +380,6 @@
   pointer-events: none;
   z-index: 2;
 }
-.tape-canvas {
-  position: absolute; top: 0; left: 0;
-  width: 100%; height: 100%;
-  pointer-events: none;
-  z-index: 3;
-}
 .paper-canvas {
   position: absolute; top: 0; left: 0;
   width: 100%; height: 100%;
@@ -398,6 +392,13 @@
   pointer-events: none;
   z-index: 5;
 }
+.tape-canvas {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 3;
+}
+
 .preview-canvas {
   position: absolute; top: 0; left: 0;
   width: 100%; height: 100%;
