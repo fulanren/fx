@@ -38,6 +38,30 @@ export async function dbGet(store, key) {
   });
 }
 
+// ============ 图片内存缓存 ============
+const imageCache = new Map();
+
+export async function getImageCached(imageId) {
+  if (imageCache.has(imageId)) return imageCache.get(imageId);
+  const img = await dbGet('images', imageId);
+  if (img) imageCache.set(imageId, img);
+  return img;
+}
+
+export async function putImageCached(record) {
+  await dbPut('images', record);
+  imageCache.set(record.id, record);
+}
+
+export async function deleteImageCached(imageId) {
+  await dbDelete('images', imageId);
+  imageCache.delete(imageId);
+}
+
+export function clearImageCache() {
+  imageCache.clear();
+}
+
 export async function dbDelete(store, key) {
   const db = await openDB();
   return new Promise((res, rej) => {

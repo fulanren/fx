@@ -2,6 +2,7 @@ import { el } from '../utils/dom.js';
 import * as store from '../store.js';
 import { uuid } from '../utils/id.js';
 import { dbGet } from '../db.js';
+import { renderColorPicker } from '../ui/colorPicker.js';
 
 const TAPE_SHAPES = [
   { id: 'line-round', label: '╱ 圆头' },
@@ -187,7 +188,7 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
 
   const widthNum = el('input', {
     type: 'number', min: '4', max: '300', value: String(tapeLayer.getWidth()),
-    style: { width: '56px', padding: '4px 6px', fontSize: '13px' },
+    style: { width: '56px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
     onInput: (e) => {
       const v = Math.max(4, Math.min(300, Number(e.target.value) || 8));
       tapeLayer.setWidth(v);
@@ -209,18 +210,12 @@ export function renderTapeToolbar(tapeLayer, onPatternChange) {
     widthNum,
   ]);
 
-  const colors = ['#FFD166', '#EF476F', '#06D6A0', '#118AB2', '#CDB4DB', '#FFFFFF'];
   const colorRow = el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '颜色' }),
-    ...colors.map(c => el('button', {
-      class: 'tape-color' + (c === tapeLayer.getColor() ? ' active' : ''),
-      style: { background: c },
-      onClick: (e) => {
-        tapeLayer.setColor(c);
-        colorRow.querySelectorAll('.tape-color').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-      },
-    })),
+    renderColorPicker({
+      current: tapeLayer.getColor(),
+      onChange: (c) => tapeLayer.setColor(c),
+    }),
   ]);
 
   bar.appendChild(shapeRow);

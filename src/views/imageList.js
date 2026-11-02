@@ -1,7 +1,7 @@
 import { el } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
-import { dbGet, dbPut, dbDelete } from '../db.js';
+import { getImageCached, putImageCached, deleteImageCached } from '../db.js';
 import { uuid } from '../utils/id.js';
 import { toastSuccess } from '../ui/toast.js';
 
@@ -100,7 +100,7 @@ export function renderImageList(point, onRefresh) {
         onClick: async (e) => {
           e.stopPropagation();
           if (!confirm('删除这张图片？')) return;
-          await dbDelete('images', imageId);
+          await deleteImageCached(imageId);
           store.removeImageFromPoint(point.id, imageId);
           onRefresh && onRefresh();
         },
@@ -109,7 +109,7 @@ export function renderImageList(point, onRefresh) {
     }
 
     // 加载缩略图
-    dbGet('images', imageId).then(img => {
+    getImageCached(imageId).then(img => {
       if (!img) return;
       const blob = img.annotatedBlob || img.originalBlob;
       if (!blob) return;
@@ -151,7 +151,7 @@ export function renderImageList(point, onRefresh) {
         onClick: async () => {
           if (!confirm(`删除选中的 ${selected.size} 张图片？`)) return;
           for (const id of [...selected]) {
-            await dbDelete('images', id);
+            await deleteImageCached(id);
             store.removeImageFromPoint(point.id, id);
           }
           selected.clear();
@@ -174,7 +174,7 @@ export function renderImageList(point, onRefresh) {
         if (!file) continue;
         const imageId = uuid();
         const bitmap = await createImageBitmap(file);
-        await dbPut('images', {
+        await putImageCached({
           id: imageId, type: 'original',
           originalBlob: file, annotatedBlob: file,
           width: bitmap.width, height: bitmap.height, dpr: 1,

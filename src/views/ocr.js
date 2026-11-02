@@ -1,14 +1,13 @@
-import { el, clear } from '../utils/dom.js';
+import { el } from '../utils/dom.js';
 import * as store from '../store.js';
-import { dbGet, dbPut } from '../db.js';
+import { getImageCached, dbGet, dbPut } from '../db.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 
 export async function runOCR(imageId) {
   try {
-    const img = await dbGet('images', imageId);
+    const img = await getImageCached(imageId);
     if (!img) { toastError('图片不存在'); return null; }
 
-    // 只使用有实际文字的缓存
     const cached = await dbGet('ocr_cache', imageId);
     if (cached && cached.text && cached.text.trim()) return cached;
 
@@ -61,7 +60,7 @@ export function renderOcrResult(imageId, text, pointId) {
     }
     const textarea = el('textarea', {
       value: text,
-      style: { width: '100%', minHeight: '200px', padding: '12px', fontSize: '15px', border: '1px solid rgba(0,0,0,.1)', borderRadius: '10px' },
+      class: 'ocr-textarea',
     });
     const mask = el('div', { class: 'confirm-mask' }, [
       el('div', { class: 'confirm-box', style: { maxWidth: '560px' } }, [

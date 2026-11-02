@@ -1,6 +1,7 @@
 import { el } from '../utils/dom.js';
 import * as store from '../store.js';
 import { uuid } from '../utils/id.js';
+import { renderColorPicker } from '../ui/colorPicker.js';
 
 const PAPER_STYLES = [
   { id: 'note', label: '📄 便签', bg: '#FDF6E3' },
@@ -15,7 +16,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
   const ctx = canvas.getContext('2d');
   let papers = store.getPaper(imageId);
   let selected = null;
-  let editingText = null; // 正在编辑文字的纸张
 
   function redraw() {
     ctx.clearRect(0, 0, W, H);
@@ -81,7 +81,10 @@ export function createPaperLayer(canvas, W, H, imageId) {
       const tx = p.textStyle?.align === 'center' ? p.w / 2 : p.textStyle?.align === 'right' ? p.w - 12 : 12;
       const lines = wrapText(ctx, p.text, p.w - 24);
       lines.forEach((line, i) => {
-        ctx.fillText(line, tx, fs + 8 + i * (fs + 4));
+        lines.forEach((line, i) => {
+          const displayLine = line.replace(/ /g, '\u00A0');
+          ctx.fillText(displayLine, tx, fs + 8 + i * (fs + 4));
+        });
       });
     }
 
@@ -192,7 +195,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
       store.savePaper(imageId, papers);
       redraw();
     },
-    // 拖拽调整大小
     startResize(handle, startX, startY) {
       if (!selected) return null;
       const orig = { x: selected.x, y: selected.y, w: selected.w, h: selected.h };
@@ -208,9 +210,7 @@ export function createPaperLayer(canvas, W, H, imageId) {
           selected.x = x; selected.y = y; selected.w = w; selected.h = h;
           redraw();
         },
-        end() {
-          store.savePaper(imageId, papers);
-        },
+        end() { store.savePaper(imageId, papers); },
       };
     },
     redraw,
@@ -221,7 +221,6 @@ export function createPaperLayer(canvas, W, H, imageId) {
 export function renderPaperToolbar(paperLayer) {
   const bar = el('div', { class: 'paper-toolbar' });
 
-  // 样式
   bar.appendChild(el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '样式' }),
     ...PAPER_STYLES.map(s => el('button', {
@@ -233,20 +232,14 @@ export function renderPaperToolbar(paperLayer) {
     })),
   ]));
 
-  // 自定义颜色
-  const colorInput = el('input', {
-    type: 'color', value: '#FFFFFF',
-    style: { width: '32px', height: '32px', border: 'none', background: 'transparent', cursor: 'pointer' },
-    onInput: (e) => {
-      paperLayer.setStyle({ bgColor: e.target.value });
-    },
-  });
   bar.appendChild(el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '背景色' }),
-    colorInput,
+    renderColorPicker({
+      current: '#FFFFFF',
+      onChange: (c) => paperLayer.setStyle({ bgColor: c }),
+    }),
   ]));
 
-  // 文字样式
   bar.appendChild(el('div', { class: 'tape-row' }, [
     el('span', { class: 'tape-label', text: '文字' }),
     el('button', {
@@ -266,17 +259,15 @@ export function renderPaperToolbar(paperLayer) {
         if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, fontSize: Number(e.target.value) } });
       },
     }),
-    el('input', {
-      type: 'color', value: '#2B2D42',
-      style: { width: '32px', height: '32px', border: 'none', background: 'transparent', cursor: 'pointer' },
-      onInput: (e) => {
+    renderColorPicker({
+      current: '#2B2D42',
+      onChange: (c) => {
         const sel = paperLayer.getSelected();
-        if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, color: e.target.value } });
+        if (sel) paperLayer.setStyle({ textStyle: { ...sel.textStyle, color: c } });
       },
     }),
   ]));
 
-  // 操作
   bar.appendChild(el('div', { class: 'tape-row' }, [
     el('button', { class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => paperLayer.duplicateSelected() }),
     el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: () => paperLayer.removeSelected() }),

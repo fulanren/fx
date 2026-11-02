@@ -6,7 +6,7 @@ import { toastSuccess, toastError } from '../ui/toast.js';
 import { confirmBox } from '../ui/confirm.js';
 import { mergeModal } from '../ui/mergeModal.js';
 import { makeSortable } from '../ui/sortable.js';
-import { dbGet } from '../db.js';
+import { getImageCached } from '../db.js';
 
 // ============ 导出格式选择菜单 ============
 function showExportMenu(scope, id) {

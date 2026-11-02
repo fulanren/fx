@@ -1,7 +1,7 @@
 import { el } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
-import { dbPut } from '../db.js';
+import { putImageCached } from '../db.js';
 import { uuid } from '../utils/id.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 
@@ -144,7 +144,7 @@ async function renderPageToImage(page, pageNum, pointId) {
   await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
   const blob = await new Promise(r => c.toBlob(r, 'image/png'));
   const imageId = uuid();
-  await dbPut('images', {
+  await putImageCached({
     id: imageId, type: 'original',
     originalBlob: blob, annotatedBlob: blob,
     width: c.width, height: c.height, dpr: 2,

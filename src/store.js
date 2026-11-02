@@ -591,3 +591,41 @@ export function getAttachments(entity, entityId) {
   const item = read(key).find(x => x.id === entityId);
   return item?.attachments || [];
 }
+
+export function getTextItems(imageId) {
+  try { return JSON.parse(localStorage.getItem(`kg_text_${imageId}`) || '[]'); }
+  catch { return []; }
+}
+export function saveTextItems(imageId, items) {
+  try { localStorage.setItem(`kg_text_${imageId}`, JSON.stringify(items)); return true; }
+  catch { return false; }
+}
+
+// ============ 文字对象 ============
+export function getTextItems(imageId) {
+  try { return JSON.parse(localStorage.getItem(`kg_text_${imageId}`) || '[]'); }
+  catch { return []; }
+}
+export function saveTextItems(imageId, items) {
+  try { localStorage.setItem(`kg_text_${imageId}`, JSON.stringify(items)); return true; }
+  catch { return false; }
+}
+export function deleteTextItems(imageId) {
+  localStorage.removeItem(`kg_text_${imageId}`);
+}
+
+// ============ 图层顺序 ============
+const LAYER_ORDER_KEY = 'kg_layer_order';
+
+export function getLayerOrder() {
+  try {
+    const v = JSON.parse(localStorage.getItem(LAYER_ORDER_KEY) || 'null');
+    if (Array.isArray(v) && v.length === 5) return v;
+  } catch {}
+  return ['base', 'paper', 'stroke', 'text', 'tape'];
+}
+
+export function saveLayerOrder(order) {
+  try { localStorage.setItem(LAYER_ORDER_KEY, JSON.stringify(order)); return true; }
+  catch { return false; }
+}

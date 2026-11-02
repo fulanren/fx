@@ -1,7 +1,7 @@
 import { el, clear } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
-import { dbGet, dbPut } from '../db.js';
+import { getImageCached, putImageCached } from '../db.js';
 import { uuid } from '../utils/id.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 
@@ -31,10 +31,10 @@ export function renderComposer({ params, query }) {
   let bg = '#FFFFFF';
   let showIndex = true;
 
-  const preview = el('canvas', { style: { width: '100%', maxWidth: '500px', background: '#f0f0f0', borderRadius: '8px' } });
+  const preview = el('canvas', { class: 'compose-preview' });
   const previewCtx = preview.getContext('2d');
 
-  const styleRow = el('div', { class: 'tape-row' }, [
+  const styleRow = el('div', { class: 'compose-row' }, [
     el('span', { class: 'tape-label', text: '样式' }),
     ...STYLES.map(s => el('button', {
       class: 'tape-chip' + (s.id === style ? ' active' : ''),
@@ -64,13 +64,13 @@ export function renderComposer({ params, query }) {
   });
 
   view.appendChild(styleRow);
-  view.appendChild(el('div', { class: 'tape-row' }, [
+  view.appendChild(el('div', { class: 'compose-row' }, [
     el('span', { class: 'tape-label', text: '宽度' }), widthInput,
   ]));
-  view.appendChild(el('div', { class: 'tape-row' }, [
+  view.appendChild(el('div', { class: 'compose-row' }, [
     el('span', { class: 'tape-label', text: '间距' }), gapInput,
   ]));
-  view.appendChild(el('div', { class: 'tape-row' }, [
+  view.appendChild(el('div', { class: 'compose-row' }, [
     el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [indexCheck, '显示序号']),
   ]));
   view.appendChild(el('div', { style: { margin: '16px 0', textAlign: 'center' } }, [preview]));
@@ -90,9 +90,10 @@ export function renderComposer({ params, query }) {
     const ids = [...(point.imageIds || []), ...(point.compositeImageIds || [])];
     const result = [];
     for (const id of ids) {
-      const img = await dbGet('images', id);
+      const img = await getImageCached(id);
       if (!img) continue;
       const blob = img.annotatedBlob || img.originalBlob;
+      if (!blob) continue;
       const url = URL.createObjectURL(blob);
       const im = new Image();
       im.src = url;
@@ -143,7 +144,6 @@ export function renderComposer({ params, query }) {
       return { width, height: rowY, items };
     }
     if (style === 'a4') {
-      // 简化：A4 纵向，每页一张，按比例缩放
       const A4W = width;
       const A4H = Math.round(width * 1.414);
       let pageY = 0;
@@ -220,7 +220,7 @@ export function renderComposer({ params, query }) {
       });
       const blob = await new Promise(r => c.toBlob(r, 'image/png'));
       const newId = uuid();
-      await dbPut('images', {
+      await putImageCached({
         id: newId,
         type: 'composite',
         blob,

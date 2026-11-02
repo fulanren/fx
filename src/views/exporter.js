@@ -1,5 +1,5 @@
 import * as store from '../store.js';
-import { dbGet } from '../db.js';
+import { getImageCached } from '../db.js';
 import { fmtDate } from '../utils/date.js';
 
 // ============ 收集数据 ============
@@ -37,7 +37,7 @@ async function collectImages(points) {
   for (const p of points) {
     const ids = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
     for (const id of ids) {
-      const img = await dbGet('images', id);
+      const img = await getImageCached(id);
       if (!img) continue;
       const blob = img.annotatedBlob || img.originalBlob;
       if (!blob) continue;
@@ -343,6 +343,7 @@ export async function exportFullBackup(options = {}) {
         imgFolder.file(`${img.id}_original.png`, img.originalBlob);
       }
       if (img.strokeBlob) imgFolder.file(`${img.id}_stroke.png`, img.strokeBlob);
+      if (img.paperStrokeBlob) imgFolder.file(`${img.id}_paperstroke.png`, img.paperStrokeBlob);
     }
   }
 
@@ -530,7 +531,7 @@ export async function importFullBackup(file, mode = 'merge') {
     });
   }
 
-  const { dbPut, dbGet } = await import('../db.js');
+  const { putImageCached, getImageCached } = await import('../db.js');
   const imgFolder = zip.folder('images');
   if (imgFolder) {
     const files = Object.keys(zip.files).filter(f => f.startsWith('images/') && f.endsWith('.png'));
@@ -540,13 +541,15 @@ export async function importFullBackup(file, mode = 'merge') {
         const name = f.replace('images/', '').replace('.png', '');
         const isOriginal = name.endsWith('_original');
         const isStroke = name.endsWith('_stroke');
-        const id = name.replace('_annotated', '').replace('_original', '').replace('_stroke', '');
-        const existing = await dbGet('images', id);
+        const isPaperStroke = name.endsWith('_paperstroke');
+        const id = name.replace('_annotated', '').replace('_original', '').replace('_stroke', '').replace('_paperstroke', '');
+        const existing = await getImageCached(id);
         const record = existing || { id, width: 0, height: 0, createdAt: new Date().toISOString() };
         if (isOriginal) record.originalBlob = blob;
         else if (isStroke) record.strokeBlob = blob;
+        else if (isPaperStroke) record.paperStrokeBlob = blob;
         else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
-        await dbPut('images', record);
+        await putImageCached(record);
         stats.images++;
       } catch (err) { console.warn('图片导入失败:', f, err); }
     }

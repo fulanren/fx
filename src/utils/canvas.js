@@ -24,19 +24,38 @@ export function drawArrow(ctx, x1, y1, x2, y2, color, width) {
   ctx.fillStyle = color;
   ctx.lineWidth = width;
   ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const dx = x2 - x1;
+  const dy = y2 - y1;
+  const len = Math.hypot(dx, dy);
+  if (len < 1) { ctx.restore(); return; }
+
+  const headLen = Math.max(16, width * 4.5);
+  const headW = Math.max(11, width * 3.2);
+  const angle = Math.atan2(dy, dx);
+
+  const bodyEndX = x2 - Math.cos(angle) * headLen * 0.82;
+  const bodyEndY = y2 - Math.sin(angle) * headLen * 0.82;
+
   ctx.beginPath();
   ctx.moveTo(x1, y1);
-  ctx.lineTo(x2, y2);
+  ctx.lineTo(bodyEndX, bodyEndY);
   ctx.stroke();
-  const angle = Math.atan2(y2 - y1, x2 - x1);
-  const headLen = Math.max(16, width * 4);
-  const headAngle = Math.PI / 7;
+
   ctx.beginPath();
   ctx.moveTo(x2, y2);
-  ctx.lineTo(x2 - headLen * Math.cos(angle - headAngle), y2 - headLen * Math.sin(angle - headAngle));
-  ctx.lineTo(x2 - headLen * Math.cos(angle + headAngle), y2 - headLen * Math.sin(angle + headAngle));
+  ctx.lineTo(
+    x2 - Math.cos(angle) * headLen + Math.cos(angle + Math.PI / 2) * headW / 2,
+    y2 - Math.sin(angle) * headLen + Math.sin(angle + Math.PI / 2) * headW / 2
+  );
+  ctx.lineTo(
+    x2 - Math.cos(angle) * headLen - Math.cos(angle + Math.PI / 2) * headW / 2,
+    y2 - Math.sin(angle) * headLen - Math.sin(angle + Math.PI / 2) * headW / 2
+  );
   ctx.closePath();
   ctx.fill();
+
   ctx.restore();
 }
 

@@ -3,6 +3,7 @@ import * as store from '../store.js';
 import { setTheme } from '../ui/theme.js';
 import { exportFullBackup, importFullBackup } from './exporter.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
+import { clearImageCache } from '../db.js';
 
 export function renderSettings() {
   const view = document.getElementById('view');
@@ -172,6 +173,7 @@ function importBackupDialog() {
                 mask.remove();
                 try {
                   const stats = await importFullBackup(file, 'merge');
+                  clearImageCache();
                   const msg = `导入完成：任务 ${stats.tasks}，章节 ${stats.chapters}，知识点 ${stats.points}，图片 ${stats.images}，录音 ${stats.audios}` +
                     (stats.skippedPoints > 0 ? `（跳过 ${stats.skippedPoints} 个孤儿知识点）` : '');
                   toastSuccess(msg);
@@ -186,6 +188,7 @@ function importBackupDialog() {
                 mask.remove();
                 try {
                   const stats = await importFullBackup(file, 'overwrite');
+                  clearImageCache();
                   toastSuccess(`覆盖导入完成：${stats.tasks} 任务，${stats.chapters} 章节，${stats.points} 知识点`);
                   setTimeout(() => location.reload(), 1500);
                 } catch (err) { toastError('导入失败：' + err.message); }
