@@ -310,7 +310,7 @@ function pointCard(p, chapterId) {
         style: { width: '80px', height: '80px', borderRadius: '6px', overflow: 'hidden', background: '#f0f0f0', cursor: 'pointer', flexShrink: '0', position: 'relative' },
         onClick: async (e) => {
           e.stopPropagation();
-          const img = await dbGet('images', imageId);
+          const img = await getImageCached(imageId);
           if (!img) return;
 
           const mask = el('div', { class: 'confirm-mask' }, [
@@ -360,7 +360,7 @@ function pointCard(p, chapterId) {
           document.body.appendChild(mask);
         },
       });
-      dbGet('images', imageId).then(img => {
+      getImageCached(imageId).then(img => {
         if (!img) return;
         const blob = img.annotatedBlob || img.originalBlob;
         if (!blob) return;

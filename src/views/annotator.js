@@ -554,31 +554,95 @@ export function renderAnnotator({ params, query }) {
 
     // ============ 扩展画布 ============
     function openExpandDialog() {
+      const papers = paperLayer.getPapers();
+
+      const paperSelectField = el('div', {
+        class: 'field',
+        id: 'paper-select-field',
+        style: { display: 'none' },
+      }, [
+        el('label', { text: '选择纸张' }),
+        el('select', { id: 'expand-paper-id' },
+          papers.length > 0
+            ? papers.map((p, i) => el('option', {
+                value: p.id,
+                text: `纸张 ${i + 1}（${Math.round(p.w)}×${Math.round(p.h)}）`,
+              }))
+            : [el('option', { value: '', text: '还没有纸张' })]
+        ),
+      ]);
+
+      const previewText = el('div', {
+        id: 'expand-preview',
+        style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px' },
+        text: `即将扩展为：${W} × ${H} px`,
+      });
+
+      function updatePreview() {
+        const dir = document.getElementById('expand-dir').value;
+        const target = document.getElementById('expand-target').value;
+        let px = Math.max(50, Math.min(2000, Number(document.getElementById('expand-px').value) || 200));
+        let newW = W, newH = H;
+
+        if (target === 'image') {
+          newW = img.width;
+          newH = img.height;
+        } else if (target === 'pdf') {
+          const A4W = 2480, A4H = 3508;
+          if (dir === 'top' || dir === 'bottom') newH = Math.max(H, A4H);
+          else newW = Math.max(W, A4W);
+        } else if (target === 'paper') {
+          const selId = document.getElementById('expand-paper-id')?.value;
+          const sel = papers.find(p => p.id === selId);
+          if (sel) {
+            if (dir === 'top' || dir === 'bottom') newH = H + Math.round(sel.h);
+            else newW = W + Math.round(sel.w);
+          }
+        } else {
+          if (dir === 'top' || dir === 'bottom') newH = H + px;
+          else newW = W + px;
+        }
+
+        const el2 = document.getElementById('expand-preview');
+        if (el2) el2.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}）`;
+      }
+
+      const dirSelect = el('select', {
+        id: 'expand-dir',
+        onChange: updatePreview,
+      }, [
+        el('option', { value: 'top', text: '↑ 上方' }),
+        el('option', { value: 'bottom', text: '↓ 下方' }),
+        el('option', { value: 'left', text: '← 左侧' }),
+        el('option', { value: 'right', text: '→ 右侧' }),
+      ]);
+
+      const targetSelect = el('select', {
+        id: 'expand-target',
+        onChange: (e) => {
+          paperSelectField.style.display = e.target.value === 'paper' ? 'block' : 'none';
+          updatePreview();
+        },
+      }, [
+        el('option', { value: 'custom', text: '自定义像素' }),
+        el('option', { value: 'image', text: '与图片一致（缩放到原图大小）' }),
+        el('option', { value: 'pdf', text: '与 A4 PDF 一致' }),
+        el('option', { value: 'paper', text: '与纸张一致' }),
+      ]);
+
+      const pxInput = el('input', {
+        type: 'number', id: 'expand-px', value: '200', min: '50', max: '2000',
+        onInput: updatePreview,
+      });
+
       const mask = el('div', { class: 'confirm-mask' }, [
-        el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '380px' } }, [
           el('h3', { text: '扩展画布' }),
-          el('div', { class: 'field' }, [
-            el('label', { text: '方向' }),
-            el('select', { id: 'expand-dir' }, [
-              el('option', { value: 'top', text: '↑ 上方' }),
-              el('option', { value: 'bottom', text: '↓ 下方' }),
-              el('option', { value: 'left', text: '← 左侧' }),
-              el('option', { value: 'right', text: '→ 右侧' }),
-            ]),
-          ]),
-          el('div', { class: 'field' }, [
-            el('label', { text: '扩展到' }),
-            el('select', { id: 'expand-target' }, [
-              el('option', { value: 'custom', text: '自定义像素' }),
-              el('option', { value: 'image', text: '与图片一致（不扩展）' }),
-              el('option', { value: 'pdf', text: '与 A4 PDF 一致' }),
-              el('option', { value: 'paper', text: '与纸张一致' }),
-            ]),
-          ]),
-          el('div', { class: 'field' }, [
-            el('label', { text: '扩展像素' }),
-            el('input', { type: 'number', id: 'expand-px', value: '200', min: '50', max: '2000' }),
-          ]),
+          el('div', { class: 'field' }, [el('label', { text: '方向' }), dirSelect]),
+          el('div', { class: 'field' }, [el('label', { text: '扩展到' }), targetSelect]),
+          paperSelectField,
+          el('div', { class: 'field' }, [el('label', { text: '扩展像素' }), pxInput]),
+          previewText,
           el('div', { class: 'confirm-actions' }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
             el('button', {
@@ -589,28 +653,25 @@ export function renderAnnotator({ params, query }) {
                 let px = Math.max(50, Math.min(2000, Number(document.getElementById('expand-px').value) || 200));
 
                 if (target === 'image') {
-                  const newW = img.width;
-                  const newH = img.height;
-                  if (W === newW && H === newH) {
+                  if (W === img.width && H === img.height) {
                     toastError('当前已是原图大小'); return;
                   }
                   mask.remove();
-                  await doResizeToOriginal(newW, newH);
+                  await doResizeToOriginal(img.width, img.height);
                   return;
                 }
+
                 if (target === 'pdf') {
                   const A4W = 2480, A4H = 3508;
                   if (dir === 'top' || dir === 'bottom') px = A4H - H;
                   else px = A4W - W;
                   if (px <= 0) { toastError('当前尺寸已超过 A4，无需扩展'); return; }
                 } else if (target === 'paper') {
-                  const sel = paperLayer.getSelected();
-                  if (sel) {
-                    if (dir === 'top' || dir === 'bottom') px = Math.max(50, Math.round(sel.h));
-                    else px = Math.max(50, Math.round(sel.w));
-                  } else {
-                    toastError('请先选中一张纸'); return;
-                  }
+                  const selId = document.getElementById('expand-paper-id')?.value;
+                  const sel = papers.find(p => p.id === selId);
+                  if (!sel) { toastError('请先选择纸张'); return; }
+                  if (dir === 'top' || dir === 'bottom') px = Math.max(50, Math.round(sel.h));
+                  else px = Math.max(50, Math.round(sel.w));
                 }
 
                 if (px <= 0) { toastError('无需扩展'); return; }
@@ -622,6 +683,11 @@ export function renderAnnotator({ params, query }) {
         ]),
       ]);
       document.body.appendChild(mask);
+
+      const paperSelect = document.getElementById('expand-paper-id');
+      if (paperSelect) paperSelect.addEventListener('change', updatePreview);
+
+      updatePreview();
     }
 
     function openLayerPanel() {

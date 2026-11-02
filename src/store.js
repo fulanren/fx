@@ -592,15 +592,6 @@ export function getAttachments(entity, entityId) {
   return item?.attachments || [];
 }
 
-export function getTextItems(imageId) {
-  try { return JSON.parse(localStorage.getItem(`kg_text_${imageId}`) || '[]'); }
-  catch { return []; }
-}
-export function saveTextItems(imageId, items) {
-  try { localStorage.setItem(`kg_text_${imageId}`, JSON.stringify(items)); return true; }
-  catch { return false; }
-}
-
 // ============ 文字对象 ============
 export function getTextItems(imageId) {
   try { return JSON.parse(localStorage.getItem(`kg_text_${imageId}`) || '[]'); }
