@@ -103,38 +103,38 @@ export function createTapeLayer(canvas, W, H, imageId) {
       });
     }
 
-        // 自定义花样图案覆盖
-        if (t.pattern === 'custom' && t.patternImageId) {
-          const img = patternImages.get(t.patternImageId);
-          if (img) {
-            ctx.save();
-            ctx.globalCompositeOperation = 'source-atop';
-            const pattern = ctx.createPattern(img, 'repeat');
-            if (pattern) {
-              ctx.fillStyle = pattern;
-              if (t.shape === 'rect') {
-                const p0 = t.points[0], p1 = t.points[t.points.length - 1];
-                ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
-              } else if (t.shape === 'circle') {
-                const p0 = t.points[0], p1 = t.points[t.points.length - 1];
-                const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-                ctx.beginPath();
-                ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
-                ctx.fill();
-              } else {
-                ctx.strokeStyle = pattern;
-                ctx.lineWidth = t.width;
-                ctx.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
-                ctx.lineJoin = 'round';
-                ctx.beginPath();
-                ctx.moveTo(t.points[0].x, t.points[0].y);
-                for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
-                ctx.stroke();
-              }
-            }
-            ctx.restore();
+    // 自定义花样图案覆盖
+    if (t.pattern === 'custom' && t.patternImageId) {
+      const img = patternImages.get(t.patternImageId);
+      if (img) {
+        ctx.save();
+        ctx.globalCompositeOperation = 'source-atop';
+        const pattern = ctx.createPattern(img, 'repeat');
+        if (pattern) {
+          ctx.fillStyle = pattern;
+          if (t.shape === 'rect') {
+            const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+            ctx.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
+          } else if (t.shape === 'circle') {
+            const p0 = t.points[0], p1 = t.points[t.points.length - 1];
+            const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+            ctx.beginPath();
+            ctx.arc(p0.x, p0.y, r, 0, Math.PI * 2);
+            ctx.fill();
+          } else {
+            ctx.strokeStyle = pattern;
+            ctx.lineWidth = t.width;
+            ctx.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
+            ctx.lineJoin = 'round';
+            ctx.beginPath();
+            ctx.moveTo(t.points[0].x, t.points[0].y);
+            for (let i = 1; i < t.points.length; i++) ctx.lineTo(t.points[i].x, t.points[i].y);
+            ctx.stroke();
           }
         }
+        ctx.restore();
+      }
+    }
     ctx.restore();
   }
 

@@ -29,7 +29,7 @@ async function boot() {
   if (!check.ok) { showStorageError(); return; }
 
   if (navigator.storage?.persist) {
-    try { await navigator.storage.persist(); } catch {}
+    try { await navigator.storage.persist(); } catch { }
   }
 
   cleanExpiredDrafts();
@@ -106,6 +106,8 @@ async function boot() {
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) flushAll();
   });
+  // 【复习提醒初始化】
+  import('./ui/reminder.js').then(({ initReminder }) => initReminder());
 }
 
 function openMoreMenu() {

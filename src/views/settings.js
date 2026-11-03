@@ -5,7 +5,7 @@ import { exportFullBackup, importFullBackup } from './exporter.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 import { clearImageCache } from '../db.js';
 
-export function renderSettings() {
+export async function renderSettings() {
   const view = document.getElementById('view');
   clear(view);
   document.getElementById('page-title').textContent = '设置';
@@ -44,11 +44,67 @@ export function renderSettings() {
     ]),
   ]));
 
+  // ============ 【复习提醒】加在这里 ============
+  const reminder = (await import('../ui/reminder.js')).getReminder() || { enabled: false, time: '20:00' };
+  const reminderCheckbox = el('input', { type: 'checkbox', checked: reminder.enabled });
+  const reminderTime = el('input', { type: 'time', value: reminder.time || '20:00', style: { width: '120px' } });
+
+  view.appendChild(el('div', { class: 'section' }, [
+    el('div', { class: 'section-head' }, [el('span', { text: '⏰ 复习提醒' })]),
+    el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
+      el('div', { class: 'field' }, [
+        el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+          reminderCheckbox,
+          '每天固定时间提醒我复习',
+        ]),
+      ]),
+      el('div', { class: 'field' }, [
+        el('label', { text: '提醒时间' }),
+        reminderTime,
+      ]),
+      el('button', {
+        class: 'btn btn-sm btn-primary', text: '保存提醒设置',
+        onClick: async () => {
+          const { saveReminder, requestNotificationPermission } = await import('../ui/reminder.js');
+          if (reminderCheckbox.checked) {
+            const ok = await requestNotificationPermission();
+            if (!ok) {
+              toastError('通知权限被拒绝，无法发送提醒');
+              return;
+            }
+          }
+          saveReminder({
+            enabled: reminderCheckbox.checked,
+            time: reminderTime.value || '20:00',
+          });
+          toastSuccess('提醒设置已保存');
+        },
+      }),
+    ]),
+  ]));
+
   // 存储用量
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '存储用量' })]),
     el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
       el('div', { id: 'storage-info', style: { fontSize: '13px', color: 'var(--text-2)' }, text: '计算中…' }),
+    ]),
+  ]));
+
+  view.appendChild(el('div', { class: 'section' }, [
+    el('div', { class: 'section-head' }, [el('span', { text: '📄 PDF 模板' })]),
+    el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
+      el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' } },
+        ['下载模板，按模板整理资料，导入识别准确率更高']),
+      el('button', {
+        class: 'btn btn-primary', text: '📄 下载 PDF 模板',
+        onClick: async () => {
+          try {
+            const { downloadPdfTemplate } = await import('./pdfTemplate.js');
+            downloadPdfTemplate();
+          } catch (e) { toastError('模板下载失败：' + e.message); }
+        },
+      }),
     ]),
   ]));
 
@@ -171,27 +227,67 @@ function importBackupDialog() {
               class: 'btn btn-ghost', text: '合并导入',
               onClick: async () => {
                 mask.remove();
+                const progressContainer = el('div', { style: { position: 'fixed', top: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--card)', padding: '16px', borderRadius: '12px', boxShadow: 'var(--shadow-lg)', zIndex: '999', width: '80%', maxWidth: '400px' } }, [
+                  el('div', { style: { fontWeight: '600', marginBottom: '12px' }, text: '正在导入…' }),
+                  el('div', { style: { height: '6px', background: 'rgba(0,0,0,.1)', borderRadius: '3px', overflow: 'hidden' } }, [
+                    el('div', { id: 'import-progress-fill', style: { height: '100%', width: '0%', background: 'var(--primary)', transition: 'width .2s' } }),
+                  ]),
+                  el('div', { id: 'import-progress-text', style: { fontSize: '12px', color: 'var(--text-2)', textAlign: 'center', marginTop: '8px' }, text: '准备中…' }),
+                ]);
+                document.body.appendChild(progressContainer);
                 try {
-                  const stats = await importFullBackup(file, 'merge');
+                  const stats = await importFullBackup(file, 'merge', (done, total, label) => {
+                    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+                    const fill = document.getElementById('import-progress-fill');
+                    const text = document.getElementById('import-progress-text');
+                    if (fill) fill.style.width = pct + '%';
+                    if (text) text.textContent = `${label}（${done}/${total}）`;
+                  });
                   clearImageCache();
-                  const msg = `导入完成：任务 ${stats.tasks}，章节 ${stats.chapters}，知识点 ${stats.points}，图片 ${stats.images}，录音 ${stats.audios}` +
-                    (stats.skippedPoints > 0 ? `（跳过 ${stats.skippedPoints} 个孤儿知识点）` : '');
+                  progressContainer.remove();
+                  const msg = `导入完成：任务 ${stats.tasks}，章节 ${stats.chapters}，知识点 ${stats.points}，图片 ${stats.images}，录音 ${stats.audios}`;
                   toastSuccess(msg);
                   setTimeout(() => location.reload(), 1500);
-                } catch (err) { toastError('导入失败：' + err.message); }
+                } catch (err) {
+                  progressContainer.remove();
+                  toastError('导入失败：' + err.message);
+                }
               },
             }),
+            // 【覆盖全部】先清空现有数据，再导入
             el('button', {
               class: 'btn btn-danger', text: '覆盖全部',
               onClick: async () => {
                 if (!confirm('覆盖会清空现有数据，确定吗？')) return;
                 mask.remove();
+                // 创建进度条容器
+                const progressContainer = el('div', {
+                  style: { position: 'fixed', top: '80px', left: '50%', transform: 'translateX(-50%)', background: 'var(--card)', padding: '16px', borderRadius: '12px', boxShadow: 'var(--shadow-lg)', zIndex: '999', width: '80%', maxWidth: '400px' },
+                }, [
+                  el('div', { style: { fontWeight: '600', marginBottom: '12px' }, text: '正在导入…' }),
+                  el('div', { style: { height: '6px', background: 'rgba(0,0,0,.1)', borderRadius: '3px', overflow: 'hidden' } }, [
+                    el('div', { id: 'import-progress-fill', style: { height: '100%', width: '0%', background: 'var(--primary)', transition: 'width .2s' } }),
+                  ]),
+                  el('div', { id: 'import-progress-text', style: { fontSize: '12px', color: 'var(--text-2)', textAlign: 'center', marginTop: '8px' }, text: '准备中…' }),
+                ]);
+                document.body.appendChild(progressContainer);
                 try {
-                  const stats = await importFullBackup(file, 'overwrite');
+                  // mode = 'overwrite'，进度回调同「合并导入」
+                  const stats = await importFullBackup(file, 'overwrite', (done, total, label) => {
+                    const pct = total > 0 ? Math.round(done / total * 100) : 0;
+                    const fill = document.getElementById('import-progress-fill');
+                    const text = document.getElementById('import-progress-text');
+                    if (fill) fill.style.width = pct + '%';
+                    if (text) text.textContent = `${label}（${done}/${total}）`;
+                  });
                   clearImageCache();
+                  progressContainer.remove();
                   toastSuccess(`覆盖导入完成：${stats.tasks} 任务，${stats.chapters} 章节，${stats.points} 知识点`);
                   setTimeout(() => location.reload(), 1500);
-                } catch (err) { toastError('导入失败：' + err.message); }
+                } catch (err) {
+                  progressContainer.remove();
+                  toastError('导入失败：' + err.message);
+                }
               },
             }),
           ]),

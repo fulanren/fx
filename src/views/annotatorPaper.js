@@ -168,7 +168,7 @@ export function createPaperLayer(canvas, W, H, imageId) {
     ctx.setLineDash([4, 4]);
     ctx.strokeRect(0, 0, p.w, p.h);
     ctx.setLineDash([]);
-    [[0,0],[p.w/2,0],[p.w,0],[p.w,p.h/2],[p.w,p.h],[p.w/2,p.h],[0,p.h],[0,p.h/2]].forEach(([x, y]) => {
+    [[0, 0], [p.w / 2, 0], [p.w, 0], [p.w, p.h / 2], [p.w, p.h], [p.w / 2, p.h], [0, p.h], [0, p.h / 2]].forEach(([x, y]) => {
       ctx.fillStyle = '#fff';
       ctx.strokeStyle = '#3B82F6';
       ctx.fillRect(x - 4, y - 4, 8, 8);

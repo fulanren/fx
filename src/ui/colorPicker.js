@@ -31,49 +31,79 @@ export function renderColorPicker({ current, onChange, allowNone = false }) {
 
     const presets = ['#EF476F', '#F78C6B', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#FFFFFF'];
 
-    let pressTimer = null;
-    let longPressFired = false;
-
     function bindColorDot(dot, color, isFav) {
         let pressTimer = null;
         let longPressFired = false;
-    
+
         dot.addEventListener('pointerdown', () => {
-          longPressFired = false;
-          pressTimer = setTimeout(() => {
-            longPressFired = true;
-            if (isFav) {
-              if (confirm(`取消收藏颜色 ${color}？`)) {
-                removeFavColor(color);
-                refresh();
-              }
-            } else {
-              if (confirm(`收藏颜色 ${color}？`)) {
-                addFavColor(color);
-                refresh();
-              }
-            }
-          }, 600);
+            longPressFired = false;
+            pressTimer = setTimeout(() => {
+                longPressFired = true;
+                if (isFav) {
+                    if (confirm(`取消收藏颜色 ${color}？`)) {
+                        removeFavColor(color);
+                        refresh();
+                    }
+                } else {
+                    if (confirm(`收藏颜色 ${color}？`)) {
+                        addFavColor(color);
+                        refresh();
+                    }
+                }
+            }, 600);
         });
         dot.addEventListener('pointerup', () => {
-          clearTimeout(pressTimer);
-          if (!longPressFired) {
-            current = color;
-            onChange(color);
-            refresh();
-          }
+            clearTimeout(pressTimer);
+            if (!longPressFired) {
+                current = color;
+                onChange(color);
+                refresh();
+            }
         });
         dot.addEventListener('pointerleave', () => clearTimeout(pressTimer));
         dot.addEventListener('contextmenu', (e) => {
-          e.preventDefault();
-          if (longPressFired) { longPressFired = false; return; }
-          if (isFav) {
-            if (confirm(`取消收藏颜色 ${color}？`)) { removeFavColor(color); refresh(); }
-          } else {
-            if (confirm(`收藏颜色 ${color}？`)) { addFavColor(color); refresh(); }
-          }
+            e.preventDefault();
+            if (longPressFired) { longPressFired = false; return; }
+            if (isFav) {
+                if (confirm(`取消收藏颜色 ${color}？`)) { removeFavColor(color); refresh(); }
+            } else {
+                if (confirm(`收藏颜色 ${color}？`)) { addFavColor(color); refresh(); }
+            }
         });
-      }
+    }
+
+    function openFavManager() {
+        const favs = getFavColors();
+        const selected = new Set();
+        const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } },
+            favs.length > 0
+                ? favs.map(c => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px', cursor: 'pointer' } }, [
+                    el('input', { type: 'checkbox', onChange: (e) => { if (e.target.checked) selected.add(c); else selected.delete(c); } }),
+                    el('span', { style: { width: '24px', height: '24px', borderRadius: '50%', background: c, border: '1px solid rgba(0,0,0,.1)', flexShrink: '0' } }),
+                    el('span', { style: { fontSize: '12px' }, text: c }),
+                ]))
+                : [el('div', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: '还没有收藏颜色' })]
+        );
+        const mask = el('div', { class: 'confirm-mask' }, [
+            el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+                el('h3', { text: '管理收藏颜色' }),
+                list,
+                el('div', { class: 'confirm-actions' }, [
+                    el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+                    el('button', {
+                        class: 'btn btn-danger', text: '删除选中',
+                        onClick: () => {
+                            if (selected.size === 0) { alert('请先勾选'); return; }
+                            selected.forEach(c => removeFavColor(c));
+                            mask.remove();
+                            refresh();
+                        },
+                    }),
+                ]),
+            ]),
+        ]);
+        document.body.appendChild(mask);
+    }
 
     function refresh() {
         wrap.innerHTML = '';
@@ -82,6 +112,7 @@ export function renderColorPicker({ current, onChange, allowNone = false }) {
         const presetRow = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' } });
         presets.forEach(c => {
             const dot = el('button', {
+                type: 'button',
                 style: { width: '28px', height: '28px', borderRadius: '50%', background: c, border: c === current ? '3px solid var(--primary-dark)' : '2px solid rgba(0,0,0,.1)', cursor: 'pointer', flexShrink: '0' },
             });
             bindColorDot(dot, c, false);
@@ -97,11 +128,18 @@ export function renderColorPicker({ current, onChange, allowNone = false }) {
             ]);
             favs.forEach(c => {
                 const dot = el('button', {
+                    type: 'button',
                     style: { width: '28px', height: '28px', borderRadius: '50%', background: c, border: c === current ? '3px solid var(--primary-dark)' : '2px solid rgba(0,0,0,.1)', cursor: 'pointer', flexShrink: '0' },
                 });
                 bindColorDot(dot, c, true);
                 favRow.appendChild(dot);
             });
+            favRow.appendChild(el('button', {
+                type: 'button',
+                class: 'btn btn-sm btn-ghost', text: '管理',
+                style: { fontSize: '11px', padding: '2px 8px', minHeight: '24px', marginLeft: '4px' },
+                onClick: () => openFavManager(),
+            }));
             wrap.appendChild(favRow);
         }
 
@@ -124,6 +162,7 @@ export function renderColorPicker({ current, onChange, allowNone = false }) {
 
         if (allowNone) {
             const noneBtn = el('button', {
+                type: 'button',
                 style: { width: '28px', height: '28px', borderRadius: '50%', background: 'linear-gradient(45deg, #fff 25%, #eee 25%, #eee 50%, #fff 50%, #fff 75%, #eee 75%)', backgroundSize: '8px 8px', border: current === 'none' ? '3px solid var(--primary-dark)' : '2px solid rgba(0,0,0,.1)', cursor: 'pointer', flexShrink: '0' },
                 title: '无色',
                 onClick: () => { current = 'none'; onChange('none'); refresh(); },

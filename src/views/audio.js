@@ -90,7 +90,7 @@ export function createRecorder({ onTick, onWave, onStop }) {
           startMs: (chunks.length - 1) * 5000,
           endMs: chunks.length * 5000,
         });
-      } catch {}
+      } catch { }
     };
     mediaRecorder.start(5000);
     startTime = performance.now();
@@ -126,8 +126,8 @@ export function createRecorder({ onTick, onWave, onStop }) {
     return new Promise((resolve) => {
       mediaRecorder.onstop = async () => {
         cancelAnimationFrame(rafId);
-        try { stream.getTracks().forEach(t => t.stop()); } catch {}
-        try { audioContext?.close(); } catch {}
+        try { stream.getTracks().forEach(t => t.stop()); } catch { }
+        try { audioContext?.close(); } catch { }
         const blob = new Blob(chunks, { type: mimeType });
         const durationMs = pausedMs + (performance.now() - startTime);
         await dbPut('audios', {
@@ -172,7 +172,7 @@ export function removeAudio(id, pointId) {
     const p = store.getPoint(pointId);
     if (p) store.updatePoint(pointId, { audioIds: (p.audioIds || []).filter(x => x !== id) });
   }
-  dbDelete('audios', id).catch(() => {});
+  dbDelete('audios', id).catch(() => { });
 }
 
 // ============ 录音弹窗 ============
@@ -194,42 +194,48 @@ export function audioRecorderModal({ pointId, chapterId, name }) {
     const recorder = createRecorder({
       onTick: (ms) => { timeLabel.textContent = formatMs(ms); },
       onWave: drawWave,
-      onStop: () => {},
+      onStop: () => { },
     });
 
-    const btnRecord = el('button', { class: 'btn btn-primary', text: '🎙 开始录音', onClick: async () => {
-      if (!recording) {
-        const ok = await recorder.start();
-        if (!ok) return;
-        recording = true;
-        btnRecord.textContent = '⏸ 暂停';
-        btnStop.classList.remove('hidden');
-      } else {
-        if (paused) { recorder.resume(); paused = false; btnRecord.textContent = '⏸ 暂停'; }
-        else { recorder.pause(); paused = true; btnRecord.textContent = '▶ 继续'; }
+    const btnRecord = el('button', {
+      class: 'btn btn-primary', text: '🎙 开始录音', onClick: async () => {
+        if (!recording) {
+          const ok = await recorder.start();
+          if (!ok) return;
+          recording = true;
+          btnRecord.textContent = '⏸ 暂停';
+          btnStop.classList.remove('hidden');
+        } else {
+          if (paused) { recorder.resume(); paused = false; btnRecord.textContent = '⏸ 暂停'; }
+          else { recorder.pause(); paused = true; btnRecord.textContent = '▶ 继续'; }
+        }
       }
-    } });
+    });
 
-    const btnStop = el('button', { class: 'btn btn-danger hidden', text: '⏹ 停止并保存', onClick: async () => {
-      const result = await recorder.stop();
-      if (result) {
-        await dbPut('audios', {
-          id: result.id, pointId, chapterId,
-          blob: result.blob, mimeType: result.mimeType, durationMs: result.durationMs,
-          createdAt: new Date().toISOString(),
-        });
-        saveAudioMeta({ id: result.id, pointId, chapterId, name: name || '录音', mimeType: result.mimeType, durationMs: result.durationMs });
-        toastSuccess('已保存录音');
+    const btnStop = el('button', {
+      class: 'btn btn-danger hidden', text: '⏹ 停止并保存', onClick: async () => {
+        const result = await recorder.stop();
+        if (result) {
+          await dbPut('audios', {
+            id: result.id, pointId, chapterId,
+            blob: result.blob, mimeType: result.mimeType, durationMs: result.durationMs,
+            createdAt: new Date().toISOString(),
+          });
+          saveAudioMeta({ id: result.id, pointId, chapterId, name: name || '录音', mimeType: result.mimeType, durationMs: result.durationMs });
+          toastSuccess('已保存录音');
+          mask.remove();
+          resolve(true);
+        }
+      }
+    });
+
+    const btnCancel = el('button', {
+      class: 'btn btn-ghost', text: '取消', onClick: async () => {
+        if (recording) { try { await recorder.stop(); } catch { } }
         mask.remove();
-        resolve(true);
+        resolve(false);
       }
-    } });
-
-    const btnCancel = el('button', { class: 'btn btn-ghost', text: '取消', onClick: async () => {
-      if (recording) { try { await recorder.stop(); } catch {} }
-      mask.remove();
-      resolve(false);
-    } });
+    });
 
     const mask = el('div', { class: 'confirm-mask' }, [
       el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
@@ -258,18 +264,22 @@ export function renderAudioList(audios, onRemove) {
       style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: '#f9f9f9', borderRadius: '6px', marginBottom: '4px' },
     });
     item.appendChild(el('span', { text: `🎙 ${a.name || '录音'} · ${formatMs(a.durationMs)}` }));
-    item.appendChild(el('button', { class: 'btn btn-sm btn-ghost', text: '▶ 播放', onClick: async () => {
-      const audio = await dbGet('audios', a.id);
-      if (!audio) { toastError('音频不存在'); return; }
-      const url = URL.createObjectURL(audio.blob);
-      new Audio(url).play();
-    } }));
-    item.appendChild(el('button', { class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
-      if (await confirmBox({ title: '删除录音', message: '删除后无法恢复', danger: true, confirmText: '删除' })) {
-        removeAudio(a.id, a.pointId);
-        onRemove && onRemove();
+    item.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost', text: '▶ 播放', onClick: async () => {
+        const audio = await dbGet('audios', a.id);
+        if (!audio) { toastError('音频不存在'); return; }
+        const url = URL.createObjectURL(audio.blob);
+        new Audio(url).play();
       }
-    } }));
+    }));
+    item.appendChild(el('button', {
+      class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
+        if (await confirmBox({ title: '删除录音', message: '删除后无法恢复', danger: true, confirmText: '删除' })) {
+          removeAudio(a.id, a.pointId);
+          onRemove && onRemove();
+        }
+      }
+    }));
     list.appendChild(item);
   });
   return list;

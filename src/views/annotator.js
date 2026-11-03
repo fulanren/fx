@@ -614,9 +614,9 @@ export function renderAnnotator({ params, query }) {
         el('select', { id: 'expand-paper-id' },
           papers.length > 0
             ? papers.map((p, i) => el('option', {
-                value: p.id,
-                text: `纸张 ${i + 1}（${Math.round(p.w)}×${Math.round(p.h)}）`,
-              }))
+              value: p.id,
+              text: `纸张 ${i + 1}（${Math.round(p.w)}×${Math.round(p.h)}）`,
+            }))
             : [el('option', { value: '', text: '还没有纸张' })]
         ),
       ]);
@@ -655,20 +655,35 @@ export function renderAnnotator({ params, query }) {
         el('input', { type: 'color', id: 'expand-style-color', value: '#FFFFFF' }),
       ]);
 
+      const styleImageInput = el('input', {
+        type: 'file',
+        id: 'expand-style-image',
+        accept: 'image/*',
+        style: { display: 'none' },
+      });
+      const styleImageName = el('span', {
+        id: 'expand-style-image-name',
+        style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px' },
+        text: '未选择',
+      });
+      styleImageInput.onchange = () => {
+        styleImageName.textContent = styleImageInput.files?.[0]?.name || '未选择';
+      };
       const styleImageField = el('div', {
         class: 'field',
         id: 'expand-style-image-field',
         style: { display: 'none' },
       }, [
         el('label', { text: '自定义图片' }),
-        el('input', { type: 'file', id: 'expand-style-image', accept: 'image/*' }),
+        el('button', {
+          type: 'button',
+          class: 'btn btn-sm btn-ghost',
+          text: '📁 选择图片',
+          onClick: () => styleImageInput.click(),
+        }),
+        styleImageName,
+        styleImageInput,
       ]);
-
-      const previewText = el('div', {
-        id: 'expand-preview',
-        style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px' },
-        text: `即将扩展为：${W} × ${H} px`,
-      });
 
       const dirSelect = el('select', {
         id: 'expand-dir',
@@ -680,6 +695,24 @@ export function renderAnnotator({ params, query }) {
         el('option', { value: 'right', text: '→ 右侧' }),
       ]);
 
+      let pdfTargetW = 0, pdfTargetH = 0;
+      const pdfFileInput = el('input', { type: 'file', accept: 'application/pdf', style: { display: 'none' } });
+      pdfFileInput.onchange = async () => {
+        const f = pdfFileInput.files?.[0];
+        if (!f) return;
+        if (!window.pdfjsLib) { toastError('PDF.js 未加载'); return; }
+        try {
+          const buf = await f.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+          const page = await pdf.getPage(1);
+          const vp = page.getViewport({ scale: 2 });
+          pdfTargetW = Math.round(vp.width);
+          pdfTargetH = Math.round(vp.height);
+          updatePreview();
+        } catch (e) { toastError('PDF 解析失败：' + e.message); }
+      };
+      document.body.appendChild(pdfFileInput);
+
       const presetSelect = el('select', {
         id: 'expand-preset',
         onChange: (e) => {
@@ -689,6 +722,9 @@ export function renderAnnotator({ params, query }) {
           } else {
             pxInput.disabled = false;
             pxInput.value = '200';
+          }
+          if (e.target.value === 'pdf-file') {
+            pdfFileInput.click();
           }
           updatePreview();
         },
@@ -701,7 +737,24 @@ export function renderAnnotator({ params, query }) {
         el('option', { value: '16:9', text: '16:9（2560×1440）' }),
         el('option', { value: '4:3', text: '4:3（2048×1536）' }),
         el('option', { value: 'original', text: '与图片一致' }),
+        el('option', { value: 'pdf-file', text: '与 PDF 一致（选文件）' }),
       ]);
+
+      pdfFileInput.onchange = async () => {
+        const f = pdfFileInput.files?.[0];
+        if (!f) return;
+        if (!window.pdfjsLib) { toastError('PDF.js 未加载'); return; }
+        try {
+          const buf = await f.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+          const page = await pdf.getPage(1);
+          const vp = page.getViewport({ scale: 2 });
+          pdfTargetW = Math.round(vp.width);
+          pdfTargetH = Math.round(vp.height);
+          updatePreview();
+        } catch (e) { toastError('PDF 解析失败：' + e.message); }
+      };
+      document.body.appendChild(pdfFileInput);
 
       const styleSelect = el('select', {
         id: 'expand-style',
@@ -725,11 +778,6 @@ export function renderAnnotator({ params, query }) {
         onInput: updatePreview,
       });
 
-      const styleImageInput = el('input', {
-        type: 'file', id: 'expand-style-image', accept: 'image/*',
-        onChange: updatePreview,
-      });
-
       const customColorInput = el('input', {
         type: 'color',
         id: 'expand-custom-color',
@@ -750,6 +798,9 @@ export function renderAnnotator({ params, query }) {
         if (preset === 'original') {
           newW = img.width;
           newH = img.height;
+        } else if (preset === 'pdf-file') {
+          newW = pdfTargetW || W;
+          newH = pdfTargetH || H;
         } else if (preset === 'a4') {
           newW = 2480; newH = 3508;
         } else if (preset === 'a3') {
@@ -819,6 +870,13 @@ export function renderAnnotator({ params, query }) {
                   return;
                 }
 
+                if (preset === 'pdf-file') {
+                  if (!pdfTargetW || !pdfTargetH) { toastError('请先选择 PDF 文件'); return; }
+                  mask.remove();
+                  await doExpandToSize(pdfTargetW, pdfTargetH, styleColor);
+                  return;
+                }
+
                 let targetW = W, targetH = H;
                 if (preset === 'a4') { targetW = 2480; targetH = 3508; }
                 else if (preset === 'a3') { targetW = 3508; targetH = 4961; }
@@ -850,7 +908,7 @@ export function renderAnnotator({ params, query }) {
 
 
 
-        function openLayerPanel() {
+    function openLayerPanel() {
       const tempOrder = [...currentLayerOrder];
       const labels = {
         base: '🖼 底图',
@@ -1188,7 +1246,12 @@ export function renderAnnotator({ params, query }) {
           el('div', { class: 'field-row' }, [
             el('div', { class: 'field' }, [
               el('label', { text: '字号' }),
-              el('input', { type: 'number', id: 'text-size', value: '20', min: '10', max: '80' }),
+              (() => {
+                const num = el('input', { type: 'number', id: 'text-size', value: '20', min: '10', max: '80', style: { width: '60px', textAlign: 'center' } });
+                const minus = el('button', { class: 'btn btn-sm btn-ghost', text: '−', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.max(10, Number(num.value) - 1); } });
+                const plus = el('button', { class: 'btn btn-sm btn-ghost', text: '+', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.min(80, Number(num.value) + 1); } });
+                return el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } }, [minus, num, plus]);
+              })(),
             ]),
             el('div', { class: 'field' }, [
               el('label', { text: '字体' }),
@@ -1549,7 +1612,12 @@ export function renderAnnotator({ params, query }) {
         if (sel) {
           sel.x = pt.x - paperDragOffset.dx;
           sel.y = pt.y - paperDragOffset.dy;
-          textLayer.redraw();
+          if (!paperDragOffset._raf) {
+            paperDragOffset._raf = requestAnimationFrame(() => {
+              textLayer.redraw();
+              if (paperDragOffset) paperDragOffset._raf = null;
+            });
+          }
           dirty = true;
         }
         return;
@@ -1643,8 +1711,13 @@ export function renderAnnotator({ params, query }) {
             visible: true,
             erasedPath: [],
           };
-          tapeLayer.redraw();
-          drawTempTape(tapeCanvas, tempTape);
+          if (!window.__tapeRaf) {
+            window.__tapeRaf = requestAnimationFrame(() => {
+              tapeLayer.redraw();
+              drawTempTape(tapeCanvas, tempTape);
+              window.__tapeRaf = null;
+            });
+          }
         }
       } else if (currentTool === 'circle-erase') {
         clearPreview();
@@ -1689,7 +1762,30 @@ export function renderAnnotator({ params, query }) {
           ctx.restore();
         }
         else if (currentTool === 'line') drawLine(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
-        else if (currentTool === 'wave') drawWave(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth, waveAmplitude);
+        else if (currentTool === 'wave') {
+          clearPreview();
+          previewCtx.save();
+          previewCtx.strokeStyle = currentColor;
+          previewCtx.lineWidth = currentWidth;
+          previewCtx.lineCap = 'round';
+          const wdx = pt.x - startPt.x, wdy = pt.y - startPt.y;
+          const wlen = Math.hypot(wdx, wdy);
+          if (wlen < 1) { previewCtx.restore(); return; }
+          const wsteps = Math.max(20, Math.floor(wlen / 4));
+          const wnx = -wdy / wlen, wny = wdx / wlen;
+          previewCtx.beginPath();
+          for (let i = 0; i <= wsteps; i++) {
+            const t = i / wsteps;
+            const baseX = startPt.x + wdx * t;
+            const baseY = startPt.y + wdy * t;
+            const wave = Math.sin(t * Math.PI * 8) * waveAmplitude;
+            const px = baseX + wnx * wave;
+            const py = baseY + wny * wave;
+            if (i === 0) previewCtx.moveTo(px, py); else previewCtx.lineTo(px, py);
+          }
+          previewCtx.stroke();
+          previewCtx.restore();
+        }
       }
       dirty = true;
     });
@@ -1723,6 +1819,7 @@ export function renderAnnotator({ params, query }) {
 
     strokeCanvas.addEventListener('pointerup', async (e) => {
       clearPreview();
+      if (window.__tapeRaf) { cancelAnimationFrame(window.__tapeRaf); window.__tapeRaf = null; }
       pointers.delete(e.pointerId);
 
       if (drawing === 'pan') {
@@ -1749,6 +1846,7 @@ export function renderAnnotator({ params, query }) {
         return;
       }
       if (drawing === 'text-drag') {
+        if (paperDragOffset._raf) { cancelAnimationFrame(paperDragOffset._raf); paperDragOffset._raf = null; }
         textLayer.save();
         drawing = false;
         paperDragOffset = null;
@@ -1768,44 +1866,44 @@ export function renderAnnotator({ params, query }) {
       }
       if (!drawing) return;
 
-            // 画笔结束：把纸张内的笔迹存进纸张
-            if (currentTool === 'pen') {
-              const hitPaper = paperLayer.getPapers().find(p => p._currentStroke);
-              if (hitPaper) {
-                if (!hitPaper.strokes) hitPaper.strokes = [];
-                hitPaper.strokes.push(hitPaper._currentStroke);
-                delete hitPaper._currentStroke;
-                paperLayer.save();
-                paperLayer.redraw();
-              }
-            }
+      // 画笔结束：把纸张内的笔迹存进纸张
+      if (currentTool === 'pen') {
+        const hitPaper = paperLayer.getPapers().find(p => p._currentStroke);
+        if (hitPaper) {
+          if (!hitPaper.strokes) hitPaper.strokes = [];
+          hitPaper.strokes.push(hitPaper._currentStroke);
+          delete hitPaper._currentStroke;
+          paperLayer.save();
+          paperLayer.redraw();
+        }
+      }
 
-            if (currentTool === 'tape') {
-              const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
-              if (hitPaper) {
-                if (!hitPaper.tapes) hitPaper.tapes = [];
-                hitPaper.tapes.push(hitPaper._currentTape);
-                delete hitPaper._currentTape;
-                paperLayer.save();
-                paperLayer.redraw();
-              } else if (points.length >= 2) {
-                const tape = {
-                  id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
-                  points: points,
-                  width: tapeLayer.getWidth(),
-                  pattern: tapeLayer.getPattern(),
-                  patternImageId: tapeLayer.getPatternImageId ? tapeLayer.getPatternImageId() : null,
-                  shape: tapeLayer.getTool(),
-                  color: tapeLayer.getColor(),
-                  visible: true,
-                  erasedPath: [],
-                };
-                if (tape.pattern === 'custom' && tape.patternImageId) {
-                  await tapeLayer.loadPatternImage(tape.patternImageId);
-                }
-                tapeLayer.addTape(tape);
-              }
-            } else if (currentTool === 'circle-erase') {
+      if (currentTool === 'tape') {
+        const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
+        if (hitPaper) {
+          if (!hitPaper.tapes) hitPaper.tapes = [];
+          hitPaper.tapes.push(hitPaper._currentTape);
+          delete hitPaper._currentTape;
+          paperLayer.save();
+          paperLayer.redraw();
+        } else if (points.length >= 2) {
+          const tape = {
+            id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
+            points: points,
+            width: tapeLayer.getWidth(),
+            pattern: tapeLayer.getPattern(),
+            patternImageId: tapeLayer.getPatternImageId ? tapeLayer.getPatternImageId() : null,
+            shape: tapeLayer.getTool(),
+            color: tapeLayer.getColor(),
+            visible: true,
+            erasedPath: [],
+          };
+          if (tape.pattern === 'custom' && tape.patternImageId) {
+            await tapeLayer.loadPatternImage(tape.patternImageId);
+          }
+          tapeLayer.addTape(tape);
+        }
+      } else if (currentTool === 'circle-erase') {
         const pt = canvasToImage(e.clientX, e.clientY);
         if (eraseShape === 'rect') {
           eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
@@ -1816,27 +1914,27 @@ export function renderAnnotator({ params, query }) {
           eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
         }
         tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
-                // 擦纸张内的笔迹和胶带
-                paperLayer.getPapers().forEach(p => {
-                  if (p.x > Math.max(startPt.x, pt.x) || p.x + p.w < Math.min(startPt.x, pt.x) ||
-                      p.y > Math.max(startPt.y, pt.y) || p.y + p.h < Math.min(startPt.y, pt.y)) return;
-                  const minX = Math.min(startPt.x, pt.x) - p.x;
-                  const maxX = Math.max(startPt.x, pt.x) - p.x;
-                  const minY = Math.min(startPt.y, pt.y) - p.y;
-                  const maxY = Math.max(startPt.y, pt.y) - p.y;
-                  if (p.strokes) {
-                    p.strokes = p.strokes.filter(s =>
-                      !s.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
-                    );
-                  }
-                  if (p.tapes) {
-                    p.tapes = p.tapes.filter(t =>
-                      !t.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
-                    );
-                  }
-                });
-                paperLayer.save();
-                paperLayer.redraw();
+        // 擦纸张内的笔迹和胶带
+        paperLayer.getPapers().forEach(p => {
+          if (p.x > Math.max(startPt.x, pt.x) || p.x + p.w < Math.min(startPt.x, pt.x) ||
+            p.y > Math.max(startPt.y, pt.y) || p.y + p.h < Math.min(startPt.y, pt.y)) return;
+          const minX = Math.min(startPt.x, pt.x) - p.x;
+          const maxX = Math.max(startPt.x, pt.x) - p.x;
+          const minY = Math.min(startPt.y, pt.y) - p.y;
+          const maxY = Math.max(startPt.y, pt.y) - p.y;
+          if (p.strokes) {
+            p.strokes = p.strokes.filter(s =>
+              !s.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
+            );
+          }
+          if (p.tapes) {
+            p.tapes = p.tapes.filter(t =>
+              !t.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
+            );
+          }
+        });
+        paperLayer.save();
+        paperLayer.redraw();
       }
       drawing = false;
       points = [];
@@ -1846,6 +1944,7 @@ export function renderAnnotator({ params, query }) {
 
     strokeCanvas.addEventListener('pointercancel', (e) => {
       clearPreview();
+      if (window.__tapeRaf) { cancelAnimationFrame(window.__tapeRaf); window.__tapeRaf = null; }
       pointers.delete(e.pointerId);
       drawing = false;
       paperDragOffset = null;

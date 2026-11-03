@@ -143,10 +143,12 @@ export function renderEditPoint({ params, query }) {
     let collapsed = false;
     const body = el('div', { class: 'section-body' }, children);
     const arrow = el('span', { class: 'section-arrow', text: '▾' });
-    const head = el('div', { class: 'section-head', onClick: () => {
-      collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
-      arrow.textContent = collapsed ? '▸' : '▾';
-    } }, [el('span', { text: title }), arrow]);
+    const head = el('div', {
+      class: 'section-head', onClick: () => {
+        collapsed = !collapsed; body.style.display = collapsed ? 'none' : 'block';
+        arrow.textContent = collapsed ? '▸' : '▾';
+      }
+    }, [el('span', { text: title }), arrow]);
     return el('div', { class: 'section' }, [head, body]);
   }
 

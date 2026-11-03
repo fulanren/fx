@@ -40,6 +40,26 @@ export function renderHome() {
     ]));
   }
 
+  // 【考试倒计时卡片】
+  if (!multiSelectMode) {
+    import('../views/countdown.js').then(({ renderCountdownCard, editCountdown }) => {
+      const countdown = store.getExamCountdown();
+      if (countdown && countdown.date) {
+        const card = renderCountdownCard();
+        if (card) view.appendChild(card);
+      } else {
+        // 没有倒计时，显示「设置倒计时」入口
+        view.appendChild(el('div', {
+          class: 'card',
+          style: { cursor: 'pointer', textAlign: 'center', padding: '12px', border: '2px dashed rgba(0,0,0,.1)', background: 'transparent', boxShadow: 'none' },
+          onClick: () => editCountdown(),
+        }, [
+          el('div', { style: { fontSize: '14px', color: 'var(--text-2)' }, text: '⏰ 设置考试倒计时' }),
+        ]));
+      }
+    });
+  }
+
   const streak = store.getStreak();
   if (!multiSelectMode && streak > 0) {
     view.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' } },
@@ -71,19 +91,23 @@ export function renderHome() {
       }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions' }, [
+      // 【合并选中任务】
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
+          // 至少选 2 个任务才能合并
           if (selectedIds.size < 2) { alert('至少选择 2 个任务'); return; }
           const ids = [...selectedIds];
-          const targetId = ids[0];
+          const targetId = ids[0];  // 第一个作为主任务
           const items = ids.map(id => store.getTask(id));
           await mergeModal({
             title: '合并任务', items, targetId,
-            onConfirm: (sourceIds, dedupe) => {
-              store.mergeTasks(sourceIds, targetId, dedupe);
+            // onConfirm 接收：源 id 列表、去重、新名称、排序方式、合并方式
+            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
+              store.mergeTasks(sourceIds, targetId, dedupe, newName, sortMode);
               toastSuccess('已合并');
-              multiSelectMode = false; selectedIds.clear();
+              multiSelectMode = false;
+              selectedIds.clear();
               renderHome();
             },
           });

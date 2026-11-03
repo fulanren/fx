@@ -69,22 +69,26 @@ export function renderOcrResult(imageId, text, pointId) {
         textarea,
         el('div', { class: 'confirm-actions', style: { marginTop: '16px', flexWrap: 'wrap' } }, [
           el('button', { class: 'btn btn-ghost', text: '关闭', onClick: () => { mask.remove(); resolve(false); } }),
-          el('button', { class: 'btn btn-ghost', text: '插入到解释', onClick: () => {
-            const point = store.getPoint(pointId);
-            if (point) {
-              store.updatePoint(pointId, { explanation: (point.explanation || '') + '\n\n' + textarea.value });
-              toastSuccess('已插入解释');
+          el('button', {
+            class: 'btn btn-ghost', text: '插入到解释', onClick: () => {
+              const point = store.getPoint(pointId);
+              if (point) {
+                store.updatePoint(pointId, { explanation: (point.explanation || '') + '\n\n' + textarea.value });
+                toastSuccess('已插入解释');
+              }
+              mask.remove(); resolve(true);
             }
-            mask.remove(); resolve(true);
-          } }),
-          el('button', { class: 'btn btn-primary', text: '插入到内容', onClick: () => {
-            const point = store.getPoint(pointId);
-            if (point) {
-              store.updatePoint(pointId, { content: (point.content || '') + '\n' + textarea.value });
-              toastSuccess('已插入内容');
+          }),
+          el('button', {
+            class: 'btn btn-primary', text: '插入到内容', onClick: () => {
+              const point = store.getPoint(pointId);
+              if (point) {
+                store.updatePoint(pointId, { content: (point.content || '') + '\n' + textarea.value });
+                toastSuccess('已插入内容');
+              }
+              mask.remove(); resolve(true);
             }
-            mask.remove(); resolve(true);
-          } }),
+          }),
         ]),
       ]),
     ]);

@@ -63,6 +63,15 @@ function reviewCard(p, filter) {
       el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '解释' }),
       el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
     ]) : null,
+
+    // 【错题统计】加在这一整行前面
+    p.isErrorProne ? el('div', { style: { fontSize: '13px', color: 'var(--danger)', marginBottom: '8px' } }, [
+      (() => {
+        const s = store.getErrorStats(p);
+        return `❗ 易错知识点 · 共复习 ${s.totalCount} 次，忘了 ${s.forgotCount} 次，错误率 ${s.errorRate}%`;
+      })(),
+    ]) : null,
+
     el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '8px' } }, [
       [
         (p.manualReviewCount || p.reviewCount > 0) ? `已背 ${p.reviewCount} 遍` : null,
@@ -119,6 +128,10 @@ function ratingBtn(label, rating, point, filter) {
     class: 'btn btn-sm btn-ghost', text: label,
     onClick: () => {
       store.ratePoint(point.id, rating);
+      // 自评「忘了」自动标记为易错
+      if (rating === 'forgot') {
+        store.incrementErrorCount(point.id);
+      }
       toastSuccess('已记录');
       renderReview({ query: { filter } });
     },

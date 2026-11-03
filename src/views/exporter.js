@@ -1,6 +1,7 @@
 import * as store from '../store.js';
 import { getImageCached } from '../db.js';
 import { fmtDate } from '../utils/date.js';
+import { jsPDF } from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.es.min.js';
 
 // ============ 收集数据 ============
 async function collectData(scope, id) {
@@ -165,16 +166,35 @@ export function toPlainText(data) {
 export async function exportAsPdf(scope, id, options = {}) {
   const data = await collectData(scope, id);
   if (!data) throw new Error('数据不存在');
-  const images = options.includeImages !== false ? await collectImages(data.points) : [];
-  const html = await buildPrintHtml(data, images, options);
 
-  const win = window.open('', '_blank');
-  if (!win) throw new Error('弹窗被拦截，请允许弹窗后重试');
-  win.document.write(html);
-  win.document.close();
-  setTimeout(() => {
-    try { win.print(); } catch (e) {}
-  }, 600);
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  let y = 20;
+  const margin = 20;
+  const maxW = 170;
+
+  function addText(text, size = 11, bold = false) {
+    doc.setFontSize(size);
+    doc.setFont('helvetica', bold ? 'bold' : 'normal');
+    const lines = doc.splitTextToSize(text, maxW);
+    lines.forEach(line => {
+      if (y > 280) { doc.addPage(); y = 20; }
+      doc.text(line, margin, y);
+      y += size * 0.5 + 2;
+    });
+  }
+
+  if (data.task) addText(data.task.name, 16, true);
+  const chapters = data.chapters || (data.chapter ? [data.chapter] : []);
+  chapters.forEach(ch => {
+    addText(ch.name, 14, true);
+    data.points.filter(p => p.chapterId === ch.id).forEach((p, i) => {
+      addText(`${i + 1}. ${p.content}`, 12, true);
+      if (p.explanation) addText(p.explanation, 10);
+      y += 2;
+    });
+  });
+
+  doc.save(`export_${scope}_${Date.now()}.pdf`);
 }
 
 async function buildPrintHtml(data, images, options) {
@@ -277,7 +297,22 @@ export async function exportContent(scope, id, options = {}) {
     const zip = new window.JSZip();
     zip.file('content.md', md);
     zip.file('content.html', html);
-    zip.file('data.json', JSON.stringify({ ...data, _exportAt: new Date().toISOString() }, null, 2));
+
+    // 【关键】单实体导出也用全量结构，保证能被 importFullBackup 识别
+    const zipData = {
+      tasks: data.task ? [data.task] : [],
+      chapters: data.chapters || (data.chapter ? [data.chapter] : []),
+      points: data.points || [],
+      inbox: [],
+      recycle: [],
+      settings: {},
+      audioIndex: [],
+      patterns: [],
+      schemaVersion: 1,
+      exportAt: new Date().toISOString(),
+    };
+    zip.file('data.json', JSON.stringify(zipData, null, 2));
+
     const imgFolder = zip.folder('images');
     for (const im of images) {
       imgFolder.file(`${im.imageId}.png`, im.blob);
@@ -420,7 +455,7 @@ export async function exportFullBackup(options = {}) {
 }
 
 // ============ 导入 ============
-export async function importFullBackup(file, mode = 'merge') {
+export async function importFullBackup(file, mode = 'merge', onProgress = null) {
   if (!window.JSZip) throw new Error('JSZip 未加载');
   const zip = await window.JSZip.loadAsync(file);
   const dataFile = zip.file('data.json');
@@ -428,6 +463,15 @@ export async function importFullBackup(file, mode = 'merge') {
   const data = JSON.parse(await dataFile.async('string'));
 
   const stats = { tasks: 0, chapters: 0, points: 0, images: 0, audios: 0, skippedPoints: 0 };
+
+  const totalCount = (data.tasks?.length || 0) + (data.chapters?.length || 0) + (data.points?.length || 0)
+    + Object.keys(zip.files).filter(f => f.startsWith('images/')).length
+    + Object.keys(zip.files).filter(f => f.startsWith('audios/')).length;
+  let doneCount = 0;
+  const report = (label) => {
+    doneCount++;
+    if (onProgress) onProgress(doneCount, totalCount, label);
+  };
 
   function normalizeTask(t) {
     return {
@@ -482,6 +526,11 @@ export async function importFullBackup(file, mode = 'merge') {
     stats.tasks = incomingTasks.length;
   }
 
+  // 【进度】每导入一个任务调一次
+  for (let i = 0; i < (mode === 'overwrite' ? normalizedTasks.length : incomingTasks.length); i++) {
+    report('导入任务');
+  }
+
   const existingChapters = JSON.parse(localStorage.getItem('kg_chapters') || '[]');
   const existingChapterIds = new Set(existingChapters.map(c => c.id));
   const normalizedChapters = (data.chapters || []).map(normalizeChapter);
@@ -492,6 +541,11 @@ export async function importFullBackup(file, mode = 'merge') {
   } else {
     localStorage.setItem('kg_chapters', JSON.stringify([...existingChapters, ...incomingChapters]));
     stats.chapters = incomingChapters.length;
+  }
+
+  // 【进度】每导入一个章节调一次
+  for (let i = 0; i < (mode === 'overwrite' ? normalizedChapters.length : incomingChapters.length); i++) {
+    report('导入章节');
   }
 
   const finalChapters = JSON.parse(localStorage.getItem('kg_chapters') || '[]');
@@ -514,6 +568,11 @@ export async function importFullBackup(file, mode = 'merge') {
   } else {
     localStorage.setItem('kg_points', JSON.stringify([...existingPoints, ...validPoints]));
     stats.points = validPoints.length;
+  }
+
+  // 【进度】每导入一个知识点调一次
+  for (let i = 0; i < (mode === 'overwrite' ? normalizedPoints.length : validPoints.length); i++) {
+    report('导入知识点');
   }
 
   if (mode === 'overwrite') {
@@ -551,6 +610,8 @@ export async function importFullBackup(file, mode = 'merge') {
         else { record.annotatedBlob = blob; if (!record.originalBlob) record.originalBlob = blob; }
         await putImageCached(record);
         stats.images++;
+        // 【进度】每导入一张图片调一次
+        report('导入图片');
       } catch (err) { console.warn('图片导入失败:', f, err); }
     }
   }
@@ -562,6 +623,8 @@ export async function importFullBackup(file, mode = 'merge') {
       const id = f.replace('audios/', '').replace('.webm', '');
       await dbPut('audios', { id, blob, mimeType: 'audio/webm', createdAt: new Date().toISOString() });
       stats.audios++;
+      // 【进度】每导入一条录音调一次
+      report('导入录音');
     } catch (err) { console.warn('录音导入失败:', f, err); }
   }
 

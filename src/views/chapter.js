@@ -19,6 +19,7 @@ function showExportMenu(scope, id) {
         fmtBtn('📋 Markdown .md', 'md'),
         fmtBtn('🌐 HTML 单文件', 'html'),
         fmtBtn('📦 ZIP 完整归档', 'zip'),
+        fmtBtn('🃏 Anki 格式（.txt）', 'anki'),
       ]),
       el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
         el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
@@ -33,6 +34,12 @@ function showExportMenu(scope, id) {
       onClick: async () => {
         mask.remove();
         try {
+          // 【Anki 格式单独处理】
+          if (format === 'anki') {
+            const { exportToAnki } = await import('../views/ankiExport.js');
+            await exportToAnki(scope, id);
+            return;
+          }
           const { exportContent } = await import('../views/exporter.js');
           await exportContent(scope, id, { format, includeImages: true });
           toastSuccess('已导出');
@@ -78,19 +85,23 @@ export function renderChapterList({ params }) {
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { chMulti = false; chSelected.clear(); renderChapterList({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions' }, [
+      // 【合并选中章节】
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
+          // 至少选 2 个章节才能合并
           if (chSelected.size < 2) { alert('至少选择 2 个章节'); return; }
           const ids = [...chSelected];
-          const targetId = ids[0];
+          const targetId = ids[0];  // 第一个作为主章节
           const items = ids.map(id => store.getChapter(id));
           await mergeModal({
             title: '合并章节', items, targetId,
-            onConfirm: (sourceIds, dedupe) => {
-              store.mergeChapters(sourceIds, targetId, dedupe);
+            // onConfirm 接收：源 id 列表、去重、新名称、排序方式、合并方式
+            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
+              store.mergeChapters(sourceIds, targetId, dedupe, newName, sortMode);
               toastSuccess('已合并');
-              chMulti = false; chSelected.clear();
+              chMulti = false;
+              chSelected.clear();
               renderChapterList({ params });
             },
           });
@@ -114,6 +125,14 @@ export function renderChapterList({ params }) {
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📤 导出任务',
         onClick: () => showExportMenu('task', task.id),
+      }),
+      // 【按模板导入：自动识别章节和知识点】
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📄 模板导入',
+        onClick: async () => {
+          const { templateImportModal } = await import('../views/pdfTemplateImport.js');
+          await templateImportModal(task.id);
+        },
       }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { chMulti = true; renderChapterList({ params }); } }),
     ]));
@@ -161,10 +180,12 @@ function chapterCard(c, taskId) {
     },
   }, [
     chMulti ? el('div', { class: 'select-box' }, [
-      el('input', { type: 'checkbox', checked: isSelected, onChange: (e) => {
-        if (e.target.checked) chSelected.add(c.id); else chSelected.delete(c.id);
-        renderChapterList({ params: { taskId } });
-      } }),
+      el('input', {
+        type: 'checkbox', checked: isSelected, onChange: (e) => {
+          if (e.target.checked) chSelected.add(c.id); else chSelected.delete(c.id);
+          renderChapterList({ params: { taskId } });
+        }
+      }),
     ]) : null,
     el('div', { class: 'card-title', text: c.name }),
     el('div', { class: 'card-meta' }, [
@@ -237,36 +258,79 @@ export function renderChapterDetail({ params }) {
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap' } }, [
+      // 【新增】合并选中的知识点
+      el('button', {
+        class: 'btn btn-sm btn-primary', text: '合并选中',
+        onClick: async () => {
+          // 至少选 2 个才能合并
+          if (ptSelected.size < 2) { alert('至少选择 2 个知识点'); return; }
+          const ids = [...ptSelected];
+          const targetId = ids[0];  // 第一个作为主项
+          const items = ids.map(id => store.getPoint(id));
+          await mergeModal({
+            title: '合并知识点', items, targetId,
+            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
+              store.mergePoints(sourceIds, targetId, dedupe, newName, sortMode, mergeMode);
+              toastSuccess('已合并');
+              ptMulti = false; ptSelected.clear();
+              renderChapterDetail({ params });
+            },
+          });
+        },
+      }),
+
       el('button', { class: 'btn btn-sm btn-primary', text: '全部记得', onClick: () => { store.batchRatePoints([...ptSelected], 'remember'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全部模糊', onClick: () => { store.batchRatePoints([...ptSelected], 'vague'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全部忘了', onClick: () => { store.batchRatePoints([...ptSelected], 'forgot'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '设难度', onClick: () => {
-        const d = prompt('输入难记度 1-10', '5');
-        if (d && Number(d) >= 1 && Number(d) <= 10) {
-          store.batchUpdatePoints([...ptSelected], { difficulty: Number(d) });
-          toastSuccess('已更新难度');
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '设难度', onClick: () => {
+          const d = prompt('输入难记度 1-10', '5');
+          if (d && Number(d) >= 1 && Number(d) <= 10) {
+            store.batchUpdatePoints([...ptSelected], { difficulty: Number(d) });
+            toastSuccess('已更新难度');
+            ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+          }
+        }
+      }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '今天复习', onClick: () => {
+          store.batchUpdatePoints([...ptSelected], { nextReviewAt: new Date().toISOString() });
+          toastSuccess('已设为今天复习');
           ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
         }
-      } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '今天复习', onClick: () => {
-        store.batchUpdatePoints([...ptSelected], { nextReviewAt: new Date().toISOString() });
-        toastSuccess('已设为今天复习');
-        ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
-      } }),
-      el('button', { class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
-        if (ptSelected.size === 0) return;
-        if (await confirmBox({ title: '删除', message: `删除 ${ptSelected.size} 个知识点？将进入回收站`, danger: true, confirmText: '删除' })) {
-          store.batchDeletePoints([...ptSelected]);
-          toastSuccess('已移入回收站');
-          ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+      }),
+      el('button', {
+        class: 'btn btn-sm btn-danger', text: '删除', onClick: async () => {
+          if (ptSelected.size === 0) return;
+          if (await confirmBox({ title: '删除', message: `删除 ${ptSelected.size} 个知识点？将进入回收站`, danger: true, confirmText: '删除' })) {
+            store.batchDeletePoints([...ptSelected]);
+            toastSuccess('已移入回收站');
+            ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+          }
         }
-      } }),
+      }),
     ]));
   } else {
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📤 导出本章',
         onClick: () => showExportMenu('chapter', chapter.id),
+      }),
+      // 【导入文档：DOCX / TXT / PDF 文字版 / 扫描版 OCR】
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📄 导入文档',
+        onClick: async () => {
+          const { docImportModal } = await import('../views/docImport.js');
+          await docImportModal(chapter.id);
+        },
+      }),
+      // 【批量导入：粘贴多行文本】
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📋 批量导入',
+        onClick: async () => {
+          const { batchImportModal } = await import('../views/batchImport.js');
+          batchImportModal(chapter.id);
+        },
       }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderChapterDetail({ params }); } }),
     ]));
@@ -319,38 +383,38 @@ function pointCard(p, chapterId) {
               el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' } }, [
                 img.type === 'composite'
                   ? el('button', {
-                      class: 'btn btn-ghost', text: '👁 预览',
-                      onClick: () => {
-                        mask.remove();
-                        const blob = img.annotatedBlob || img.blob;
-                        if (!blob) return;
-                        const url = URL.createObjectURL(blob);
-                        const preview = el('div', {
-                          class: 'confirm-mask',
-                          style: { zIndex: '500' },
-                          onClick: () => { preview.remove(); URL.revokeObjectURL(url); },
-                        }, [
-                          el('img', { src: url, style: { maxWidth: '95vw', maxHeight: '95vh', borderRadius: '8px', objectFit: 'contain' } }),
-                        ]);
-                        document.body.appendChild(preview);
-                      },
-                    })
+                    class: 'btn btn-ghost', text: '👁 预览',
+                    onClick: () => {
+                      mask.remove();
+                      const blob = img.annotatedBlob || img.blob;
+                      if (!blob) return;
+                      const url = URL.createObjectURL(blob);
+                      const preview = el('div', {
+                        class: 'confirm-mask',
+                        style: { zIndex: '500' },
+                        onClick: () => { preview.remove(); URL.revokeObjectURL(url); },
+                      }, [
+                        el('img', { src: url, style: { maxWidth: '95vw', maxHeight: '95vh', borderRadius: '8px', objectFit: 'contain' } }),
+                      ]);
+                      document.body.appendChild(preview);
+                    },
+                  })
                   : el('button', {
-                      class: 'btn btn-ghost', text: '✏️ 标注',
-                      onClick: () => { mask.remove(); navigate(`#/annotate/${imageId}?pointId=${p.id}`); },
-                    }),
-                    el('button', {
-                      class: 'btn btn-danger', text: '🗑 删除',
-                      onClick: async () => {
-                        mask.remove();
-                        if (!confirm('删除这张图片？')) return;
-                        const { dbDelete } = await import('../db.js');
-                        await dbDelete('images', imageId);
-                        store.removeImageFromPoint(p.id, imageId);
-                        toastSuccess('已删除');
-                        renderChapterDetail({ params: { id: chapterId } });
-                      },
-                    }),
+                    class: 'btn btn-ghost', text: '✏️ 标注',
+                    onClick: () => { mask.remove(); navigate(`#/annotate/${imageId}?pointId=${p.id}`); },
+                  }),
+                el('button', {
+                  class: 'btn btn-danger', text: '🗑 删除',
+                  onClick: async () => {
+                    mask.remove();
+                    if (!confirm('删除这张图片？')) return;
+                    const { dbDelete } = await import('../db.js');
+                    await dbDelete('images', imageId);
+                    store.removeImageFromPoint(p.id, imageId);
+                    toastSuccess('已删除');
+                    renderChapterDetail({ params: { id: chapterId } });
+                  },
+                }),
               ]),
               el('div', { class: 'confirm-actions', style: { marginTop: '12px' } }, [
                 el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
@@ -430,6 +494,20 @@ function pointCard(p, chapterId) {
       el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
     ]) : null,
     allImageIds.length > 0 ? imageRow : null,
+    (p.linkedPointIds && p.linkedPointIds.length > 0)
+      ? el('div', { style: { marginBottom: '8px' } }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '关联知识点' }),
+        ...p.linkedPointIds.map(id => {
+          const linked = store.getPoint(id);
+          if (!linked) return null;
+          return el('div', {
+            style: { fontSize: '13px', padding: '4px 8px', background: 'var(--bg)', borderRadius: '6px', marginBottom: '2px', cursor: 'pointer' },
+            text: linked.content.slice(0, 40),
+            onClick: (e) => { e.stopPropagation(); navigate(`#/chapter/${linked.chapterId}`); },
+          });
+        }),
+      ])
+      : null,
     el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' } }, [
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📤 导出此知识点',
@@ -443,6 +521,13 @@ function pointCard(p, chapterId) {
       (p.manualNextReviewAt || p.reviewCount > 0) ? el('span', { text: `📅 下次 ${fmtDate(p.nextReviewAt)}` }) : null,
       p.isErrorProne ? el('span', { text: '❗ 易错', style: { color: 'var(--danger)' } }) : null,
     ]),
+    // 【错题统计】
+    p.isErrorProne ? el('div', { style: { fontSize: '12px', color: 'var(--danger)', marginBottom: '8px' } }, [
+      (() => {
+        const s = store.getErrorStats(p);
+        return `❗ 易错 · 复习 ${s.totalCount} 次，忘了 ${s.forgotCount} 次`;
+      })(),
+    ]) : null,
     el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit/point/${p.id}`); } }),
       el('button', {
@@ -468,10 +553,12 @@ function pointCard(p, chapterId) {
     'data-id': p.id,
   }, [
     ptMulti ? el('div', { class: 'select-box' }, [
-      el('input', { type: 'checkbox', checked: isSelected, onChange: (e) => {
-        if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
-        renderChapterDetail({ params: { id: chapterId } });
-      } }),
+      el('input', {
+        type: 'checkbox', checked: isSelected, onChange: (e) => {
+          if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
+          renderChapterDetail({ params: { id: chapterId } });
+        }
+      }),
     ]) : null,
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } }, [
       el('div', { style: { flex: 1, fontWeight: '600', whiteSpace: 'pre-wrap' }, text: p.content }),

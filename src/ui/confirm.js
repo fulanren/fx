@@ -1,5 +1,5 @@
 ﻿import { el } from '../utils/dom.js';
-export function confirmBox({ title='确认', message='', confirmText='确定', cancelText='取消', danger=false, extra=null }) {
+export function confirmBox({ title = '确认', message = '', confirmText = '确定', cancelText = '取消', danger = false, extra = null }) {
   return new Promise(resolve => {
     const mask = el('div', { class: 'confirm-mask' }, [
       el('div', { class: 'confirm-box' }, [

@@ -54,9 +54,11 @@ export function flushAll() { flushNow(); }
 
 const listeners = [];
 function notify(key, val) { listeners.forEach(fn => fn(key, val)); }
-export function subscribe(fn) { listeners.push(fn); return () => {
-  const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1);
-}; }
+export function subscribe(fn) {
+  listeners.push(fn); return () => {
+    const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1);
+  };
+}
 
 // ============ 回收站 ============
 function pushRecycle(type, obj) {
@@ -130,11 +132,12 @@ export function deleteTask(id) {
   chs.filter(c => c.taskId === id && !c.deletedAt).forEach(c => c.deletedAt = now());
   write(K.chapters, chs);
 }
-export function mergeTasks(sourceIds, targetId, dedupe = false) {
+export function mergeTasks(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep') {
   const tasks = read(K.tasks);
   const chapters = read(K.chapters);
   const target = tasks.find(t => t.id === targetId);
   if (!target) return;
+  if (newName) target.name = newName;
   sourceIds.forEach(sid => {
     const s = tasks.find(t => t.id === sid);
     if (!s) return;
@@ -144,13 +147,81 @@ export function mergeTasks(sourceIds, targetId, dedupe = false) {
         if (dup) { c.deletedAt = now(); return; }
       }
       c.taskId = targetId;
-      c.order = chapters.filter(x => x.taskId === targetId && !x.deletedAt).length;
     });
     s.deletedAt = now();
     pushRecycle('task', s);
   });
+  const targetChapters = chapters.filter(c => c.taskId === targetId && !c.deletedAt);
+  sortItems(targetChapters, sortMode);
+  targetChapters.forEach((c, i) => c.order = i);
   write(K.tasks, tasks);
   write(K.chapters, chapters);
+}
+
+export function mergeChapters(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep') {
+  const chapters = read(K.chapters);
+  const points = read(K.points);
+  const target = chapters.find(c => c.id === targetId);
+  if (!target) return;
+  if (newName) target.name = newName;
+  sourceIds.forEach(sid => {
+    const s = chapters.find(c => c.id === sid);
+    if (!s) return;
+    points.filter(p => p.chapterId === sid && !p.deletedAt).forEach(p => {
+      if (dedupe) {
+        const dup = points.find(x => x.chapterId === targetId && !x.deletedAt && x.content === p.content);
+        if (dup) { p.deletedAt = now(); return; }
+      }
+      p.chapterId = targetId;
+    });
+    s.deletedAt = now();
+    pushRecycle('chapter', s);
+  });
+  const targetPoints = points.filter(p => p.chapterId === targetId && !p.deletedAt);
+  sortItems(targetPoints, sortMode);
+  targetPoints.forEach((p, i) => p.order = i);
+  write(K.chapters, chapters);
+  write(K.points, points);
+}
+
+export function mergePoints(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep', mergeMode = 'concat') {
+  const list = read(K.points);
+  const target = list.find(p => p.id === targetId);
+  if (!target) return;
+  if (newName) target.content = newName;
+  sourceIds.forEach(sid => {
+    const s = list.find(p => p.id === sid);
+    if (!s) return;
+    if (dedupe && target.content === s.content) { s.deletedAt = now(); pushRecycle('point', s); return; }
+    if (mergeMode === 'concat') {
+      target.content += '\n\n---\n\n' + s.content;
+      if (s.explanation) target.explanation = (target.explanation || '') + '\n\n' + s.explanation;
+      target.imageIds = [...new Set([...(target.imageIds || []), ...(s.imageIds || [])])];
+      target.compositeImageIds = [...new Set([...(target.compositeImageIds || []), ...(s.compositeImageIds || [])])];
+      target.audioIds = [...new Set([...(target.audioIds || []), ...(s.audioIds || [])])];
+      target.attachments = [...(target.attachments || []), ...(s.attachments || [])];
+      target.difficulty = Math.max(target.difficulty || 5, s.difficulty || 5);
+      target.reviewCount = (target.reviewCount || 0) + (s.reviewCount || 0);
+      if (s.nextReviewAt && (!target.nextReviewAt || new Date(s.nextReviewAt) < new Date(target.nextReviewAt))) {
+        target.nextReviewAt = s.nextReviewAt;
+      }
+    } else {
+      if (!target.linkedPointIds) target.linkedPointIds = [];
+      if (!target.linkedPointIds.includes(s.id)) target.linkedPointIds.push(s.id);
+    }
+    s.deletedAt = now();
+    pushRecycle('point', s);
+  });
+  target.updatedAt = now();
+  write(K.points, list);
+}
+
+function sortItems(list, mode) {
+  if (mode === 'name-asc') return list.sort((a, b) => (a.name || a.content || '').localeCompare(b.name || b.content || ''));
+  if (mode === 'name-desc') return list.sort((a, b) => (b.name || b.content || '').localeCompare(a.name || a.content || ''));
+  if (mode === 'date-asc') return list.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+  if (mode === 'date-desc') return list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+  return list;
 }
 
 // ============ 章节 ============
@@ -271,7 +342,7 @@ export function ratePoint(id, rating, durationMs = 0) {
   const prev = p.intervalDays || 0;
   let next = rating === 'forgot' ? 1
     : rating === 'vague' ? (prev ? Math.round(prev * 1.5) : 1)
-    : (prev ? Math.round(prev * 2.2) : 2);
+      : (prev ? Math.round(prev * 2.2) : 2);
   const d = p.difficulty || 5;
   next = Math.max(1, Math.round(next * (d <= 3 ? 1.2 : d >= 8 ? 0.8 : 1)));
   p.intervalDays = next;
@@ -612,11 +683,145 @@ export function getLayerOrder() {
   try {
     const v = JSON.parse(localStorage.getItem(LAYER_ORDER_KEY) || 'null');
     if (Array.isArray(v) && v.length === 5) return v;
-  } catch {}
+  } catch { }
   return ['base', 'paper', 'stroke', 'text', 'tape'];
 }
 
 export function saveLayerOrder(order) {
   try { localStorage.setItem(LAYER_ORDER_KEY, JSON.stringify(order)); return true; }
   catch { return false; }
+}
+
+export function mergePoints(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep', mergeMode = 'concat') {
+  const list = read(K.points);
+  const target = list.find(p => p.id === targetId);
+  if (!target) return;
+  if (newName) target.content = newName;
+
+  sourceIds.forEach(sid => {
+    const s = list.find(p => p.id === sid);
+    if (!s) return;
+    if (dedupe && target.content === s.content) { s.deletedAt = now(); pushRecycle('point', s); return; }
+
+    if (mergeMode === 'concat') {
+      target.content += '\n\n---\n\n' + s.content;
+      if (s.explanation) target.explanation = (target.explanation || '') + '\n\n' + s.explanation;
+      target.imageIds = [...new Set([...(target.imageIds || []), ...(s.imageIds || [])])];
+      target.compositeImageIds = [...new Set([...(target.compositeImageIds || []), ...(s.compositeImageIds || [])])];
+      target.audioIds = [...new Set([...(target.audioIds || []), ...(s.audioIds || [])])];
+      target.attachments = [...(target.attachments || []), ...(s.attachments || [])];
+      target.difficulty = Math.max(target.difficulty || 5, s.difficulty || 5);
+      target.reviewCount = (target.reviewCount || 0) + (s.reviewCount || 0);
+      if (s.nextReviewAt && (!target.nextReviewAt || new Date(s.nextReviewAt) < new Date(target.nextReviewAt))) {
+        target.nextReviewAt = s.nextReviewAt;
+      }
+    } else {
+      // 方案 B：关联链接
+      if (!target.linkedPointIds) target.linkedPointIds = [];
+      if (!target.linkedPointIds.includes(s.id)) target.linkedPointIds.push(s.id);
+    }
+
+    s.deletedAt = now();
+    pushRecycle('point', s);
+  });
+
+  target.updatedAt = now();
+  write(K.points, list);
+}
+
+// ============ 学习统计 ============
+export function getStats() {
+  const tasks = getTasks();
+  const allChapters = tasks.flatMap(t => getChapters(t.id));
+  const allPoints = allChapters.flatMap(c => getPoints(c.id));
+  const now = Date.now();
+  const weekAgo = now - 7 * 86400000;
+
+  // 本周复习数
+  let weekReviews = 0;
+  allPoints.forEach(p => {
+    (p.reviewHistory || []).forEach(r => {
+      if (new Date(r.at).getTime() >= weekAgo) weekReviews++;
+    });
+  });
+
+  // 难度分布
+  const diffDist = { low: 0, mid: 0, high: 0 };
+  allPoints.forEach(p => {
+    const d = p.difficulty || 5;
+    if (d <= 3) diffDist.low++;
+    else if (d <= 7) diffDist.mid++;
+    else diffDist.high++;
+  });
+
+  // 掌握度（已背遍数）
+  const mastered = allPoints.filter(p => p.reviewCount >= 3).length;
+  const learning = allPoints.filter(p => p.reviewCount > 0 && p.reviewCount < 3).length;
+  const newPoints = allPoints.filter(p => p.reviewCount === 0).length;
+
+  // 每日复习数（最近 7 天）
+  const dailyReviews = [];
+  for (let i = 6; i >= 0; i--) {
+    const dayStart = now - i * 86400000;
+    const dayEnd = dayStart + 86400000;
+    const d = new Date(dayStart);
+    let count = 0;
+    allPoints.forEach(p => {
+      (p.reviewHistory || []).forEach(r => {
+        const t = new Date(r.at).getTime();
+        if (t >= dayStart && t < dayEnd) count++;
+      });
+    });
+    dailyReviews.push({
+      date: `${d.getMonth() + 1}/${d.getDate()}`,
+      count,
+    });
+  }
+
+  return {
+    totalPoints: allPoints.length,
+    totalChapters: allChapters.length,
+    totalTasks: tasks.length,
+    weekReviews,
+    diffDist,
+    mastered,
+    learning,
+    newPoints,
+    dailyReviews,
+    streak: getStreak(),
+    dueCount: getDuePoints().length,
+    errorCount: allPoints.filter(p => p.isErrorProne).length,
+  };
+}
+
+// ============ 考试倒计时 ============
+export function getExamCountdown() {
+  try {
+    return JSON.parse(localStorage.getItem('kg_exam_countdown') || 'null');
+  } catch { return null; }
+}
+export function saveExamCountdown(data) {
+  localStorage.setItem('kg_exam_countdown', JSON.stringify(data));
+}
+export function clearExamCountdown() {
+  localStorage.removeItem('kg_exam_countdown');
+}
+
+// ============ 错题统计 ============
+export function getErrorStats(point) {
+  const history = point.reviewHistory || [];
+  const forgotCount = history.filter(r => r.rating === 'forgot').length;
+  const totalCount = history.length;
+  const errorRate = totalCount > 0 ? Math.round(forgotCount / totalCount * 100) : 0;
+  return { forgotCount, totalCount, errorRate };
+}
+
+export function incrementErrorCount(pointId) {
+  const list = read(K.points);
+  const i = list.findIndex(p => p.id === pointId);
+  if (i < 0) return;
+  list[i].errorCount = (list[i].errorCount || 0) + 1;
+  list[i].isErrorProne = true;
+  list[i].updatedAt = now();
+  write(K.points, list);
 }

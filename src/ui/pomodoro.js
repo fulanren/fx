@@ -10,11 +10,11 @@ function loadState() {
   try {
     const s = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
     if (s && typeof s.remaining === 'number') return s;
-  } catch {}
+  } catch { }
   return { mode: 'work', remaining: 25 * 60 * 1000, running: false, workMs: 25 * 60 * 1000, breakMs: 5 * 60 * 1000 };
 }
 function saveState(s) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch {}
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(s)); } catch { }
 }
 
 let state = loadState();
@@ -72,7 +72,7 @@ function buildFloat() {
       floatEl.style.right = 'auto';
       floatEl.style.bottom = 'auto';
     }
-  } catch {}
+  } catch { }
 
   // 拖拽
   let dragging = false;
@@ -261,7 +261,7 @@ function playBeep() {
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.5);
     osc.start();
     osc.stop(ctx.currentTime + 0.5);
-  } catch {}
+  } catch { }
 }
 
 function formatMs(ms) {
