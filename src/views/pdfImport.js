@@ -89,12 +89,10 @@ function showPagePicker(pdf, pointId, resolve) {
                         }
                         if (successCount > 0) {
                             toastSuccess(`已导入 ${successCount} 页`);
-                            if (lastImageId) navigate(`#/annotate/${lastImageId}?pointId=${pointId}`);
-                            else {
-                                const p = store.getPoint(pointId);
-                                if (p) navigate(`#/chapter/${p.chapterId}`);
-                            }
-                        } else toastError('没有成功导入任何页');
+                            // 导入完跳回原章节页，不跳标注页
+                            const p = store.getPoint(pointId);
+                            if (p) navigate(`#/chapter/${p.chapterId}`);
+                          } else toastError('没有成功导入任何页');
                         resolve(true);
                     },
                 }),

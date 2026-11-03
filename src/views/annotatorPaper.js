@@ -213,6 +213,8 @@ export function createPaperLayer(canvas, W, H, imageId) {
     },
     removeSelected() {
       if (!selected) return;
+      // 清理这张纸可能打开的 textarea
+      document.querySelectorAll('textarea[data-paper-editor]').forEach(t => t.remove());
       papers = papers.filter(p => p.id !== selected.id);
       selected = null;
       store.savePaper(imageId, papers);

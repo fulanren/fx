@@ -16,19 +16,25 @@ export function createTextLayer(canvas, W, H, imageId) {
     function drawText(ctx, t) {
         ctx.save();
         if (!t.noBg) {
-            ctx.fillStyle = t.bgColor || '#FFFFFF';
-            ctx.fillRect(t.x, t.y, t.w, t.h);
+          ctx.fillStyle = t.bgColor || '#FFFFFF';
+          ctx.fillRect(t.x, t.y, t.w, t.h);
         }
         ctx.fillStyle = t.color || '#2B2D42';
-        ctx.font = `${t.fontSize || 20}px ${t.fontFamily || 'sans-serif'}`;
-        ctx.textAlign = 'left';
+        const fs = t.fontSize || 20;
+        ctx.font = `${fs}px ${t.fontFamily || 'sans-serif'}`;
+        ctx.textAlign = t.align || 'left';
         ctx.textBaseline = 'top';
         const lines = wrapText(ctx, t.text || '', t.w - 8);
+        const lineH = fs * (t.lineHeight || 1.5);
+        let tx = t.x + 4;
+        if (t.align === 'center') tx = t.x + t.w / 2;
+        else if (t.align === 'right') tx = t.x + t.w - 4;
         lines.forEach((line, i) => {
-            ctx.fillText(line, t.x + 4, t.y + 4 + i * ((t.fontSize || 20) + 4));
+          const displayLine = line.replace(/ /g, '\u00A0');
+          ctx.fillText(displayLine, tx, t.y + 4 + i * lineH);
         });
         ctx.restore();
-    }
+      }
 
     function wrapText(ctx, text, maxWidth) {
         const lines = [];
@@ -74,6 +80,11 @@ export function createTextLayer(canvas, W, H, imageId) {
                 color: patch.color || '#2B2D42',
                 bgColor: patch.bgColor || '#FFFFFF',
                 noBg: patch.noBg || false,
+                lineHeight: patch.lineHeight || 1.5,
+                align: patch.align || 'left',
+                lineHeight: patch.lineHeight || 1.5,
+                align: patch.align || 'left',
+                padding: patch.padding || 4,
             };
             items.push(t);
             store.saveTextItems(imageId, items);

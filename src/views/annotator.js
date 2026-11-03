@@ -61,6 +61,7 @@ export function renderAnnotator({ params, query }) {
   let eraseShape = 'rect';
   let waveAmplitude = 8;
   let penOnly = false;
+  let eraseFreePath = null;
   const toolWidths = { pen: 4, eraser: 20, 'circle-erase': 10 };
 
   const goBack = async () => {
@@ -366,11 +367,15 @@ export function renderAnnotator({ params, query }) {
       } else if (currentTool === 'circle-erase') {
         const shapeRow = el('div', { class: 'tape-row' }, [
           el('span', { class: 'tape-label', text: '形状' }),
-          ...['rect', 'circle'].map(s => el('button', {
-            class: 'tape-chip' + (eraseShape === s ? ' active' : ''),
-            text: s === 'rect' ? '▭ 矩形' : '○ 圆形',
+          ...[
+            { id: 'rect', label: '▭ 矩形' },
+            { id: 'circle', label: '○ 圆形' },
+            { id: 'free', label: '✏️ 自由' },
+          ].map(s => el('button', {
+            class: 'tape-chip' + (eraseShape === s.id ? ' active' : ''),
+            text: s.label,
             onClick: (ev) => {
-              eraseShape = s;
+              eraseShape = s.id;
               shapeRow.querySelectorAll('.tape-chip').forEach(b => b.classList.remove('active'));
               ev.target.classList.add('active');
             },
@@ -1255,6 +1260,20 @@ export function renderAnnotator({ params, query }) {
             ]),
             el('div', { class: 'field' }, [
               el('label', { text: '字体' }),
+              el('div', { class: 'field-row' }, [
+                el('div', { class: 'field' }, [
+                  el('label', { text: '行距' }),
+                  el('input', { type: 'number', id: 'text-line-height', value: '1.5', min: '1', max: '3', step: '0.1' }),
+                ]),
+                el('div', { class: 'field' }, [
+                  el('label', { text: '对齐' }),
+                  el('select', { id: 'text-align' }, [
+                    el('option', { value: 'left', text: '左对齐' }),
+                    el('option', { value: 'center', text: '居中' }),
+                    el('option', { value: 'right', text: '右对齐' }),
+                  ]),
+                ]),
+              ]),
               el('select', { id: 'text-font' }, [
                 el('option', { value: 'sans-serif', text: '黑体' }),
                 el('option', { value: 'serif', text: '宋体' }),
@@ -1283,6 +1302,9 @@ export function renderAnnotator({ params, query }) {
                 const color = colorPicker?.dataset.color || currentColor;
                 const bg = bgPicker?.dataset.color || '#FFFFFF';
                 const noBg = bg === 'none';
+                // 【新增】读行距和对齐
+                const lineHeight = Number(document.getElementById('text-line-height')?.value) || 1.5;
+                const align = document.getElementById('text-align')?.value || 'left';
                 if (!text) { alert('请输入文字'); return; }
                 pushUndo();
                 const lines = text.split('\n');
@@ -1290,9 +1312,10 @@ export function renderAnnotator({ params, query }) {
                 textLayer.addText({
                   x: pos.x, y: pos.y,
                   w: Math.max(120, maxW + 16),
-                  h: Math.max(40, lines.length * (size + 4) + 8),
+                  h: Math.max(40, lines.length * size * lineHeight + 8),
                   text, fontSize: size, fontFamily: font,
                   color, bgColor: bg, noBg,
+                  lineHeight, align,
                 });
                 dirty = true;
                 mask.remove();
@@ -1341,14 +1364,19 @@ export function renderAnnotator({ params, query }) {
           boxShadow: '0 8px 24px rgba(0,0,0,.2)',
         },
       });
+      ta.dataset.textEditor = '1';
       document.body.appendChild(ta);
       ta.focus();
-      ta.select();
+      // 光标放到末尾，不全选
+      ta.setSelectionRange(ta.value.length, ta.value.length);
 
       function finish() {
         textLayer.setText(textItem, ta.value);
         dirty = true;
         ta.remove();
+        ta.addEventListener('blur', () => {
+          setTimeout(finish, 150);
+        });
       }
       let blurTimer = null;
       ta.addEventListener('blur', () => {
@@ -1516,6 +1544,10 @@ export function renderAnnotator({ params, query }) {
         pushUndo();
         drawing = true;
         startPt = canvasToImage(e.clientX, e.clientY);
+        // 自由形状：记录擦除路径
+        if (eraseShape === 'free') {
+          eraseFreePath = [startPt];
+        }
       } else if (currentTool === 'text') {
         const pt = canvasToImage(e.clientX, e.clientY);
         const sel = textLayer.getSelected();
@@ -1653,8 +1685,9 @@ export function renderAnnotator({ params, query }) {
           const lastPt = hitPaper._currentStroke.points[hitPaper._currentStroke.points.length - 1];
           if (!lastPt || Math.hypot(relX - lastPt.x, relY - lastPt.y) > 1) {
             hitPaper._currentStroke.points.push({ x: relX, y: relY });
-            paperLayer.redraw();
           }
+          // 实时画到 paperStrokeCtx，不重绘纸张层，避免延时
+          drawSmoothPath(paperStrokeCtx, points.slice(-10), currentColor, currentWidth);
         } else {
           drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
         }
@@ -1725,7 +1758,15 @@ export function renderAnnotator({ params, query }) {
         previewCtx.strokeStyle = 'rgba(59,130,246,.9)';
         previewCtx.lineWidth = 2;
         previewCtx.setLineDash([6, 4]);
-        if (eraseShape === 'rect') {
+        if (eraseShape === 'free') {
+          if (eraseFreePath) {
+            eraseFreePath.push(pt);
+            previewCtx.beginPath();
+            previewCtx.moveTo(eraseFreePath[0].x, eraseFreePath[0].y);
+            for (let i = 1; i < eraseFreePath.length; i++) previewCtx.lineTo(eraseFreePath[i].x, eraseFreePath[i].y);
+            previewCtx.stroke();
+          }
+        } else if (eraseShape === 'rect') {
           previewCtx.strokeRect(
             Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y),
             Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)
@@ -1874,6 +1915,8 @@ export function renderAnnotator({ params, query }) {
           hitPaper.strokes.push(hitPaper._currentStroke);
           delete hitPaper._currentStroke;
           paperLayer.save();
+          // 清空临时笔迹层，让纸张层重绘最终笔迹
+          paperStrokeCtx.clearRect(0, 0, W, H);
           paperLayer.redraw();
         }
       }
@@ -1905,16 +1948,29 @@ export function renderAnnotator({ params, query }) {
         }
       } else if (currentTool === 'circle-erase') {
         const pt = canvasToImage(e.clientX, e.clientY);
-        if (eraseShape === 'rect') {
+
+        // 【自由形状】沿路径逐点擦除
+        if (eraseShape === 'free' && eraseFreePath) {
+          eraseFreePath.forEach(p => {
+            eraseCircle(ctx, p.x, p.y, currentWidth * 2);
+            eraseCircle(paperStrokeCtx, p.x, p.y, currentWidth * 2);
+            tapeLayer.eraseAt(p.x, p.y, currentWidth * 2);
+          });
+          eraseFreePath = null;
+        } else if (eraseShape === 'rect') {
+          // 矩形擦除
           eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
           eraseRect(paperStrokeCtx, startPt.x, startPt.y, pt.x, pt.y);
+          tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
         } else {
+          // 圆形擦除
           const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
           eraseCircle(ctx, startPt.x, startPt.y, r);
           eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
+          tapeLayer.eraseAt(startPt.x, startPt.y, r);
         }
-        tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
-        // 擦纸张内的笔迹和胶带
+
+        // 擦纸张内的笔迹和胶带（原有逻辑保留）
         paperLayer.getPapers().forEach(p => {
           if (p.x > Math.max(startPt.x, pt.x) || p.x + p.w < Math.min(startPt.x, pt.x) ||
             p.y > Math.max(startPt.y, pt.y) || p.y + p.h < Math.min(startPt.y, pt.y)) return;
@@ -1933,8 +1989,6 @@ export function renderAnnotator({ params, query }) {
             );
           }
         });
-        paperLayer.save();
-        paperLayer.redraw();
       }
       drawing = false;
       points = [];
@@ -1991,6 +2045,8 @@ export function renderAnnotator({ params, query }) {
           fontFamily: '-apple-system, "PingFang SC", sans-serif',
         },
       });
+
+      ta.dataset.paperEditor = '1';
 
       function finish() {
         if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
@@ -2065,6 +2121,8 @@ export function renderAnnotator({ params, query }) {
     window.__annotatorCleanup = () => {
       window.__annotatorActive = false;
       window.__saveAll = null;
+      // 清理所有浮动 textarea
+      document.querySelectorAll('textarea[data-paper-editor], textarea[data-text-editor]').forEach(t => t.remove());
       const w = document.querySelector('.annotator-wrap');
       if (w) w.remove();
     };
