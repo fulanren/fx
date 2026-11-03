@@ -1,7 +1,7 @@
-import { jsPDF } from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.es.min.js';
 import { toastSuccess } from '../ui/toast.js';
 
 export function downloadPdfTemplate() {
+    const { jsPDF } = window.jspdf;
     const doc = new jsPDF({ unit: 'mm', format: 'a4' });
     doc.setFontSize(18);
     doc.text('复习资料整理模板', 20, 20);

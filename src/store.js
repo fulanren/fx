@@ -184,38 +184,6 @@ export function mergeChapters(sourceIds, targetId, dedupe = false, newName = nul
   write(K.points, points);
 }
 
-export function mergePoints(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep', mergeMode = 'concat') {
-  const list = read(K.points);
-  const target = list.find(p => p.id === targetId);
-  if (!target) return;
-  if (newName) target.content = newName;
-  sourceIds.forEach(sid => {
-    const s = list.find(p => p.id === sid);
-    if (!s) return;
-    if (dedupe && target.content === s.content) { s.deletedAt = now(); pushRecycle('point', s); return; }
-    if (mergeMode === 'concat') {
-      target.content += '\n\n---\n\n' + s.content;
-      if (s.explanation) target.explanation = (target.explanation || '') + '\n\n' + s.explanation;
-      target.imageIds = [...new Set([...(target.imageIds || []), ...(s.imageIds || [])])];
-      target.compositeImageIds = [...new Set([...(target.compositeImageIds || []), ...(s.compositeImageIds || [])])];
-      target.audioIds = [...new Set([...(target.audioIds || []), ...(s.audioIds || [])])];
-      target.attachments = [...(target.attachments || []), ...(s.attachments || [])];
-      target.difficulty = Math.max(target.difficulty || 5, s.difficulty || 5);
-      target.reviewCount = (target.reviewCount || 0) + (s.reviewCount || 0);
-      if (s.nextReviewAt && (!target.nextReviewAt || new Date(s.nextReviewAt) < new Date(target.nextReviewAt))) {
-        target.nextReviewAt = s.nextReviewAt;
-      }
-    } else {
-      if (!target.linkedPointIds) target.linkedPointIds = [];
-      if (!target.linkedPointIds.includes(s.id)) target.linkedPointIds.push(s.id);
-    }
-    s.deletedAt = now();
-    pushRecycle('point', s);
-  });
-  target.updatedAt = now();
-  write(K.points, list);
-}
-
 function sortItems(list, mode) {
   if (mode === 'name-asc') return list.sort((a, b) => (a.name || a.content || '').localeCompare(b.name || b.content || ''));
   if (mode === 'name-desc') return list.sort((a, b) => (b.name || b.content || '').localeCompare(a.name || a.content || ''));
@@ -264,25 +232,6 @@ export function deleteChapter(id) {
   const pts = read(K.points);
   pts.filter(p => p.chapterId === id && !p.deletedAt).forEach(p => p.deletedAt = now());
   write(K.points, pts);
-}
-export function mergeChapters(sourceIds, targetId, dedupe = false) {
-  const chapters = read(K.chapters);
-  const points = read(K.points);
-  sourceIds.forEach(sid => {
-    const s = chapters.find(c => c.id === sid);
-    if (!s) return;
-    points.filter(p => p.chapterId === sid && !p.deletedAt).forEach(p => {
-      if (dedupe) {
-        const dup = points.find(x => x.chapterId === targetId && !x.deletedAt && x.content === p.content);
-        if (dup) { p.deletedAt = now(); return; }
-      }
-      p.chapterId = targetId;
-    });
-    s.deletedAt = now();
-    pushRecycle('chapter', s);
-  });
-  write(K.chapters, chapters);
-  write(K.points, points);
 }
 
 // ============ 知识点 ============

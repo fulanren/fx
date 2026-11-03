@@ -1,7 +1,6 @@
 import * as store from '../store.js';
 import { getImageCached } from '../db.js';
 import { fmtDate } from '../utils/date.js';
-import { jsPDF } from 'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.es.min.js';
 
 // ============ 收集数据 ============
 async function collectData(scope, id) {
@@ -164,6 +163,7 @@ export function toPlainText(data) {
 
 // ============ PDF（新标签页 + 打印） ============
 export async function exportAsPdf(scope, id, options = {}) {
+  const { jsPDF } = window.jspdf;
   const data = await collectData(scope, id);
   if (!data) throw new Error('数据不存在');
 
