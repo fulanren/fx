@@ -91,6 +91,17 @@ export function createPaperLayer(canvas, W, H, imageId) {
         ctx.moveTo(s.points[0].x, s.points[0].y);
         for (let i = 1; i < s.points.length; i++) ctx.lineTo(s.points[i].x, s.points[i].y);
         ctx.stroke();
+        // 如果这个 stroke 被选中，画虚线框
+        if (s === p._selectedStroke) {
+          ctx.strokeStyle = '#3B82F6';
+          ctx.lineWidth = 1;
+          ctx.setLineDash([4, 4]);
+          const xs = s.points.map(pt => pt.x);
+          const ys = s.points.map(pt => pt.y);
+          const minX = Math.min(...xs), maxX = Math.max(...xs);
+          const minY = Math.min(...ys), maxY = Math.max(...ys);
+          ctx.strokeRect(minX - 4, minY - 4, maxX - minX + 8, maxY - minY + 8);
+        }
         ctx.restore();
       });
     }
@@ -189,6 +200,7 @@ export function createPaperLayer(canvas, W, H, imageId) {
   }
 
   return {
+    getImageId() { return imageId; },
     getPapers() { return papers; },
     addPaper(styleId) {
       const style = PAPER_STYLES.find(s => s.id === styleId) || PAPER_STYLES[0];
@@ -390,6 +402,40 @@ export function renderPaperToolbar(paperLayer) {
     el('button', { class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => paperLayer.duplicateSelected() }),
     el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: () => paperLayer.removeSelected() }),
   ]));
+
+    // 【笔迹管理】
+    bar.appendChild(el('div', { class: 'tape-row' }, [
+      el('span', { class: 'tape-label', text: '笔迹' }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '👆 点击选中',
+        onClick: () => toastSuccess('点击纸张上的笔迹可选中'),
+      }),
+      el('button', {
+        class: 'btn btn-sm btn-danger', text: '🗑 删除选中',
+        onClick: () => {
+          const sel = paperLayer.getSelected();
+          if (!sel || !sel._selectedStroke) { alert('请先选中一张纸，再点击笔迹'); return; }
+          sel.strokes = sel.strokes.filter(s => s !== sel._selectedStroke);
+          sel._selectedStroke = null;
+          store.savePaper(paperLayer.getImageId(), paperLayer.getPapers());
+          paperLayer.redraw();
+          toastSuccess('已删除笔迹');
+        },
+      }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '🎨 改颜色',
+        onClick: () => {
+          const sel = paperLayer.getSelected();
+          if (!sel || !sel._selectedStroke) { alert('请先选中笔迹'); return; }
+          const color = prompt('输入颜色（如 #EF476F）', sel._selectedStroke.color);
+          if (color) {
+            sel._selectedStroke.color = color;
+            store.savePaper(paperLayer.getImageId(), paperLayer.getPapers());   // ← 改这里
+            paperLayer.redraw();
+          }
+        },
+      }),
+    ]));
 
   return bar;
 }

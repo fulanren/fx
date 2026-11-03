@@ -1,47 +1,51 @@
+// ============================================================
+// annotator.js — 图片标注页
+// 功能：画笔、橡皮、圈擦、文字、箭头、矩形、直线、波浪、
+//       胶带、纸张、抓手、扩展画布、图层顺序、撤销、保存
+// 依赖：canvas 工具、胶带层、纸张层、文字层、颜色选择器
+// ============================================================
+
 import { el, clear } from '../utils/dom.js';
-import * as store from '../store.js';
-import { navigate } from '../router.js';
-import { getImageCached, putImageCached } from '../db.js';
-import {
-  drawSmoothPath, drawArrow, drawRect, drawLine, drawWave,
-  eraseCircle, eraseRect,
-} from '../utils/canvas.js';
-import { toastSuccess, toastError } from '../ui/toast.js';
+import { dbGet, putImageCached } from '../db.js';
+import { toastError, toastSuccess } from '../ui/toast.js';
 import { confirmBox } from '../ui/confirm.js';
+import { goBack } from '../router.js';
+import * as store from '../store.js';
+import { uuid } from '../utils/id.js';
+import {
+  drawArrow, drawLine, drawRect, drawWave,
+  eraseCircle, eraseRect, drawSmoothPath,
+} from '../utils/canvas.js';
 import { createTapeLayer, renderTapeToolbar } from './annotatorTape.js';
-import { createPaperLayer, renderPaperToolbar } from './annotatorPaper.js';
+import { createPaperLayer } from './annotatorPaper.js';
 import { createTextLayer } from './annotatorText.js';
 import { renderColorPicker } from '../ui/colorPicker.js';
-import { patternCropModal } from '../ui/patternCrop.js';
 
+// 预设颜色
+const COLORS = ['#EF476F', '#F78C6B', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#FFFFFF'];
+
+// 工具栏定义
 const TOOLS = [
-  { id: 'pen', label: '✏️' },
-  { id: 'eraser', label: '🧽' },
-  { id: 'circle-erase', label: '⭕' },
-  { id: 'text', label: 'T' },
-  { id: 'arrow', label: '↗' },
-  { id: 'rect', label: '▭' },
-  { id: 'line', label: '—' },
-  { id: 'wave', label: '〰️' },
-  { id: 'tape', label: '🎗️' },
-  { id: 'paper', label: '📄' },
-  { id: 'hand', label: '✋' },
+  { id: 'pen', label: '✏️', name: '画笔' },
+  { id: 'eraser', label: '🧽', name: '橡皮' },
+  { id: 'circle-erase', label: '⭕', name: '圈擦' },
+  { id: 'text', label: 'T', name: '文字' },
+  { id: 'arrow', label: '↗', name: '箭头' },
+  { id: 'rect', label: '▭', name: '矩形' },
+  { id: 'line', label: '—', name: '直线' },
+  { id: 'wave', label: '〰️', name: '波浪' },
+  { id: 'tape', label: '🎗️', name: '胶带' },
+  { id: 'paper', label: '📄', name: '纸张' },
+  { id: 'hand', label: '✋', name: '抓手' },
 ];
 
-const TOOL_NAMES = {
-  pen: '画笔', eraser: '橡皮', 'circle-erase': '圈擦', text: '文字',
-  arrow: '箭头', rect: '矩形', line: '直线', wave: '波浪',
-  tape: '胶带', paper: '纸张', hand: '抓手',
-};
+// 默认图层顺序（从下到上）
+const DEFAULT_LAYER_ORDER = ['base', 'stroke', 'paper', 'paperStroke', 'text', 'tape'];
 
-const DEFAULT_LAYER_ORDER = ['base', 'stroke', 'text', 'paper', 'paperStroke', 'tape'];
-
+// 入口函数：渲染标注页
 export function renderAnnotator({ params, query }) {
-  if (window.__annotatorActive && window.__annotatorCleanup) {
-    try { window.__annotatorCleanup(); } catch { }
-  }
-  window.__annotatorActive = true;
-  window.__saveAll = null;
+  // 清理上一次标注页的残留（事件监听、定时器、浮动元素）
+  if (window.__annotatorCleanup) window.__annotatorCleanup();
 
   const imageId = params.id;
   const pointId = query.pointId;
@@ -51,337 +55,319 @@ export function renderAnnotator({ params, query }) {
   document.getElementById('page-title').textContent = '标注';
   document.getElementById('btn-back').classList.remove('hidden');
 
-  let dirty = false;
-  let currentTool = 'pen';
-  let currentColor = '#EF476F';
-  let currentWidth = 4;
-  let scale = 1;
-  let offsetX = 0;
-  let offsetY = 0;
-  let eraseShape = 'rect';
-  let waveAmplitude = 8;
-  let penOnly = false;
-  let eraseFreePath = null;
-  const toolWidths = { pen: 4, eraser: 20, 'circle-erase': 10 };
-
-  const goBack = async () => {
+  // 返回按钮：有未保存修改时弹确认框
+  const origBack = document.getElementById('btn-back').onclick;
+  document.getElementById('btn-back').onclick = async () => {
     if (dirty) {
       const r = await confirmBox({
-        title: '未保存',
-        message: '有未保存的标注，是否保存？',
-        confirmText: '保存并返回',
-        cancelText: '放弃',
-        extra: { label: '继续编辑', value: 'stay' },
+        title: '未保存', message: '有未保存的修改，确定离开？',
+        confirmText: '离开', cancelText: '留下', danger: true,
       });
-      if (r === true) {
-        if (window.__saveAll) { try { await window.__saveAll(); } catch (e) { console.error(e); } }
-        dirty = false;
-        doNavigateBack();
-        return;
-      }
-      if (r === false) { doNavigateBack(); return; }
-      return;
+      if (!r) return;
     }
-    doNavigateBack();
+    await saveAll(false);
+    document.getElementById('btn-back').onclick = origBack || (() => history.back());
+    document.getElementById('page-title').textContent = '背诵';
+    document.getElementById('btn-back').classList.add('hidden');
+    goBack();
   };
-  function doNavigateBack() {
-    const p = pointId ? store.getPoint(pointId) : null;
-    navigate(p ? `#/chapter/${p.chapterId}` : '#/');
-  }
-  document.getElementById('btn-back').onclick = goBack;
 
-  getImageCached(imageId).then(async img => {
-    if (!img) { toastError('图片不存在'); navigate('#/'); return; }
+  // 从 IndexedDB 读取图片记录
+  dbGet('images', imageId).then(async img => {
+    if (!img) { toastError('图片不存在'); goBack(); return; }
+    const W = img.width, H = img.height;
+    view.innerHTML = '';
 
-    const originalUrl = URL.createObjectURL(img.originalBlob);
-    const baseImg = new Image();
-    baseImg.src = originalUrl;
-    await new Promise(r => { baseImg.onload = r; });
+    // 后续所有画布、图层、工具栏、手势都在这段内部
+    // ========== 画布和图层 ==========
+    let scale = 1, offsetX = 0, offsetY = 0;
 
-    const W = img.width;
-    const H = img.height;
+    // 外层容器，支持 transform 缩放和平移
+    const canvasWrap = el('div', {
+      class: 'annotator-wrap',
+      style: {
+        position: 'relative', margin: '0 auto',
+        touchAction: 'none', userSelect: 'none',
+        width: W + 'px', height: H + 'px',
+      },
+    });
+    view.appendChild(canvasWrap);
 
-    const wrap = el('div', { class: 'annotator-wrap' });
-    const canvasWrap = el('div', { class: 'canvas-wrap' });
+    // 底图（显示合并后的图）
+    let baseImg = null;
+    const base = el('img', {
+      style: { display: 'block', width: '100%', height: '100%', userSelect: 'none', pointerEvents: 'none' },
+    });
+    const blobForDisplay = img.annotatedBlob || img.originalBlob || img.blob;
+    const urlDisplay = URL.createObjectURL(blobForDisplay);
+    base.src = urlDisplay;
+    await new Promise(r => { base.onload = r; });
+    baseImg = base;
+    canvasWrap.appendChild(base);
 
-    const base = el('img', { src: originalUrl, class: 'base-img', draggable: 'false' });
-    const strokeCanvas = el('canvas', { class: 'stroke-canvas' });
+    // 笔迹层（画笔、图形、橡皮、圈擦）
+    const strokeCanvas = el('canvas', {
+      class: 'stroke-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', touchAction: 'none', zIndex: '1' },
+    });
     strokeCanvas.width = W; strokeCanvas.height = H;
-    const ctx = strokeCanvas.getContext('2d');
+    canvasWrap.appendChild(strokeCanvas);
+    const ctx = strokeCanvas.getContext('2d', { willReadFrequently: true });
 
-    const paperCanvas = el('canvas', { class: 'paper-canvas' });
-    paperCanvas.width = W; paperCanvas.height = H;
-    const paperLayer = createPaperLayer(paperCanvas, W, H, imageId);
+    // 恢复上次的笔迹
+    if (img.strokeBlob) {
+      const su = URL.createObjectURL(img.strokeBlob);
+      const simg = new Image();
+      simg.src = su;
+      await new Promise(r => { simg.onload = r; });
+      ctx.drawImage(simg, 0, 0);
+      URL.revokeObjectURL(su);
+    }
 
-    const paperStrokeCanvas = el('canvas', { class: 'paper-stroke-canvas' });
+    // 纸张笔迹层（纸张上的笔迹，独立图层）
+    const paperStrokeCanvas = el('canvas', {
+      class: 'paper-stroke-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '2' },
+    });
     paperStrokeCanvas.width = W; paperStrokeCanvas.height = H;
-    const paperStrokeCtx = paperStrokeCanvas.getContext('2d');
+    canvasWrap.appendChild(paperStrokeCanvas);
+    const paperStrokeCtx = paperStrokeCanvas.getContext('2d', { willReadFrequently: true });
 
-    const textCanvas = el('canvas', { class: 'text-canvas' });
+    if (img.paperStrokeBlob) {
+      const psu = URL.createObjectURL(img.paperStrokeBlob);
+      const psimg = new Image();
+      psimg.src = psu;
+      await new Promise(r => { psimg.onload = r; });
+      paperStrokeCtx.drawImage(psimg, 0, 0);
+      URL.revokeObjectURL(psu);
+    }
+
+    // 文字层（独立文字对象）
+    const textCanvas = el('canvas', {
+      class: 'text-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '3' },
+    });
     textCanvas.width = W; textCanvas.height = H;
+    canvasWrap.appendChild(textCanvas);
+    const textCtx = textCanvas.getContext('2d');
     const textLayer = createTextLayer(textCanvas, W, H, imageId);
 
-    const tapeCanvas = el('canvas', { class: 'tape-canvas' });
+    // 纸张层（便签、便利贴、横线纸等）
+    const paperCanvas = el('canvas', {
+      class: 'paper-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '4' },
+    });
+    paperCanvas.width = W; paperCanvas.height = H;
+    canvasWrap.appendChild(paperCanvas);
+    const paperLayer = createPaperLayer(paperCanvas, W, H, imageId, paperStrokeCtx);
+
+    // 胶带层（记忆胶带，盖在笔迹之上）
+    const tapeCanvas = el('canvas', {
+      class: 'tape-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '5' },
+    });
     tapeCanvas.width = W; tapeCanvas.height = H;
+    canvasWrap.appendChild(tapeCanvas);
     const tapeLayer = createTapeLayer(tapeCanvas, W, H, imageId);
 
-    const previewCanvas = el('canvas', { class: 'preview-canvas' });
+    // 预览层（橡皮预览圈、图形预览）
+    const previewCanvas = el('canvas', {
+      class: 'preview-canvas',
+      style: { position: 'absolute', top: '0', left: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: '6' },
+    });
     previewCanvas.width = W; previewCanvas.height = H;
+    canvasWrap.appendChild(previewCanvas);
     const previewCtx = previewCanvas.getContext('2d');
 
-    let lastPreviewPos = null;
-    function updateEraserPreview(pt, radius) {
-      if (lastPreviewPos) {
-        previewCtx.clearRect(
-          lastPreviewPos.x - lastPreviewPos.r - 4,
-          lastPreviewPos.y - lastPreviewPos.r - 4,
-          lastPreviewPos.r * 2 + 8,
-          lastPreviewPos.r * 2 + 8
-        );
-      }
-      previewCtx.save();
-      previewCtx.strokeStyle = 'rgba(59,130,246,.8)';
-      previewCtx.lineWidth = 2;
-      previewCtx.beginPath();
-      previewCtx.arc(pt.x, pt.y, radius, 0, Math.PI * 2);
-      previewCtx.stroke();
-      previewCtx.restore();
-      lastPreviewPos = { x: pt.x, y: pt.y, r: radius };
-    }
-    function clearPreview() {
-      previewCtx.clearRect(0, 0, W, H);
-      lastPreviewPos = null;
-    }
-
-    // 固定顺序：底图 < 笔迹 < 文字 < 胶带 < 纸张 < 预览
+    // 图层顺序管理
     const layerMap = {
-      base: base,
-      stroke: strokeCanvas,
-      text: textCanvas,
-      paper: paperCanvas,
-      paperStroke: paperStrokeCanvas,
-      tape: tapeCanvas,
+      base, stroke: strokeCanvas, text: textCanvas,
+      paper: paperCanvas, paperStroke: paperStrokeCanvas, tape: tapeCanvas,
     };
+    let currentLayerOrder = store.getLayerOrder && store.getLayerOrder()
+      ? [...store.getLayerOrder()]
+      : [...DEFAULT_LAYER_ORDER];
 
+    // 应用图层顺序：清空后按顺序重新 append
     function applyLayerOrder(order) {
       const previewEl = previewCanvas;
       [...canvasWrap.children].forEach(child => {
         if (child !== previewEl) canvasWrap.removeChild(child);
       });
-      order.forEach(key => {
-        if (layerMap[key]) canvasWrap.appendChild(layerMap[key]);
-      });
+      order.forEach(key => { if (layerMap[key]) canvasWrap.appendChild(layerMap[key]); });
       canvasWrap.appendChild(previewEl);
     }
-
-    let currentLayerOrder = [...DEFAULT_LAYER_ORDER];
     applyLayerOrder(currentLayerOrder);
-    wrap.appendChild(canvasWrap);
-    view.appendChild(wrap);
 
-    const zoomLabel = el('div', { class: 'zoom-label', text: '100%' });
-    wrap.appendChild(zoomLabel);
-
-    if (img.strokeBlob) {
-      const strokeUrl = URL.createObjectURL(img.strokeBlob);
-      const strokeImg = new Image();
-      strokeImg.src = strokeUrl;
-      await new Promise(r => { strokeImg.onload = r; });
-      ctx.drawImage(strokeImg, 0, 0);
-      URL.revokeObjectURL(strokeUrl);
-    } else if (img.annotatedBlob && img.annotatedBlob !== img.originalBlob) {
-      const annotUrl = URL.createObjectURL(img.annotatedBlob);
-      const annotImg = new Image();
-      annotImg.src = annotUrl;
-      await new Promise(r => { annotImg.onload = r; });
-      ctx.drawImage(annotImg, 0, 0);
-      URL.revokeObjectURL(annotUrl);
-    }
-    if (img.paperStrokeBlob) {
-      const psUrl = URL.createObjectURL(img.paperStrokeBlob);
-      const psImg = new Image();
-      psImg.src = psUrl;
-      await new Promise(r => { psImg.onload = r; });
-      paperStrokeCtx.drawImage(psImg, 0, 0);
-      URL.revokeObjectURL(psUrl);
+    // 更新缩放比例显示
+    function updateTransform() {
+      canvasWrap.style.transform = `scale(${scale}) translate(${offsetX}px, ${offsetY}px)`;
+      canvasWrap.style.transformOrigin = '0 0';
+      const zoomEl = document.getElementById('zoom-level');
+      if (zoomEl) zoomEl.textContent = Math.round(scale * 100) + '%';
     }
 
-    if (img.paperStrokeBlob) {
-      const psUrl = URL.createObjectURL(img.paperStrokeBlob);
-      const psImg = new Image();
-      psImg.src = psUrl;
-      await new Promise(r => { psImg.onload = r; });
-      paperStrokeCtx.drawImage(psImg, 0, 0);
-      URL.revokeObjectURL(psUrl);
-    }
-
-    paperLayer.redraw();
-    textLayer.redraw();
-    tapeLayer.redraw();
-    // ============ 长按提示 ============
-    let longPressTimer = null;
-    let tooltipEl = null;
-    function showTooltip(btn, name) {
-      hideTooltip();
-      const rect = btn.getBoundingClientRect();
-      tooltipEl = el('div', {
-        style: {
-          position: 'fixed',
-          left: rect.left + rect.width / 2 + 'px',
-          top: rect.bottom + 8 + 'px',
-          transform: 'translateX(-50%)',
-          background: 'rgba(43,45,66,.95)',
-          color: '#fff',
-          padding: '4px 10px',
-          borderRadius: '6px',
-          fontSize: '12px',
-          whiteSpace: 'nowrap',
-          pointerEvents: 'none',
-          zIndex: '9999',
-        },
-        text: name,
-      });
-      document.body.appendChild(tooltipEl);
-    }
-    function hideTooltip() {
-      if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
-    }
-    function attachLongPress(btn, text) {
-      let timer = null;
-      btn.addEventListener('pointerdown', (e) => {
-        e.preventDefault();
-        timer = setTimeout(() => showTooltip(btn, text), 500);
-      });
-      btn.addEventListener('pointerup', (e) => {
-        e.preventDefault();
-        clearTimeout(timer);
-        setTimeout(hideTooltip, 800);
-      });
-      btn.addEventListener('pointerleave', () => {
-        clearTimeout(timer);
-        hideTooltip();
-      });
-      btn.addEventListener('contextmenu', (e) => e.preventDefault());
-    }
-
-    // ============ 顶栏动态按钮 ============
-    const dynBar = document.getElementById('topbar-dynamic');
-    if (dynBar) {
-      dynBar.innerHTML = '';
-      const mk = (text, title, onClick) => {
-        const b = el('button', { class: 'btn btn-sm btn-ghost', text, title, onClick });
-        attachLongPress(b, title);
-        dynBar.appendChild(b);
+    // 屏幕坐标转图片坐标
+    function canvasToImage(clientX, clientY) {
+      const rect = strokeCanvas.getBoundingClientRect();
+      return {
+        x: (clientX - rect.left) / rect.width * W,
+        y: (clientY - rect.top) / rect.height * H,
       };
-      mk('←', '左移', () => { offsetX += 40; updateTransform(); });
-      mk('→', '右移', () => { offsetX -= 40; updateTransform(); });
-      mk('↑', '上移', () => { offsetY += 40; updateTransform(); });
-      mk('↓', '下移', () => { offsetY -= 40; updateTransform(); });
-      mk('🔍+', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); });
-      mk('🔍-', '缩小', () => { scale = Math.max(0.3, scale / 1.25); updateTransform(); });
-      mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); });
-      mk('↶', '撤销', undo);
-      mk('🗑', '清除', clearAll);
-      mk('➕', '扩展画布', openExpandDialog);
-      mk('📚', '图层顺序', openLayerPanel);
-      const saveBtn = el('button', { class: 'btn btn-sm btn-primary', text: '💾', title: '保存', onClick: () => { if (window.__saveAll) window.__saveAll(true); } });
-      attachLongPress(saveBtn, '保存');
-      dynBar.appendChild(saveBtn);
     }
 
-    // ============ 工具栏 ============
+    // 清空预览层
+    function clearPreview() { previewCtx.clearRect(0, 0, W, H); }
+    // ========== 工具栏状态 ==========
+    let currentTool = 'pen';       // 当前工具
+    let currentColor = COLORS[0];  // 当前颜色
+    let currentWidth = 3;          // 当前粗细
+    let eraseShape = 'free';       // 圈擦形状：free/rect/circle
+    let waveAmplitude = 8;         // 波浪波幅
+    let penOnly = false;           // 仅触控笔模式
+    let dirty = false;             // 是否有未保存修改
+    let drawing = false;           // 是否正在绘制
+    let points = [];               // 当前笔迹点
+    let startPt = null;            // 起始点（图形工具用）
+    let eraseFreePath = null;      // 自由圈擦路径
+    let paperDragOffset = null;    // 纸张/文字拖动偏移
+    // 各工具记住自己的粗细
+    const toolWidths = { pen: 3, eraser: 30, 'circle-erase': 40, arrow: 3, rect: 3, line: 3, wave: 3 };
+
+    // 主工具栏
     const toolBar = el('div', { class: 'annotator-toolbar' });
-    function setActiveTool(id) {
-      if (currentTool in toolWidths) toolWidths[currentTool] = currentWidth;
-      currentTool = id;
-      if (id in toolWidths) currentWidth = toolWidths[id];
-      const wr = document.querySelector('.annotator-widthrow input[type="range"]');
-      const wn = document.querySelector('.annotator-widthrow input[type="number"]');
-      if (wr) wr.value = currentWidth;
-      if (wn) wn.value = currentWidth;
-      toolBar.querySelectorAll('.tool-btn').forEach(b => b.classList.remove('active'));
-      const btn = toolBar.querySelector(`[data-tool="${id}"]`);
-      if (btn) btn.classList.add('active');
-      strokeCanvas.style.cursor = id === 'hand' ? 'grab' : 'crosshair';
-      updateSubToolbar();
-    }
     TOOLS.forEach(t => {
-      const btn = el('button', {
-        class: 'tool-btn' + (t.id === currentTool ? ' active' : ''),
+      toolBar.appendChild(el('button', {
+        class: 'tool-btn' + (t.id === 'pen' ? ' active' : ''),
         'data-tool': t.id,
         text: t.label,
+        title: t.name,
         onClick: () => setActiveTool(t.id),
-      });
-      attachLongPress(btn, TOOL_NAMES[t.id] || t.id);
-      toolBar.appendChild(btn);
+      }));
     });
 
-    const penOnlyBtn = el('button', {
-      class: 'tool-btn' + (penOnly ? ' active' : ''),
-      text: '✍️',
-      title: '仅触控笔',
-      onClick: () => {
-        penOnly = !penOnly;
-        penOnlyBtn.classList.toggle('active', penOnly);
-        toastSuccess(penOnly ? '防触控已开启' : '防触控已关闭');
+    // 颜色条（用颜色选择器）
+    const colorBar = el('div', { class: 'annotator-colorbar' });
+    const colorPickerWrap = el('div', { class: 'color-picker' });
+    colorBar.appendChild(colorPickerWrap);
+    function renderColorBar() {
+      colorPickerWrap.innerHTML = '';
+      colorPickerWrap.appendChild(renderColorPicker({
+        current: currentColor,
+        onChange: (c) => { currentColor = c; },
+      }));
+    }
+    renderColorBar();
+
+    // 粗细行：滑块 + − 数字 +
+    const widthNum = el('input', {
+      type: 'number', min: '1', max: '100', value: String(currentWidth),
+      style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
+      onInput: (e) => {
+        const v = Math.max(1, Math.min(100, Number(e.target.value) || 1));
+        currentWidth = v;
+        if (currentTool in toolWidths) toolWidths[currentTool] = v;
+        widthRange.value = v;
       },
     });
-    attachLongPress(penOnlyBtn, '仅触控笔');
-    toolBar.appendChild(penOnlyBtn);
-    view.appendChild(toolBar);
+    const widthRange = el('input', {
+      type: 'range', min: '1', max: '100', value: String(currentWidth),
+      style: { flex: '1' },
+      onInput: (e) => {
+        const v = Number(e.target.value);
+        currentWidth = v;
+        if (currentTool in toolWidths) toolWidths[currentTool] = v;
+        widthNum.value = v;
+      },
+    });
+    const widthMinus = el('button', {
+      class: 'btn btn-sm btn-ghost', text: '−',
+      style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+      onClick: () => {
+        const v = Math.max(1, currentWidth - 1);
+        currentWidth = v;
+        if (currentTool in toolWidths) toolWidths[currentTool] = v;
+        widthRange.value = v; widthNum.value = v;
+      },
+    });
+    const widthPlus = el('button', {
+      class: 'btn btn-sm btn-ghost', text: '+',
+      style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+      onClick: () => {
+        const v = Math.min(100, currentWidth + 1);
+        currentWidth = v;
+        if (currentTool in toolWidths) toolWidths[currentTool] = v;
+        widthRange.value = v; widthNum.value = v;
+      },
+    });
+    const widthRow = el('div', { class: 'annotator-widthrow' }, [
+      el('span', { text: '粗细', style: { fontSize: '13px', color: 'var(--text-2)' } }),
+      widthRange, widthMinus, widthNum, widthPlus,
+    ]);
 
+    // 子工具栏（胶带、纸张、圈擦形状、波浪波幅、矩形边框/填充、文字操作）
     const subBar = el('div', { class: 'sub-toolbar' });
-    view.appendChild(subBar);
 
-    let tapeToolbar = null;
-    let paperToolbar = null;
+        // 防触控开关
+        const penOnlyBtn = el('button', {
+          class: 'btn btn-sm ' + (penOnly ? 'btn-primary' : 'btn-ghost'),
+          text: penOnly ? '✍️ 防触控已开启' : '✍️ 防触控已关闭',
+          title: '开启后，手指不绘制，只能用触控笔画',
+          style: { fontSize: '12px', padding: '4px 10px', borderRadius: '10px' },
+          onClick: (e) => {
+            penOnly = !penOnly;
+            e.target.textContent = penOnly ? '✍️ 防触控已开启' : '✍️ 防触控已关闭';
+            e.target.classList.toggle('btn-primary', penOnly);
+            e.target.classList.toggle('btn-ghost', !penOnly);
+          },
+        });
 
+    // 底部统一容器，从下往上：主工具栏 → 颜色 → 粗细 → 子工具栏
+    const bottomBar = el('div', { class: 'annotator-bottom-bar' });
+    bottomBar.appendChild(subBar);
+    bottomBar.appendChild(widthRow);
+    bottomBar.appendChild(colorBar);
+    bottomBar.appendChild(toolBar);
+    bottomBar.appendChild(penOnlyBtn);
+    view.appendChild(bottomBar);
+
+    // 切换工具
+    function setActiveTool(id) {
+      const prev = currentTool;
+      if (prev in toolWidths) toolWidths[prev] = currentWidth;
+      currentTool = id;
+      currentWidth = (id in toolWidths) ? toolWidths[id] : 3;
+      widthNum.value = currentWidth;
+      widthRange.value = currentWidth;
+      document.querySelectorAll('.tool-btn').forEach(b => {
+        b.classList.toggle('active', b.dataset.tool === id);
+      });
+      updateSubToolbar();
+    }
+
+    // 更新子工具栏内容
     function updateSubToolbar() {
       subBar.innerHTML = '';
       if (currentTool === 'tape') {
-        if (!tapeToolbar) {
-          tapeToolbar = renderTapeToolbar(tapeLayer, async () => {
-            const fileInput = el('input', { type: 'file', accept: 'image/*', style: { display: 'none' } });
-            fileInput.onchange = async (e) => {
-              const file = e.target.files[0];
-              if (!file) return;
-              const pid = await patternCropModal(file);
-              if (pid) { tapeLayer.setPatternImage(pid); toastSuccess('花样已选用'); }
-            };
-            document.body.appendChild(fileInput);
-            fileInput.click();
-            setTimeout(() => fileInput.remove(), 1000);
-          });
-        }
-        subBar.appendChild(tapeToolbar);
-        subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('button', { class: 'btn btn-sm btn-ghost', text: '👁 全部显示', onClick: () => { tapeLayer.showAll(); toastSuccess('已显示所有胶带'); } }),
-          el('button', { class: 'btn btn-sm btn-ghost', text: '🙈 全部隐藏', onClick: () => { tapeLayer.hideAll(); toastSuccess('已隐藏所有胶带'); } }),
-        ]));
+        subBar.appendChild(renderTapeToolbar(tapeLayer));
       } else if (currentTool === 'paper') {
-        if (!paperToolbar) {
-          paperToolbar = renderPaperToolbar(paperLayer);
-          paperToolbar.addEventListener('paper-added', () => { dirty = true; });
-        }
-        subBar.appendChild(paperToolbar);
+        import('./annotatorPaper.js').then(({ renderPaperToolbar }) => {
+          subBar.innerHTML = '';
+          subBar.appendChild(renderPaperToolbar(paperLayer));
+        });
       } else if (currentTool === 'circle-erase') {
-        const shapeRow = el('div', { class: 'tape-row' }, [
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
           el('span', { class: 'tape-label', text: '形状' }),
-          ...[
-            { id: 'rect', label: '▭ 矩形' },
-            { id: 'circle', label: '○ 圆形' },
-            { id: 'free', label: '✏️ 自由' },
-          ].map(s => el('button', {
-            class: 'tape-chip' + (eraseShape === s.id ? ' active' : ''),
-            text: s.label,
+          ...['free', 'rect', 'circle'].map(s => el('button', {
+            class: 'tape-chip' + (eraseShape === s ? ' active' : ''),
+            text: s === 'free' ? '自由' : s === 'rect' ? '矩形' : '圆形',
             onClick: (ev) => {
-              eraseShape = s.id;
-              shapeRow.querySelectorAll('.tape-chip').forEach(b => b.classList.remove('active'));
+              eraseShape = s;
+              subBar.querySelectorAll('.tape-chip').forEach(b => b.classList.remove('active'));
               ev.target.classList.add('active');
             },
           })),
-        ]);
-        subBar.appendChild(shapeRow);
+        ]));
       } else if (currentTool === 'wave') {
         const waveNum = el('input', {
           type: 'number', min: '2', max: '30', value: String(waveAmplitude),
@@ -403,132 +389,601 @@ export function renderAnnotator({ params, query }) {
         });
         const waveMinus = el('button', {
           class: 'btn btn-sm btn-ghost', text: '−',
-          style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
-          onClick: () => {
-            waveAmplitude = Math.max(2, waveAmplitude - 1);
-            waveRange.value = waveAmplitude;
-            waveNum.value = waveAmplitude;
-          },
+          style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+          onClick: () => { waveAmplitude = Math.max(2, waveAmplitude - 1); waveRange.value = waveAmplitude; waveNum.value = waveAmplitude; },
         });
         const wavePlus = el('button', {
           class: 'btn btn-sm btn-ghost', text: '+',
-          style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
-          onClick: () => {
-            waveAmplitude = Math.min(30, waveAmplitude + 1);
-            waveRange.value = waveAmplitude;
-            waveNum.value = waveAmplitude;
-          },
+          style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
+          onClick: () => { waveAmplitude = Math.min(30, waveAmplitude + 1); waveRange.value = waveAmplitude; waveNum.value = waveAmplitude; },
         });
         subBar.appendChild(el('div', { class: 'tape-row' }, [
           el('span', { class: 'tape-label', text: '波幅' }),
-          waveRange,
-          waveMinus,
-          waveNum,
-          wavePlus,
+          waveRange, waveMinus, waveNum, wavePlus,
         ]));
       } else if (currentTool === 'rect') {
-        let borderColor = window.__rectBorderColor || currentColor;
-        let fillColor = window.__rectFillColor || 'none';
-
         const borderPicker = renderColorPicker({
-          current: borderColor,
-          onChange: (c) => {
-            borderColor = c;
-            window.__rectBorderColor = c;
-          },
+          current: currentColor,
+          onChange: (c) => { window.__rectBorderColor = c; },
         });
-
         const fillPicker = renderColorPicker({
-          current: fillColor,
-          onChange: (c) => {
-            fillColor = c;
-            window.__rectFillColor = c;
-          },
+          current: 'none',
+          onChange: (c) => { window.__rectFillColor = c; },
           allowNone: true,
         });
-
+        window.__rectBorderColor = currentColor;
+        window.__rectFillColor = 'none';
         subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '边框' }),
-          borderPicker,
+          el('span', { class: 'tape-label', text: '边框' }), borderPicker,
         ]));
         subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '填充' }),
-          fillPicker,
+          el('span', { class: 'tape-label', text: '填充' }), fillPicker,
         ]));
+      } else if (currentTool === 'text') {
+        const sel = textLayer.getSelected();
+        if (sel) {
+          subBar.appendChild(el('div', { class: 'tape-row' }, [
+            el('button', { class: 'btn btn-sm btn-primary', text: '✏️ 编辑', onClick: () => openTextObjectEditor(sel) }),
+            el('button', {
+              class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
+                const copy = { ...sel, id: crypto.randomUUID(), x: sel.x + 20, y: sel.y + 20 };
+                textLayer.getItems().push(copy);
+                textLayer.save();
+                textLayer.redraw();
+                updateSubToolbar();
+              }
+            }),
+            el('button', {
+              class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: () => {
+                pushUndo(true);
+                textLayer.removeSelected();
+                updateSubToolbar();
+              }
+            }),
+          ]));
+        }
       }
     }
 
-    // ============ 颜色 ============
-    const colorBar = el('div', { class: 'annotator-colorbar' });
-    colorBar.appendChild(renderColorPicker({
-      current: currentColor,
-      onChange: (c) => { currentColor = c; },
-    }));
-    view.appendChild(colorBar);
+    // 提示文字
+    const hint = el('div', { class: 'annotator-hint', text: '触控笔/鼠标可直接画；手指按住拖动可平移，双指缩放' });
+    view.appendChild(hint);
 
-    // ============ 粗细 ============
-    const widthRange = el('input', {
-      type: 'range', min: '1', max: '100', value: String(currentWidth),
-      style: { flex: '1' },
-      onInput: (e) => {
-        const v = Number(e.target.value);
-        currentWidth = v;
-        if (currentTool in toolWidths) toolWidths[currentTool] = v;
-        widthNum.value = v;
-      },
-    });
-    const widthNum = el('input', {
-      type: 'number', min: '1', max: '100', value: String(currentWidth),
-      style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
-      onInput: (e) => {
-        const v = Math.max(1, Math.min(100, Number(e.target.value) || 1));
-        currentWidth = v;
-        if (currentTool in toolWidths) toolWidths[currentTool] = v;
-        widthRange.value = v;
-      },
-    });
-    const widthMinus = el('button', {
-      class: 'btn btn-sm btn-ghost', text: '−',
-      style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
-      onClick: () => {
-        const v = Math.max(1, currentWidth - 1);
-        currentWidth = v;
-        if (currentTool in toolWidths) toolWidths[currentTool] = v;
-        widthRange.value = v;
-        widthNum.value = v;
-      },
-    });
-    const widthPlus = el('button', {
-      class: 'btn btn-sm btn-ghost', text: '+',
-      style: { minWidth: '22px', padding: '0 3px', fontSize: '13px', minHeight: '28px' },
-      onClick: () => {
-        const v = Math.min(100, currentWidth + 1);
-        currentWidth = v;
-        if (currentTool in toolWidths) toolWidths[currentTool] = v;
-        widthRange.value = v;
-        widthNum.value = v;
-      },
-    });
-    const widthRow = el('div', { class: 'annotator-widthrow' }, [
-      el('span', { text: '粗细', style: { fontSize: '13px', color: 'var(--text-2)' } }),
-      widthRange,
-      widthMinus,
-      widthNum,
-      widthPlus,
-    ]);
-    view.appendChild(widthRow);
+    // 缩放比例显示
+    const zoomBadge = el('div', { id: 'zoom-level', class: 'annotator-zoom', text: '100%' });
+    view.appendChild(zoomBadge);
 
-    // ============ 撤销栈 ============
-    const undoStack = [];
-    undoStack.push({
-      stroke: ctx.getImageData(0, 0, W, H),
-      paperStroke: paperStrokeCtx.getImageData(0, 0, W, H),
-      paper: JSON.parse(JSON.stringify(paperLayer.getPapers())),
-      tape: JSON.parse(JSON.stringify(tapeLayer.getTapes())),
-      text: JSON.parse(JSON.stringify(textLayer.getItems())),
+    // 顶栏动态按钮
+    const dynBar = document.getElementById('topbar-dynamic');
+    if (dynBar) {
+      dynBar.innerHTML = '';
+      const mk = (txt, title, fn) => el('button', { class: 'btn btn-sm btn-ghost', text: txt, title, onClick: fn });
+      dynBar.appendChild(mk('←', '左移', () => { offsetX += 40; updateTransform(); }));
+      dynBar.appendChild(mk('→', '右移', () => { offsetX -= 40; updateTransform(); }));
+      dynBar.appendChild(mk('↑', '上移', () => { offsetY += 40; updateTransform(); }));
+      dynBar.appendChild(mk('↓', '下移', () => { offsetY -= 40; updateTransform(); }));
+      dynBar.appendChild(mk('🔍+', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); }));
+      dynBar.appendChild(mk('🔍-', '缩小', () => { scale = Math.max(0.3, scale / 1.25); updateTransform(); }));
+      dynBar.appendChild(mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); }));
+      dynBar.appendChild(mk('↶', '撤销', undo));
+      dynBar.appendChild(mk('🗑', '清除', clearAll));
+      dynBar.appendChild(mk('➕', '扩展画布', openExpandDialog));
+      dynBar.appendChild(mk('📚', '图层顺序', openLayerPanel));
+      dynBar.appendChild(mk('💾', '保存', () => saveAll(true)));
+    }
+    // ========== 手势处理 ==========
+    const pointers = new Map();   // 当前屏幕上的手指
+    let pinchDist = 0;            // 双指初始距离
+    let pinchScale = 1;           // 双指初始缩放
+    let pinchCx = 0, pinchCy = 0; // 双指中心
+
+    strokeCanvas.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+
+      // 防触控：手指不绘制，但双指缩放和抓手不受限制
+      if (penOnly && e.pointerType === 'touch' && currentTool !== 'hand') {
+        if (pointers.size === 0) {
+          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          return;
+        }
+      }
+      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      strokeCanvas.setPointerCapture(e.pointerId);
+
+      // 双指：进入缩放
+      if (pointers.size === 2) {
+        drawing = false;
+        points = [];
+        clearPreview();
+        const pts = [...pointers.values()];
+        pinchDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        pinchScale = scale;
+        pinchCx = (pts[0].x + pts[1].x) / 2;
+        pinchCy = (pts[0].y + pts[1].y) / 2;
+        return;
+      }
+
+      const pt = canvasToImage(e.clientX, e.clientY);
+
+      // 抓手工具：平移
+      if (currentTool === 'hand') {
+        drawing = 'pan';
+        startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
+        return;
+      }
+
+      // 画笔/橡皮
+      if (currentTool === 'pen' || currentTool === 'eraser') {
+        const rect = strokeCanvas.getBoundingClientRect();
+        const relX = (e.clientX - rect.left) / rect.width;
+        const relY = (e.clientY - rect.top) / rect.height;
+        const edge = 0.15;
+        const isEdge = relX < edge || relX > 1 - edge || relY < edge || relY > 1 - edge;
+        // 手指在边缘 → 平移；触控笔始终绘制
+        if (isEdge && e.pointerType !== 'pen') {
+          drawing = 'pan';
+          startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
+          return;
+        }
+        pushUndo();
+        drawing = true;
+        points = [pt];
+        // 橡皮：点一下擦一个圆
+        if (currentTool === 'eraser') {
+          eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
+          eraseCircle(paperStrokeCtx, pt.x, pt.y, currentWidth * 2);
+          tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
+        }
+      } else if (currentTool === 'circle-erase') {
+        pushUndo();
+        drawing = true;
+        startPt = pt;
+        if (eraseShape === 'free') eraseFreePath = [pt];
+      } else if (currentTool === 'text') {
+        // 文字工具：先判断是否点中控制点，再判断是否点中文字，都没点中才新建
+        const sel = textLayer.getSelected();
+        if (sel) {
+          const handles = [
+            { id: 'nw', x: sel.x, y: sel.y },
+            { id: 'ne', x: sel.x + sel.w, y: sel.y },
+            { id: 'sw', x: sel.x, y: sel.y + sel.h },
+            { id: 'se', x: sel.x + sel.w, y: sel.y + sel.h },
+          ];
+          const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 12);
+          if (hitHandle) {
+            paperDragOffset = textLayer.startResize(hitHandle.id, pt.x, pt.y);
+            drawing = 'text-resize';
+            return;
+          }
+        }
+        const hit = textLayer.hitTest(pt.x, pt.y);
+        if (hit) {
+          textLayer.select(hit);
+          updateSubToolbar();
+          paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, _moved: false };
+          drawing = 'text-drag';
+          return;
+        }
+        // 没点中 → 新建文字
+        openTextEditor(pt);
+        drawing = false;
+        return;
+      } else if (currentTool === 'tape' || currentTool === 'paper') {
+        // 纸张工具：命中纸张 → 选中/拖动/调整大小
+        if (currentTool === 'paper') {
+          const hit = paperLayer.hitTest(pt.x, pt.y);
+          if (hit) {
+            const sel = paperLayer.getSelected();
+            if (sel && sel.id === hit.id) {
+              const handles = [
+                { id: 'nw', x: sel.x, y: sel.y },
+                { id: 'ne', x: sel.x + sel.w, y: sel.y },
+                { id: 'sw', x: sel.x, y: sel.y + sel.h },
+                { id: 'se', x: sel.x + sel.w, y: sel.y + sel.h },
+              ];
+              const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 12);
+              if (hitHandle) {
+                paperDragOffset = paperLayer.startResize(hitHandle.id, pt.x, pt.y);
+                drawing = 'paper-resize';
+                return;
+              }
+            }
+            paperLayer.select(hit);
+            updateSubToolbar();
+            paperDragOffset = { paper: hit, dx: pt.x - hit.x, dy: pt.y - hit.y, _moved: false };
+            drawing = 'paper-drag';
+            return;
+          }
+          paperLayer.select(null);
+          updateSubToolbar();
+        }
+        // 胶带工具：开始画胶带
+        if (currentTool === 'tape') {
+          drawing = true;
+          points = [pt];
+          pushUndo();
+        }
+      } else {
+        // 图形工具：记录起始点
+        pushUndo();
+        drawing = true;
+        startPt = pt;
+      }
     });
 
-    function pushUndo() {
+    strokeCanvas.addEventListener('pointermove', (e) => {
+      if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+      // 双指缩放
+      if (pointers.size === 2) {
+        const pts = [...pointers.values()];
+        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+        if (pinchDist > 0) {
+          scale = Math.max(0.3, Math.min(10, pinchScale * (dist / pinchDist)));
+          updateTransform();
+        }
+        return;
+      }
+
+      // 平移
+      if (drawing === 'pan') {
+        offsetX = e.clientX - startPt.x;
+        offsetY = e.clientY - startPt.y;
+        if (!window.__panRaf) {
+          window.__panRaf = requestAnimationFrame(() => {
+            updateTransform();
+            window.__panRaf = null;
+          });
+        }
+        return;
+      }
+
+      const pt = canvasToImage(e.clientX, e.clientY);
+
+      // 纸张拖动
+      if (drawing === 'paper-drag') {
+        if (paperDragOffset) {
+          paperDragOffset.paper.x = pt.x - paperDragOffset.dx;
+          paperDragOffset.paper.y = pt.y - paperDragOffset.dy;
+          paperDragOffset._moved = true;
+          if (!paperDragOffset._raf) {
+            paperDragOffset._raf = requestAnimationFrame(() => {
+              paperLayer.redraw();
+              paperDragOffset._raf = null;
+            });
+          }
+          dirty = true;
+        }
+        return;
+      }
+      // 纸张调整大小
+      if (drawing === 'paper-resize') {
+        if (paperDragOffset) paperDragOffset.move(pt.x, pt.y);
+        dirty = true;
+        return;
+      }
+      // 文字拖动
+      if (drawing === 'text-drag') {
+        const sel = textLayer.getSelected();
+        if (sel) {
+          sel.x = pt.x - paperDragOffset.dx;
+          sel.y = pt.y - paperDragOffset.dy;
+          paperDragOffset._moved = true;
+          if (!paperDragOffset._raf) {
+            paperDragOffset._raf = requestAnimationFrame(() => {
+              textLayer.redraw();
+              paperDragOffset._raf = null;
+            });
+          }
+          dirty = true;
+        }
+        return;
+      }
+      // 文字调整大小
+      if (drawing === 'text-resize') {
+        if (paperDragOffset) paperDragOffset.move(pt.x, pt.y);
+        dirty = true;
+        return;
+      }
+
+      // 未按下：橡皮/圈擦预览
+      if (!drawing) {
+        if (currentTool === 'eraser') {
+          clearPreview();
+          previewCtx.save();
+          previewCtx.strokeStyle = 'rgba(59,130,246,.8)';
+          previewCtx.lineWidth = 2;
+          previewCtx.beginPath();
+          previewCtx.arc(pt.x, pt.y, currentWidth * 2, 0, Math.PI * 2);
+          previewCtx.stroke();
+          previewCtx.restore();
+        } else if (currentTool === 'circle-erase') {
+          clearPreview();
+          previewCtx.save();
+          previewCtx.strokeStyle = 'rgba(59,130,246,.8)';
+          previewCtx.lineWidth = 2;
+          if (eraseShape === 'free' && eraseFreePath) {
+            eraseFreePath.push(pt);
+            previewCtx.beginPath();
+            previewCtx.moveTo(eraseFreePath[0].x, eraseFreePath[0].y);
+            for (let i = 1; i < eraseFreePath.length; i++) previewCtx.lineTo(eraseFreePath[i].x, eraseFreePath[i].y);
+            previewCtx.closePath();
+            previewCtx.fillStyle = 'rgba(59,130,246,.15)';
+            previewCtx.fill();
+            previewCtx.stroke();
+          } else if (eraseShape === 'rect' && startPt) {
+            previewCtx.strokeRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+          } else if (eraseShape === 'circle' && startPt) {
+            const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
+            previewCtx.beginPath();
+            previewCtx.arc(startPt.x, startPt.y, r, 0, Math.PI * 2);
+            previewCtx.stroke();
+          }
+          previewCtx.restore();
+        } else if (currentTool === 'tape') {
+          if (points.length > 0) {
+            points.push(pt);
+            clearPreview();
+            previewCtx.save();
+            previewCtx.strokeStyle = 'rgba(59,130,246,.5)';
+            previewCtx.lineWidth = tapeLayer.getWidth();
+            previewCtx.lineCap = 'round';
+            previewCtx.beginPath();
+            previewCtx.moveTo(points[0].x, points[0].y);
+            for (let i = 1; i < points.length; i++) previewCtx.lineTo(points[i].x, points[i].y);
+            previewCtx.stroke();
+            previewCtx.restore();
+          }
+        } else if (startPt) {
+          // 图形预览
+          clearPreview();
+          previewCtx.save();
+          previewCtx.strokeStyle = currentColor;
+          previewCtx.lineWidth = currentWidth;
+          previewCtx.lineCap = 'round';
+          if (currentTool === 'arrow') {
+            drawArrow(previewCtx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+          } else if (currentTool === 'rect') {
+            const bc = window.__rectBorderColor || currentColor;
+            const fc = window.__rectFillColor || 'none';
+            if (fc !== 'none' && fc !== 'transparent') {
+              previewCtx.fillStyle = fc;
+              previewCtx.fillRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+            }
+            previewCtx.strokeStyle = bc;
+            previewCtx.strokeRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+          } else if (currentTool === 'line') {
+            drawLine(previewCtx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+          } else if (currentTool === 'wave') {
+            const dx = pt.x - startPt.x, dy = pt.y - startPt.y;
+            const len = Math.hypot(dx, dy);
+            const steps = Math.max(20, Math.floor(len / 4));
+            const nx = -dy / len, ny = dx / len;
+            previewCtx.beginPath();
+            for (let i = 0; i <= steps; i++) {
+              const t = i / steps;
+              const baseX = startPt.x + dx * t;
+              const baseY = startPt.y + dy * t;
+              const wave = Math.sin(t * Math.PI * 8) * waveAmplitude;
+              const px = baseX + nx * wave;
+              const py = baseY + ny * wave;
+              if (i === 0) previewCtx.moveTo(px, py); else previewCtx.lineTo(px, py);
+            }
+            previewCtx.stroke();
+          }
+          previewCtx.restore();
+        }
+        return;
+      }
+
+      // 按下：正式绘制到 ctx
+      if (currentTool === 'pen') {
+        points.push(pt);
+        drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
+        dirty = true;
+      } else if (currentTool === 'eraser') {
+        eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
+        eraseCircle(paperStrokeCtx, pt.x, pt.y, currentWidth * 2);
+        tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
+        dirty = true;
+      } else if (currentTool === 'circle-erase') {
+        if (eraseShape === 'free' && eraseFreePath) eraseFreePath.push(pt);
+        dirty = true;
+      } else if (currentTool === 'tape') {
+        points.push(pt);
+        clearPreview();
+        previewCtx.save();
+        previewCtx.strokeStyle = 'rgba(59,130,246,.5)';
+        previewCtx.lineWidth = tapeLayer.getWidth();
+        previewCtx.lineCap = 'round';
+        previewCtx.beginPath();
+        previewCtx.moveTo(points[0].x, points[0].y);
+        for (let i = 1; i < points.length; i++) previewCtx.lineTo(points[i].x, points[i].y);
+        previewCtx.stroke();
+        previewCtx.restore();
+      } else if (currentTool === 'arrow' || currentTool === 'rect' || currentTool === 'line' || currentTool === 'wave') {
+        clearPreview();
+        previewCtx.save();
+        previewCtx.strokeStyle = currentColor;
+        previewCtx.lineWidth = currentWidth;
+        previewCtx.lineCap = 'round';
+        if (currentTool === 'arrow') {
+          drawArrow(previewCtx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+        } else if (currentTool === 'rect') {
+          const bc = window.__rectBorderColor || currentColor;
+          const fc = window.__rectFillColor || 'none';
+          if (fc !== 'none' && fc !== 'transparent') {
+            previewCtx.fillStyle = fc;
+            previewCtx.fillRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+          }
+          previewCtx.strokeStyle = bc;
+          previewCtx.strokeRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+        } else if (currentTool === 'line') {
+          drawLine(previewCtx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+        } else if (currentTool === 'wave') {
+          const dx = pt.x - startPt.x, dy = pt.y - startPt.y;
+          const len = Math.hypot(dx, dy);
+          const steps = Math.max(20, Math.floor(len / 4));
+          const nx = -dy / len, ny = dx / len;
+          previewCtx.beginPath();
+          for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const baseX = startPt.x + dx * t;
+            const baseY = startPt.y + dy * t;
+            const wave = Math.sin(t * Math.PI * 8) * waveAmplitude;
+            const px = baseX + nx * wave;
+            const py = baseY + ny * wave;
+            if (i === 0) previewCtx.moveTo(px, py); else previewCtx.lineTo(px, py);
+          }
+          previewCtx.stroke();
+        }
+        previewCtx.restore();
+      }
+    });
+
+    strokeCanvas.addEventListener('pointerup', async (e) => {
+      pointers.delete(e.pointerId);
+      if (pointers.size < 2) pinchDist = 0;
+
+      // 平移结束
+      if (drawing === 'pan') {
+        if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
+        drawing = false;
+        return;
+      }
+      // 纸张拖动结束
+      if (drawing === 'paper-drag') {
+        if (paperDragOffset) {
+          if (paperDragOffset._raf) { cancelAnimationFrame(paperDragOffset._raf); paperDragOffset._raf = null; }
+          paperLayer.save();
+        }
+        drawing = false;
+        paperDragOffset = null;
+        return;
+      }
+      // 纸张调整大小结束
+      if (drawing === 'paper-resize') {
+        if (paperDragOffset) paperDragOffset.end();
+        drawing = false;
+        paperDragOffset = null;
+        return;
+      }
+      // 文字拖动结束
+      if (drawing === 'text-drag') {
+        if (paperDragOffset && paperDragOffset._moved) textLayer.save();
+        drawing = false;
+        paperDragOffset = null;
+        return;
+      }
+      // 文字调整大小结束
+      if (drawing === 'text-resize') {
+        if (paperDragOffset) paperDragOffset.end();
+        drawing = false;
+        paperDragOffset = null;
+        return;
+      }
+      if (!drawing) { clearPreview(); return; }
+
+      const pt = canvasToImage(e.clientX, e.clientY);
+
+      if (currentTool === 'pen') {
+        dirty = true;
+      } else if (currentTool === 'eraser') {
+        dirty = true;
+      } else if (currentTool === 'circle-erase') {
+        // 自由圈擦：用多边形裁剪精确擦除
+        if (eraseShape === 'free' && eraseFreePath && eraseFreePath.length > 2) {
+          const doFreeErase = (targetCtx) => {
+            targetCtx.save();
+            targetCtx.globalCompositeOperation = 'destination-out';
+            targetCtx.beginPath();
+            targetCtx.moveTo(eraseFreePath[0].x, eraseFreePath[0].y);
+            for (let i = 1; i < eraseFreePath.length; i++) targetCtx.lineTo(eraseFreePath[i].x, eraseFreePath[i].y);
+            targetCtx.closePath();
+            targetCtx.fill();
+            targetCtx.restore();
+          };
+          doFreeErase(ctx);
+          doFreeErase(paperStrokeCtx);
+          eraseFreePath.forEach(p => tapeLayer.eraseAt(p.x, p.y, currentWidth));
+          eraseFreePath = null;
+        } else if (eraseShape === 'rect') {
+          eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
+          eraseRect(paperStrokeCtx, startPt.x, startPt.y, pt.x, pt.y);
+          tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
+        } else if (eraseShape === 'circle') {
+          const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
+          eraseCircle(ctx, startPt.x, startPt.y, r);
+          eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
+          tapeLayer.eraseAt(startPt.x, startPt.y, r);
+        }
+        clearPreview();
+        dirty = true;
+      } else if (currentTool === 'tape') {
+        clearPreview();
+        if (points.length >= 2) {
+          pushUndo(true);
+          const tape = {
+            id: uuid(),
+            points: points.slice(),
+            width: tapeLayer.getWidth(),
+            pattern: tapeLayer.getPattern(),
+            patternImageId: tapeLayer.getPatternImageId(),
+            shape: tapeLayer.getShape(),
+            color: tapeLayer.getColor(),
+            visible: true,
+            erasedPath: [],
+          };
+          tapeLayer.addTape(tape);
+        }
+        points = [];
+        dirty = true;
+      } else {
+        // 图形工具：正式绘制到 ctx
+        if (currentTool === 'arrow') drawArrow(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+        else if (currentTool === 'rect') {
+          const bc = window.__rectBorderColor || currentColor;
+          const fc = window.__rectFillColor || 'none';
+          if (fc !== 'none' && fc !== 'transparent') {
+            ctx.fillStyle = fc;
+            ctx.fillRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+          }
+          ctx.strokeStyle = bc;
+          ctx.lineWidth = currentWidth;
+          ctx.strokeRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+        } else if (currentTool === 'line') drawLine(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
+        else if (currentTool === 'wave') drawWave(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth, waveAmplitude);
+        clearPreview();
+        dirty = true;
+      }
+      drawing = false;
+      points = [];
+    });
+
+    strokeCanvas.addEventListener('pointercancel', (e) => {
+      pointers.delete(e.pointerId);
+      drawing = false;
+      points = [];
+      clearPreview();
+      if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
+    });
+
+    // 鼠标滚轮缩放
+    strokeCanvas.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      scale = Math.max(0.3, Math.min(10, scale * factor));
+      updateTransform();
+    }, { passive: false });
+    // ========== 撤销 ==========
+    let undoStack = [];
+    let lastUndoTime = 0;
+
+    // 保存撤销快照（绘制类 500ms 内合并，删除类 force=true 立即存）
+    function pushUndo(force = false) {
+      const now = Date.now();
+      if (!force && now - lastUndoTime < 500) return;
+      lastUndoTime = now;
       const strokeSnap = ctx.getImageData(0, 0, W, H);
       const paperStrokeSnap = paperStrokeCtx.getImageData(0, 0, W, H);
       undoStack.push({
@@ -540,51 +995,47 @@ export function renderAnnotator({ params, query }) {
       });
       if (undoStack.length > 30) undoStack.shift();
     }
+
     function undo() {
-      const prev = undoStack.pop();
-      if (!prev) { toastError('没有可撤销的操作'); return; }
-      ctx.putImageData(prev.stroke, 0, 0);
-      if (prev.paperStroke) paperStrokeCtx.putImageData(prev.paperStroke, 0, 0);
-      paperLayer.getPapers().length = 0;
-      prev.paper.forEach(p => paperLayer.getPapers().push(p));
-      store.savePaper(imageId, paperLayer.getPapers());
+      if (undoStack.length === 0) return;
+      const snap = undoStack.pop();
+      ctx.clearRect(0, 0, W, H);
+      ctx.putImageData(snap.stroke, 0, 0);
+      paperStrokeCtx.clearRect(0, 0, W, H);
+      paperStrokeCtx.putImageData(snap.paperStroke, 0, 0);
+      paperLayer.setPapers(snap.paper || []);
+      tapeLayer.setTapes(snap.tape || []);
+      textLayer.getItems().length = 0;
+      textLayer.getItems().push(...(snap.text || []));
+      textLayer.save();
+      textLayer.redraw();
       paperLayer.redraw();
-      tapeLayer.getTapes().length = 0;
-      prev.tape.forEach(t => tapeLayer.getTapes().push(t));
-      store.saveTape(imageId, tapeLayer.getTapes());
       tapeLayer.redraw();
-      if (prev.text) {
-        textLayer.getItems().length = 0;
-        prev.text.forEach(t => textLayer.getItems().push(t));
-        store.saveTextItems(imageId, textLayer.getItems());
-        textLayer.redraw();
-      }
+      store.savePaper(imageId, paperLayer.getPapers());
+      store.saveTape(imageId, tapeLayer.getTapes());
       dirty = true;
     }
 
+    // ========== 清除 ==========
     async function clearAll() {
       const mask = el('div', { class: 'confirm-mask' }, [
         el('div', { class: 'confirm-box', style: { maxWidth: '300px' } }, [
           el('h3', { text: '清除' }),
           el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', margin: '12px 0' } }, [
-            el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [el('input', { type: 'checkbox', id: 'clr-stroke', checked: true }), ' 笔迹']),
-            el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [el('input', { type: 'checkbox', id: 'clr-paper-stroke', checked: true }), ' 纸张笔迹']),
-            el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [el('input', { type: 'checkbox', id: 'clr-text', checked: true }), ' 文字']),
-            el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [el('input', { type: 'checkbox', id: 'clr-tape', checked: true }), ' 胶带']),
-            el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [el('input', { type: 'checkbox', id: 'clr-paper', checked: true }), ' 纸张']),
+            el('label', {}, [el('input', { type: 'checkbox', id: 'clr-stroke', checked: true }), ' 笔迹']),
+            el('label', {}, [el('input', { type: 'checkbox', id: 'clr-tape', checked: true }), ' 胶带']),
+            el('label', {}, [el('input', { type: 'checkbox', id: 'clr-paper', checked: true }), ' 纸张']),
+            el('label', {}, [el('input', { type: 'checkbox', id: 'clr-text', checked: true }), ' 文字']),
           ]),
           el('div', { class: 'confirm-actions' }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
             el('button', {
               class: 'btn btn-danger', text: '清除',
               onClick: () => {
-                pushUndo();
-                if (document.getElementById('clr-stroke').checked) ctx.clearRect(0, 0, W, H);
-                if (document.getElementById('clr-paper-stroke').checked) paperStrokeCtx.clearRect(0, 0, W, H);
-                if (document.getElementById('clr-text').checked) {
-                  textLayer.getItems().length = 0;
-                  store.saveTextItems(imageId, []);
-                  textLayer.redraw();
+                pushUndo(true);
+                if (document.getElementById('clr-stroke').checked) {
+                  ctx.clearRect(0, 0, W, H);
+                  paperStrokeCtx.clearRect(0, 0, W, H);
                 }
                 if (document.getElementById('clr-tape').checked) {
                   tapeLayer.getTapes().length = 0;
@@ -596,6 +1047,11 @@ export function renderAnnotator({ params, query }) {
                   store.savePaper(imageId, []);
                   paperLayer.redraw();
                 }
+                if (document.getElementById('clr-text').checked) {
+                  textLayer.getItems().length = 0;
+                  textLayer.save();
+                  textLayer.redraw();
+                }
                 dirty = true;
                 mask.remove();
               },
@@ -606,134 +1062,437 @@ export function renderAnnotator({ params, query }) {
       document.body.appendChild(mask);
     }
 
-    // ============ 扩展画布 ============
+    // ========== 保存 ==========
+    async function saveAll(showToast = false) {
+      const strokeBlob = await new Promise(r => strokeCanvas.toBlob(r, 'image/png'));
+      const paperStrokeBlob = await new Promise(r => paperStrokeCanvas.toBlob(r, 'image/png'));
+      const merged = document.createElement('canvas');
+      merged.width = W; merged.height = H;
+      const mctx = merged.getContext('2d');
+      mctx.drawImage(baseImg, 0, 0);
+      mctx.drawImage(paperCanvas, 0, 0);
+      mctx.drawImage(strokeCanvas, 0, 0);
+      mctx.drawImage(paperStrokeCanvas, 0, 0);
+      mctx.drawImage(textCanvas, 0, 0);
+      mctx.drawImage(tapeCanvas, 0, 0);
+      const annotatedBlob = await new Promise(r => merged.toBlob(r, 'image/png'));
+      await putImageCached({
+        ...img,
+        strokeBlob,
+        paperStrokeBlob,
+        annotatedBlob,
+        updatedAt: new Date().toISOString(),
+      });
+      store.saveTape(imageId, tapeLayer.getTapes());
+      store.savePaper(imageId, paperLayer.getPapers());
+      store.saveTextItems(imageId, textLayer.getItems());
+      dirty = false;
+      if (showToast) toastSuccess('已保存');
+    }
+
+    // ========== 长按提示 ==========
+    function attachLongPress(btn, text) {
+      let timer = null;
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        timer = setTimeout(() => showTooltip(btn, text), 500);
+      });
+      btn.addEventListener('pointerup', (e) => {
+        e.preventDefault();
+        clearTimeout(timer);
+        setTimeout(hideTooltip, 800);
+      });
+      btn.addEventListener('pointerleave', () => { clearTimeout(timer); hideTooltip(); });
+      btn.addEventListener('contextmenu', (e) => e.preventDefault());
+    }
+
+    let tooltipEl = null;
+    function showTooltip(btn, name) {
+      hideTooltip();
+      const rect = btn.getBoundingClientRect();
+      tooltipEl = el('div', {
+        style: {
+          position: 'fixed',
+          left: rect.left + rect.width / 2 + 'px',
+          top: rect.bottom + 8 + 'px',
+          transform: 'translateX(-50%)',
+          background: 'rgba(43,45,66,.95)', color: '#fff',
+          padding: '4px 10px', borderRadius: '6px', fontSize: '12px',
+          whiteSpace: 'nowrap', pointerEvents: 'none', zIndex: '9999',
+        },
+        text: name,
+      });
+      document.body.appendChild(tooltipEl);
+    }
+    function hideTooltip() {
+      if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
+    }
+
+    document.querySelectorAll('.tool-btn').forEach(btn => {
+      const t = TOOLS.find(x => x.id === btn.dataset.tool);
+      if (t) attachLongPress(btn, t.name);
+    });
+
+    // ========== 新建文字弹窗 ==========
+    let textEditorOpen = false;
+
+    function openTextEditor(pos) {
+      if (textEditorOpen) return;
+      textEditorOpen = true;
+
+      const mask = el('div', { class: 'confirm-mask' }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '420px', maxHeight: '90vh', overflow: 'auto' } }, [
+          el('h3', { text: '添加文字' }),
+          el('div', { class: 'field' }, [
+            el('label', { text: '文字内容（可换行）' }),
+            el('textarea', { id: 'text-input', placeholder: '输入文字', style: { minHeight: '80px' } }),
+          ]),
+          el('div', { class: 'field-row' }, [
+            el('div', { class: 'field' }, [
+              el('label', { text: '字号' }),
+              (() => {
+                const num = el('input', { type: 'number', id: 'text-size', value: '20', min: '10', max: '80', style: { width: '60px', textAlign: 'center' } });
+                const minus = el('button', { class: 'btn btn-sm btn-ghost', text: '−', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.max(10, Number(num.value) - 1); } });
+                const plus = el('button', { class: 'btn btn-sm btn-ghost', text: '+', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.min(80, Number(num.value) + 1); } });
+                return el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } }, [minus, num, plus]);
+              })(),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { text: '字体' }),
+              el('select', { id: 'text-font' }, [
+                el('option', { value: 'sans-serif', text: '黑体' }),
+                el('option', { value: 'serif', text: '宋体' }),
+                el('option', { value: 'monospace', text: '等宽' }),
+              ]),
+            ]),
+          ]),
+          el('div', { class: 'field-row' }, [
+            el('div', { class: 'field' }, [
+              el('label', { text: '行距' }),
+              el('select', { id: 'text-line-height' }, [
+                el('option', { value: '1.0', text: '1.0' }),
+                el('option', { value: '1.2', text: '1.2' }),
+                el('option', { value: '1.5', text: '1.5', selected: true }),
+                el('option', { value: '1.8', text: '1.8' }),
+                el('option', { value: '2.0', text: '2.0' }),
+                el('option', { value: '2.5', text: '2.5' }),
+                el('option', { value: '3.0', text: '3.0' }),
+              ]),
+            ]),
+            el('div', { class: 'field' }, [
+              el('label', { text: '对齐' }),
+              el('select', { id: 'text-align' }, [
+                el('option', { value: 'left', text: '左对齐' }),
+                el('option', { value: 'center', text: '居中' }),
+                el('option', { value: 'right', text: '右对齐' }),
+              ]),
+            ]),
+          ]),
+          el('div', { class: 'field' }, [el('label', { text: '文字颜色' }), el('div', { id: 'text-color-picker' })]),
+          el('div', { class: 'field' }, [el('label', { text: '背景色（可选无色）' }), el('div', { id: 'text-bg-picker' })]),
+          el('div', { class: 'confirm-actions' }, [
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => { textEditorOpen = false; mask.remove(); } }),
+            el('button', {
+              class: 'btn btn-primary', text: '添加',
+              onClick: () => {
+                const text = document.getElementById('text-input').value;
+                const size = Number(document.getElementById('text-size').value) || 20;
+                const font = document.getElementById('text-font').value;
+                const colorPicker = document.getElementById('text-color-picker');
+                const bgPicker = document.getElementById('text-bg-picker');
+                const color = colorPicker?.dataset.color || currentColor;
+                const bg = bgPicker?.dataset.color || '#FFFFFF';
+                const noBg = bg === 'none';
+                const lineHeight = Number(document.getElementById('text-line-height').value) || 1.5;
+                const align = document.getElementById('text-align').value;
+                if (!text) { alert('请输入文字'); return; }
+                pushUndo(true);
+                const lines = text.split('\n');
+                const maxW = Math.max(...lines.map(l => l.length * size * 0.6), 100);
+                textLayer.addText({
+                  x: pos.x, y: pos.y,
+                  w: Math.max(120, maxW + 16),
+                  h: Math.max(40, lines.length * size * lineHeight + 8),
+                  text, fontSize: size, fontFamily: font,
+                  color, bgColor: bg, noBg, lineHeight, align,
+                });
+                dirty = true;
+                textEditorOpen = false;
+                mask.remove();
+              },
+            }),
+          ]),
+        ]),
+      ]);
+      document.body.appendChild(mask);
+
+      const cp = document.getElementById('text-color-picker');
+      if (cp) cp.appendChild(renderColorPicker({ current: currentColor, onChange: (c) => { cp.dataset.color = c; } }));
+      const bp = document.getElementById('text-bg-picker');
+      if (bp) bp.appendChild(renderColorPicker({ current: '#FFFFFF', onChange: (c) => { bp.dataset.color = c; }, allowNone: true }));
+      setTimeout(() => document.getElementById('text-input')?.focus(), 100);
+    }
+
+    // ========== 扩展画布到指定尺寸 ==========
+    async function doExpandToSize(newW, newH, bgColor) {
+      // 计算偏移：默认从左上角对齐
+      const dx = 0, dy = 0;
+
+      // 新原图
+      const newOriginal = document.createElement('canvas');
+      newOriginal.width = newW; newOriginal.height = newH;
+      const octx = newOriginal.getContext('2d');
+      if (bgColor === 'transparent') {
+        octx.clearRect(0, 0, newW, newH);
+      } else {
+        octx.fillStyle = bgColor;
+        octx.fillRect(0, 0, newW, newH);
+      }
+      octx.drawImage(baseImg, dx, dy);
+
+      // 新笔迹
+      const newStroke = document.createElement('canvas');
+      newStroke.width = newW; newStroke.height = newH;
+      newStroke.getContext('2d').drawImage(strokeCanvas, dx, dy);
+
+      // 新纸张笔迹
+      const newPaperStroke = document.createElement('canvas');
+      newPaperStroke.width = newW; newPaperStroke.height = newH;
+      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, dx, dy);
+
+      // 平移纸张、胶带、文字坐标
+      paperLayer.getPapers().forEach(p => { p.x += dx; p.y += dy; });
+      tapeLayer.getTapes().forEach(t => { t.points.forEach(pt => { pt.x += dx; pt.y += dy; }); });
+      textLayer.getItems().forEach(t => { t.x += dx; t.y += dy; });
+
+      // 保存新坐标
+      store.savePaper(imageId, paperLayer.getPapers());
+      store.saveTape(imageId, tapeLayer.getTapes());
+      store.saveTextItems(imageId, textLayer.getItems());
+
+      // 生成 Blob
+      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
+      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
+      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
+
+      // 合并图
+      const annotatedBlob = await new Promise(r => {
+        const m = document.createElement('canvas');
+        m.width = newW; m.height = newH;
+        const mctx = m.getContext('2d');
+        mctx.drawImage(newOriginal, 0, 0);
+        mctx.drawImage(newStroke, 0, 0);
+        mctx.drawImage(newPaperStroke, 0, 0);
+        m.toBlob(r, 'image/png');
+      });
+
+      // 存回 IndexedDB
+      await putImageCached({
+        ...img,
+        originalBlob,
+        strokeBlob,
+        paperStrokeBlob,
+        annotatedBlob,
+        width: newW, height: newH,
+        updatedAt: new Date().toISOString(),
+      });
+
+      toastSuccess(`已扩展为 ${newW}×${newH}`);
+      setTimeout(() => location.reload(), 500);
+    }
+
+    // ========== 缩放到原图大小 ==========
+    async function doResizeToOriginal(newW, newH) {
+      // 这里其实就是裁剪画布到原图尺寸
+      // 直接把当前原图、笔迹、纸张笔迹裁剪到 newW × newH
+      const newOriginal = document.createElement('canvas');
+      newOriginal.width = newW; newOriginal.height = newH;
+      const octx = newOriginal.getContext('2d');
+      octx.drawImage(baseImg, 0, 0, newW, newH, 0, 0, newW, newH);
+
+      const newStroke = document.createElement('canvas');
+      newStroke.width = newW; newStroke.height = newH;
+      newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0, newW, newH, 0, 0, newW, newH);
+
+      const newPaperStroke = document.createElement('canvas');
+      newPaperStroke.width = newW; newPaperStroke.height = newH;
+      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, 0, 0, newW, newH, 0, 0, newW, newH);
+
+      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
+      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
+      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
+      const annotatedBlob = originalBlob;
+
+      await putImageCached({
+        ...img,
+        originalBlob,
+        strokeBlob,
+        paperStrokeBlob,
+        annotatedBlob,
+        width: newW, height: newH,
+        updatedAt: new Date().toISOString(),
+      });
+
+      toastSuccess(`已缩放到 ${newW}×${newH}`);
+      setTimeout(() => location.reload(), 500);
+    }
+    // ========== 编辑已有文字 ==========
+    function openTextObjectEditor(textItem) {
+      // 快照原值，取消时恢复
+      const orig = { ...textItem };
+
+      // 文字内容输入框
+      const ta = el('textarea', {
+        style: { width: '100%', minHeight: '80px', padding: '8px', fontSize: '14px', border: '1px solid rgba(0,0,0,.1)', borderRadius: '8px', fontFamily: 'inherit', outline: 'none' },
+      });
+      ta.value = textItem.text || '';
+      ta.dataset.textEditor = '1';
+
+      // 字号
+      const sizeNum = el('input', { type: 'number', min: '10', max: '80', value: String(textItem.fontSize || 20), style: { width: '60px', padding: '6px', borderRadius: '8px', textAlign: 'center' } });
+      // 字体
+      const fontSelect = el('select', { style: { width: '100px', padding: '6px', borderRadius: '8px' } }, [
+        el('option', { value: 'sans-serif', text: '黑体', selected: textItem.fontFamily === 'sans-serif' }),
+        el('option', { value: 'serif', text: '宋体', selected: textItem.fontFamily === 'serif' }),
+        el('option', { value: 'monospace', text: '等宽', selected: textItem.fontFamily === 'monospace' }),
+      ]);
+      // 行距
+      const lineHeightSelect = el('select', { style: { width: '80px', padding: '6px', borderRadius: '8px' } },
+        [1.0, 1.2, 1.5, 1.8, 2.0, 2.5, 3.0].map(v => el('option', { value: String(v), text: v.toFixed(1), selected: (textItem.lineHeight || 1.5) === v }))
+      );
+      // 对齐
+      const alignSelect = el('select', { style: { width: '90px', padding: '6px', borderRadius: '8px' } }, [
+        el('option', { value: 'left', text: '左对齐', selected: textItem.align === 'left' }),
+        el('option', { value: 'center', text: '居中', selected: textItem.align === 'center' }),
+        el('option', { value: 'right', text: '右对齐', selected: textItem.align === 'right' }),
+      ]);
+
+      // 文字颜色
+      const colorWrap = el('div');
+      colorWrap.dataset.color = textItem.color || '#2B2D42';
+      colorWrap.appendChild(renderColorPicker({
+        current: textItem.color || '#2B2D42',
+        onChange: (c) => { colorWrap.dataset.color = c; },
+      }));
+
+      // 背景色
+      const bgWrap = el('div');
+      bgWrap.dataset.color = textItem.noBg ? 'none' : (textItem.bgColor || '#FFFFFF');
+      bgWrap.appendChild(renderColorPicker({
+        current: textItem.noBg ? 'none' : (textItem.bgColor || '#FFFFFF'),
+        onChange: (c) => { bgWrap.dataset.color = c; },
+        allowNone: true,
+      }));
+
+      const panel = el('div', { class: 'confirm-mask' }, [
+        el('div', { class: 'confirm-box', style: { maxWidth: '420px', maxHeight: '90vh', overflow: 'auto' } }, [
+          el('h3', { text: '编辑文字' }),
+          el('div', { class: 'field' }, [el('label', { text: '文字内容' }), ta]),
+          el('div', { class: 'field-row' }, [
+            el('div', { class: 'field' }, [el('label', { text: '字号' }), sizeNum]),
+            el('div', { class: 'field' }, [el('label', { text: '字体' }), fontSelect]),
+          ]),
+          el('div', { class: 'field-row' }, [
+            el('div', { class: 'field' }, [el('label', { text: '行距' }), lineHeightSelect]),
+            el('div', { class: 'field' }, [el('label', { text: '对齐' }), alignSelect]),
+          ]),
+          el('div', { class: 'field' }, [el('label', { text: '文字颜色' }), colorWrap]),
+          el('div', { class: 'field' }, [el('label', { text: '背景色（可选无色）' }), bgWrap]),
+          el('div', { class: 'confirm-actions' }, [
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => { Object.assign(textItem, orig); panel.remove(); } }),
+            el('button', {
+              class: 'btn btn-primary', text: '保存',
+              onClick: () => {
+                const color = colorWrap.dataset.color || textItem.color;
+                const bg = bgWrap.dataset.color || textItem.bgColor;
+                const noBg = bg === 'none';
+                textItem.text = ta.value;
+                textItem.fontSize = Number(sizeNum.value) || 20;
+                textItem.fontFamily = fontSelect.value;
+                textItem.lineHeight = Number(lineHeightSelect.value) || 1.5;
+                textItem.align = alignSelect.value;
+                textItem.color = color;
+                textItem.bgColor = noBg ? '#FFFFFF' : bg;
+                textItem.noBg = noBg;
+                textLayer.save();
+                textLayer.redraw();
+                dirty = true;
+                panel.remove();
+              },
+            }),
+          ]),
+        ]),
+      ]);
+      document.body.appendChild(panel);
+      ta.focus();
+      ta.setSelectionRange(ta.value.length, ta.value.length);
+    }
+
+    // ========== 扩展画布弹窗 ==========
     function openExpandDialog() {
       const papers = paperLayer.getPapers();
 
+      // 纸张选择（仅当预设选「与纸张一致」时显示）
       const paperSelectField = el('div', {
-        class: 'field',
-        id: 'paper-select-field',
-        style: { display: 'none' },
+        class: 'field', id: 'paper-select-field', style: { display: 'none' },
       }, [
         el('label', { text: '选择纸张' }),
         el('select', { id: 'expand-paper-id' },
           papers.length > 0
-            ? papers.map((p, i) => el('option', {
-              value: p.id,
-              text: `纸张 ${i + 1}（${Math.round(p.w)}×${Math.round(p.h)}）`,
-            }))
+            ? papers.map((p, i) => el('option', { value: p.id, text: `纸张 ${i + 1}（${Math.round(p.w)}×${Math.round(p.h)}）` }))
             : [el('option', { value: '', text: '还没有纸张' })]
         ),
       ]);
 
-      const sizePresetField = el('div', { class: 'field' }, [
-        el('label', { text: '预设尺寸' }),
-        el('select', { id: 'expand-preset' }, [
-          el('option', { value: 'custom', text: '自定义像素' }),
-          el('option', { value: 'a4', text: 'A4（2480×3508）' }),
-          el('option', { value: 'a3', text: 'A3（3508×4961）' }),
-          el('option', { value: 'a5', text: 'A5（1748×2480）' }),
-          el('option', { value: 'square', text: '正方形（2000×2000）' }),
-          el('option', { value: '16:9', text: '16:9（2560×1440）' }),
-          el('option', { value: '4:3', text: '4:3（2048×1536）' }),
-          el('option', { value: 'original', text: '与图片一致' }),
-        ]),
-      ]);
-
-      const styleField = el('div', { class: 'field' }, [
-        el('label', { text: '扩展样式' }),
-        el('select', { id: 'expand-style' }, [
-          el('option', { value: 'solid', text: '纯色' }),
-          el('option', { value: 'transparent', text: '透明' }),
-          el('option', { value: 'lined', text: '横线纸' }),
-          el('option', { value: 'grid', text: '方格纸' }),
-          el('option', { value: 'dots', text: '点阵' }),
-          el('option', { value: 'custom-image', text: '自定义图片平铺' }),
-        ]),
-      ]);
-
-      const styleColorField = el('div', {
-        class: 'field',
-        id: 'expand-style-color-field',
-      }, [
-        el('label', { text: '颜色' }),
-        el('input', { type: 'color', id: 'expand-style-color', value: '#FFFFFF' }),
-      ]);
-
-      const styleImageInput = el('input', {
-        type: 'file',
-        id: 'expand-style-image',
-        accept: 'image/*',
-        style: { display: 'none' },
-      });
-      const styleImageName = el('span', {
-        id: 'expand-style-image-name',
-        style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px' },
-        text: '未选择',
-      });
-      styleImageInput.onchange = () => {
-        styleImageName.textContent = styleImageInput.files?.[0]?.name || '未选择';
+      // 隐藏的 PDF 文件输入，用于读取 PDF 第一页尺寸
+      const pdfFileInput = el('input', { type: 'file', accept: 'application/pdf', style: { display: 'none' } });
+      let pdfTargetW = 0, pdfTargetH = 0;
+      pdfFileInput.onchange = async () => {
+        const f = pdfFileInput.files?.[0];
+        if (!f) return;
+        if (!window.pdfjsLib) { toastError('PDF.js 未加载'); return; }
+        const buf = await f.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+        const page = await pdf.getPage(1);
+        const vp = page.getViewport({ scale: 2 });
+        pdfTargetW = Math.round(vp.width);
+        pdfTargetH = Math.round(vp.height);
+        updatePreview();
       };
+
+      // 自定义平铺图片
+      const styleImageInput = el('input', { type: 'file', id: 'expand-style-image', accept: 'image/*', style: { display: 'none' } });
       const styleImageField = el('div', {
-        class: 'field',
-        id: 'expand-style-image-field',
-        style: { display: 'none' },
+        class: 'field', id: 'expand-style-image-field', style: { display: 'none' },
       }, [
-        el('label', { text: '自定义图片' }),
-        el('button', {
-          type: 'button',
-          class: 'btn btn-sm btn-ghost',
-          text: '📁 选择图片',
-          onClick: () => styleImageInput.click(),
-        }),
-        styleImageName,
+        el('label', { text: '自定义平铺图片' }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '📁 选择图片', onClick: () => styleImageInput.click() }),
+        el('span', { id: 'expand-style-image-name', style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: '8px' }, text: '未选择' }),
         styleImageInput,
       ]);
+      styleImageInput.onchange = () => {
+        const name = styleImageInput.files?.[0]?.name || '未选择';
+        const el2 = document.getElementById('expand-style-image-name');
+        if (el2) el2.textContent = name;
+      };
 
-      const dirSelect = el('select', {
-        id: 'expand-dir',
-        onChange: updatePreview,
-      }, [
+      // 预览文字
+      const previewText = el('div', {
+        id: 'expand-preview',
+        style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px' },
+        text: `即将扩展为：${W} × ${H} px`,
+      });
+
+      // 方向
+      const dirSelect = el('select', { id: 'expand-dir' }, [
         el('option', { value: 'top', text: '↑ 上方' }),
         el('option', { value: 'bottom', text: '↓ 下方' }),
         el('option', { value: 'left', text: '← 左侧' }),
         el('option', { value: 'right', text: '→ 右侧' }),
       ]);
 
-      let pdfTargetW = 0, pdfTargetH = 0;
-      const pdfFileInput = el('input', { type: 'file', accept: 'application/pdf', style: { display: 'none' } });
-      pdfFileInput.onchange = async () => {
-        const f = pdfFileInput.files?.[0];
-        if (!f) return;
-        if (!window.pdfjsLib) { toastError('PDF.js 未加载'); return; }
-        try {
-          const buf = await f.arrayBuffer();
-          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-          const page = await pdf.getPage(1);
-          const vp = page.getViewport({ scale: 2 });
-          pdfTargetW = Math.round(vp.width);
-          pdfTargetH = Math.round(vp.height);
-          updatePreview();
-        } catch (e) { toastError('PDF 解析失败：' + e.message); }
-      };
-      document.body.appendChild(pdfFileInput);
-
-      const presetSelect = el('select', {
-        id: 'expand-preset',
-        onChange: (e) => {
-          if (e.target.value !== 'custom') {
-            pxInput.disabled = true;
-            pxInput.value = '';
-          } else {
-            pxInput.disabled = false;
-            pxInput.value = '200';
-          }
-          if (e.target.value === 'pdf-file') {
-            pdfFileInput.click();
-          }
-          updatePreview();
-        },
-      }, [
+      // 预设尺寸
+      const presetSelect = el('select', { id: 'expand-preset' }, [
         el('option', { value: 'custom', text: '自定义像素' }),
         el('option', { value: 'a4', text: 'A4（2480×3508）' }),
         el('option', { value: 'a3', text: 'A3（3508×4961）' }),
@@ -745,99 +1504,80 @@ export function renderAnnotator({ params, query }) {
         el('option', { value: 'pdf-file', text: '与 PDF 一致（选文件）' }),
       ]);
 
-      pdfFileInput.onchange = async () => {
-        const f = pdfFileInput.files?.[0];
-        if (!f) return;
-        if (!window.pdfjsLib) { toastError('PDF.js 未加载'); return; }
-        try {
-          const buf = await f.arrayBuffer();
-          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-          const page = await pdf.getPage(1);
-          const vp = page.getViewport({ scale: 2 });
-          pdfTargetW = Math.round(vp.width);
-          pdfTargetH = Math.round(vp.height);
-          updatePreview();
-        } catch (e) { toastError('PDF 解析失败：' + e.message); }
-      };
-      document.body.appendChild(pdfFileInput);
-
-      const styleSelect = el('select', {
-        id: 'expand-style',
-        onChange: (e) => {
-          const v = e.target.value;
-          styleColorField.style.display = (v === 'transparent' || v === 'custom-image') ? 'none' : 'block';
-          styleImageField.style.display = v === 'custom-image' ? 'block' : 'none';
-          updatePreview();
-        },
-      }, [
-        el('option', { value: 'solid', text: '纯色' }),
+      // 扩展区域颜色
+      const colorSelect = el('select', { id: 'expand-color' }, [
+        el('option', { value: '#FFFFFF', text: '白色' }),
         el('option', { value: 'transparent', text: '透明' }),
-        el('option', { value: 'lined', text: '横线纸' }),
-        el('option', { value: 'grid', text: '方格纸' }),
-        el('option', { value: 'dots', text: '点阵' }),
-        el('option', { value: 'custom-image', text: '自定义图片平铺' }),
+        el('option', { value: 'custom', text: '自定义' }),
       ]);
 
-      const styleColorInput = el('input', {
-        type: 'color', id: 'expand-style-color', value: '#FFFFFF',
-        onInput: updatePreview,
-      });
+      // 自定义颜色输入
+      const customColorField = el('div', { class: 'field', id: 'expand-custom-color-field', style: { display: 'none' } }, [
+        el('label', { text: '自定义颜色' }),
+        el('input', { type: 'color', id: 'expand-custom-color', value: '#FFFFFF', onInput: updatePreview }),
+      ]);
 
-      const customColorInput = el('input', {
-        type: 'color',
-        id: 'expand-custom-color',
-        value: '#FFFFFF',
-        onInput: updatePreview,
-      });
-
+      // 扩展像素输入
       const pxInput = el('input', {
         type: 'number', id: 'expand-px', value: '200', min: '50', max: '5000',
         onInput: updatePreview,
       });
 
+      // 预设尺寸变更
+      presetSelect.onchange = () => {
+        if (presetSelect.value === 'custom') {
+          pxInput.disabled = false;
+          pxInput.value = '200';
+        } else {
+          pxInput.disabled = true;
+          pxInput.value = '';
+        }
+        if (presetSelect.value === 'pdf-file') pdfFileInput.click();
+        if (presetSelect.value === 'paper') {
+          paperSelectField.style.display = 'block';
+        } else {
+          paperSelectField.style.display = 'none';
+        }
+        styleImageField.style.display = presetSelect.value === 'custom-image' ? 'block' : 'none';
+        updatePreview();
+      };
+      dirSelect.onchange = updatePreview;
+
+      // 颜色选择变更
+      colorSelect.onchange = () => {
+        customColorField.style.display = colorSelect.value === 'custom' ? 'block' : 'none';
+        updatePreview();
+      };
+
+      // 更新预览文字
       function updatePreview() {
         const dir = dirSelect.value;
         const preset = presetSelect.value;
         let newW = W, newH = H;
 
         if (preset === 'original') {
-          newW = img.width;
-          newH = img.height;
-        } else if (preset === 'pdf-file') {
-          newW = pdfTargetW || W;
-          newH = pdfTargetH || H;
-        } else if (preset === 'a4') {
-          newW = 2480; newH = 3508;
-        } else if (preset === 'a3') {
-          newW = 3508; newH = 4961;
-        } else if (preset === 'a5') {
-          newW = 1748; newH = 2480;
-        } else if (preset === 'square') {
-          newW = 2000; newH = 2000;
-        } else if (preset === '16:9') {
-          newW = 2560; newH = 1440;
-        } else if (preset === '4:3') {
-          newW = 2048; newH = 1536;
+          newW = img.width; newH = img.height;
+        } else if (preset === 'a4') { newW = 2480; newH = 3508; }
+        else if (preset === 'a3') { newW = 3508; newH = 4961; }
+        else if (preset === 'a5') { newW = 1748; newH = 2480; }
+        else if (preset === 'square') { newW = 2000; newH = 2000; }
+        else if (preset === '16:9') { newW = 2560; newH = 1440; }
+        else if (preset === '4:3') { newW = 2048; newH = 1536; }
+        else if (preset === 'pdf-file') {
+          if (pdfTargetW) { newW = pdfTargetW; newH = pdfTargetH; }
         } else {
           const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
           if (dir === 'top' || dir === 'bottom') newH = H + px;
           else newW = W + px;
         }
 
-        const style = styleSelect.value;
-        const styleLabels = {
-          solid: '纯色',
-          transparent: '透明',
-          lined: '横线纸',
-          grid: '方格纸',
-          dots: '点阵',
-          'custom-image': '自定义图片平铺',
-        };
-
+        const color = colorSelect.value === 'custom' ? customColorField.querySelector('input').value : colorSelect.value;
+        const colorLabel = color === 'transparent' ? '透明' : color;
         const el2 = document.getElementById('expand-preview');
-        if (el2) el2.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}），扩展样式：${styleLabels[style] || style}`;
+        if (el2) el2.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}），扩展区域颜色：${colorLabel}`;
       }
 
+      // 弹窗
       const mask = el('div', { class: 'confirm-mask' }, [
         el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
           el('h3', { text: '扩展画布' }),
@@ -845,9 +1585,9 @@ export function renderAnnotator({ params, query }) {
           el('div', { class: 'field' }, [el('label', { text: '预设尺寸' }), presetSelect]),
           el('div', { class: 'field' }, [el('label', { text: '扩展像素（自定义时有效）' }), pxInput]),
           paperSelectField,
-          styleField,
-          styleColorField,
           styleImageField,
+          el('div', { class: 'field' }, [el('label', { text: '扩展区域颜色' }), colorSelect]),
+          customColorField,
           previewText,
           el('div', { class: 'confirm-actions' }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
@@ -856,29 +1596,17 @@ export function renderAnnotator({ params, query }) {
               onClick: async () => {
                 const dir = dirSelect.value;
                 const preset = presetSelect.value;
-                const style = styleSelect.value;
-                const styleColor = styleColorInput.value;
+                const color = colorSelect.value === 'custom'
+                  ? customColorField.querySelector('input').value
+                  : colorSelect.value;
 
-                let customImageBlob = null;
-                if (style === 'custom-image') {
-                  const f = styleImageInput.files?.[0];
-                  if (!f) { toastError('请选择自定义图片'); return; }
-                  customImageBlob = f;
-                }
-
+                // 「与图片一致」：缩放到原图大小
                 if (preset === 'original') {
                   if (W === img.width && H === img.height) {
                     toastError('当前已是原图大小'); return;
                   }
                   mask.remove();
                   await doResizeToOriginal(img.width, img.height);
-                  return;
-                }
-
-                if (preset === 'pdf-file') {
-                  if (!pdfTargetW || !pdfTargetH) { toastError('请先选择 PDF 文件'); return; }
-                  mask.remove();
-                  await doExpandToSize(pdfTargetW, pdfTargetH, styleColor);
                   return;
                 }
 
@@ -889,32 +1617,38 @@ export function renderAnnotator({ params, query }) {
                 else if (preset === 'square') { targetW = 2000; targetH = 2000; }
                 else if (preset === '16:9') { targetW = 2560; targetH = 1440; }
                 else if (preset === '4:3') { targetW = 2048; targetH = 1536; }
-                else {
+                else if (preset === 'pdf-file') {
+                  if (!pdfTargetW) { toastError('请先选择 PDF 文件'); return; }
+                  targetW = pdfTargetW; targetH = pdfTargetH;
+                } else if (preset === 'paper') {
+                  const selId = document.getElementById('expand-paper-id')?.value;
+                  const sel = paperLayer.getPapers().find(p => p.id === selId);
+                  if (!sel) { toastError('请选择纸张'); return; }
+                  if (dir === 'top' || dir === 'bottom') targetH = H + Math.round(sel.h);
+                  else targetW = W + Math.round(sel.w);
+                } else {
                   const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
                   if (dir === 'top' || dir === 'bottom') targetH = H + px;
                   else targetW = W + px;
                 }
 
-                if (targetW <= W && targetH <= H && preset !== 'custom') {
-                  toastError('目标尺寸不大于当前画布'); return;
-                }
-
                 mask.remove();
-                await doExpandWithStyle(targetW, targetH, style, styleColor, customImageBlob);
+                await doExpandToSize(targetW, targetH, color);
               },
             }),
           ]),
         ]),
       ]);
       document.body.appendChild(mask);
-
       updatePreview();
     }
 
-
-
+    // ========== 图层顺序面板 ==========
     function openLayerPanel() {
+      // 临时顺序（不修改 currentLayerOrder）
       const tempOrder = [...currentLayerOrder];
+
+      // 图层名映射
       const labels = {
         base: '🖼 底图',
         stroke: '✏️ 笔迹',
@@ -926,11 +1660,16 @@ export function renderAnnotator({ params, query }) {
 
       const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
 
+      // 重新渲染列表
       function renderList() {
         list.innerHTML = '';
         tempOrder.forEach((key, i) => {
           const row = el('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 12px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.06)' },
+            style: {
+              display: 'flex', alignItems: 'center', gap: '8px',
+              padding: '10px 12px', background: 'var(--bg)', borderRadius: '8px',
+              border: '1px solid rgba(0,0,0,.06)',
+            },
           }, [
             el('span', { style: { flex: '1', fontWeight: '600' }, text: labels[key] || key }),
             el('button', {
@@ -975,8 +1714,10 @@ export function renderAnnotator({ params, query }) {
             el('button', {
               class: 'btn btn-ghost', text: '取消',
               onClick: () => {
+                // 恢复默认顺序并保存
                 applyLayerOrder(DEFAULT_LAYER_ORDER);
                 currentLayerOrder = [...DEFAULT_LAYER_ORDER];
+                store.saveLayerOrder(DEFAULT_LAYER_ORDER);
                 mask.remove();
               },
             }),
@@ -995,1136 +1736,22 @@ export function renderAnnotator({ params, query }) {
       document.body.appendChild(mask);
     }
 
-    async function doExpand(dir, px) {
-      const newW = dir === 'left' || dir === 'right' ? W + px : W;
-      const newH = dir === 'top' || dir === 'bottom' ? H + px : H;
-      const dx = dir === 'left' ? px : 0;
-      const dy = dir === 'top' ? px : 0;
-
-      const newOriginal = document.createElement('canvas');
-      newOriginal.width = newW; newOriginal.height = newH;
-      const octx = newOriginal.getContext('2d');
-      octx.fillStyle = '#FFFFFF';
-      octx.fillRect(0, 0, newW, newH);
-      octx.drawImage(baseImg, dx, dy);
-
-      const newStroke = document.createElement('canvas');
-      newStroke.width = newW; newStroke.height = newH;
-      newStroke.getContext('2d').drawImage(strokeCanvas, dx, dy);
-
-      const newPaperStroke = document.createElement('canvas');
-      newPaperStroke.width = newW; newPaperStroke.height = newH;
-      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, dx, dy);
-
-      paperLayer.getPapers().forEach(p => { p.x += dx; p.y += dy; });
-      tapeLayer.getTapes().forEach(t => { t.points.forEach(pt => { pt.x += dx; pt.y += dy; }); });
-      textLayer.getItems().forEach(t => { t.x += dx; t.y += dy; });
-      store.savePaper(imageId, paperLayer.getPapers());
-      store.saveTape(imageId, tapeLayer.getTapes());
-      store.saveTextItems(imageId, textLayer.getItems());
-
-      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
-      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
-
-      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
-      const annotatedBlob = await new Promise(r => {
-        const m = document.createElement('canvas');
-        m.width = newW; m.height = newH;
-        const mctx = m.getContext('2d');
-        mctx.drawImage(newOriginal, 0, 0);
-        mctx.drawImage(newStroke, 0, 0);
-        m.toBlob(r, 'image/png');
-      });
-
-      await putImageCached({
-        ...img,
-        originalBlob, strokeBlob, paperStrokeBlob, annotatedBlob,
-        width: newW, height: newH,
-        updatedAt: new Date().toISOString(),
-      });
-
-      toastSuccess(`已扩展 ${px}px`);
-      setTimeout(() => {
-        location.reload();
-      }, 500);
-    }
-
-    async function doExpandToSize(newW, newH, bgColor) {
-      const dx = 0;
-      const dy = 0;
-
-      const newOriginal = document.createElement('canvas');
-      newOriginal.width = newW; newOriginal.height = newH;
-      const octx = newOriginal.getContext('2d');
-      if (bgColor === 'transparent') {
-        octx.clearRect(0, 0, newW, newH);
-      } else {
-        octx.fillStyle = bgColor;
-        octx.fillRect(0, 0, newW, newH);
-      }
-      octx.drawImage(baseImg, dx, dy);
-
-      const newStroke = document.createElement('canvas');
-      newStroke.width = newW; newStroke.height = newH;
-      newStroke.getContext('2d').drawImage(strokeCanvas, dx, dy);
-
-      const newPaperStroke = document.createElement('canvas');
-      newPaperStroke.width = newW; newPaperStroke.height = newH;
-      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, dx, dy);
-
-      paperLayer.getPapers().forEach(p => { p.x += dx; p.y += dy; });
-      tapeLayer.getTapes().forEach(t => { t.points.forEach(pt => { pt.x += dx; pt.y += dy; }); });
-      textLayer.getItems().forEach(t => { t.x += dx; t.y += dy; });
-      store.savePaper(imageId, paperLayer.getPapers());
-      store.saveTape(imageId, tapeLayer.getTapes());
-      store.saveTextItems(imageId, textLayer.getItems());
-
-      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
-      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
-      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
-      const annotatedBlob = await new Promise(r => {
-        const m = document.createElement('canvas');
-        m.width = newW; m.height = newH;
-        const mctx = m.getContext('2d');
-        mctx.drawImage(newOriginal, 0, 0);
-        mctx.drawImage(newStroke, 0, 0);
-        mctx.drawImage(newPaperStroke, 0, 0);
-        m.toBlob(r, 'image/png');
-      });
-
-      await putImageCached({
-        ...img,
-        originalBlob, strokeBlob, paperStrokeBlob, annotatedBlob,
-        width: newW, height: newH,
-        updatedAt: new Date().toISOString(),
-      });
-
-      toastSuccess(`已扩展为 ${newW}×${newH}，即将刷新`);
-      setTimeout(() => location.reload(), 500);
-    }
-
-    async function doExpandWithStyle(newW, newH, style, color, customImageBlob) {
-      const newOriginal = document.createElement('canvas');
-      newOriginal.width = newW;
-      newOriginal.height = newH;
-      const octx = newOriginal.getContext('2d');
-
-      // 1. 绘制背景样式
-      if (style === 'transparent') {
-        octx.clearRect(0, 0, newW, newH);
-      } else if (style === 'solid') {
-        octx.fillStyle = color;
-        octx.fillRect(0, 0, newW, newH);
-      } else if (style === 'lined') {
-        octx.fillStyle = '#FFFFFF';
-        octx.fillRect(0, 0, newW, newH);
-        octx.strokeStyle = '#E5E7EB';
-        octx.lineWidth = 1;
-        for (let y = 24; y < newH; y += 24) {
-          octx.beginPath();
-          octx.moveTo(0, y);
-          octx.lineTo(newW, y);
-          octx.stroke();
-        }
-      } else if (style === 'grid') {
-        octx.fillStyle = '#FFFFFF';
-        octx.fillRect(0, 0, newW, newH);
-        octx.strokeStyle = 'rgba(219,234,254,.8)';
-        octx.lineWidth = 1;
-        for (let x = 0; x < newW; x += 20) {
-          octx.beginPath(); octx.moveTo(x, 0); octx.lineTo(x, newH); octx.stroke();
-        }
-        for (let y = 0; y < newH; y += 20) {
-          octx.beginPath(); octx.moveTo(0, y); octx.lineTo(newW, y); octx.stroke();
-        }
-      } else if (style === 'dots') {
-        octx.fillStyle = '#FFFFFF';
-        octx.fillRect(0, 0, newW, newH);
-        octx.fillStyle = 'rgba(142,202,230,.5)';
-        for (let x = 0; x < newW; x += 20) {
-          for (let y = 0; y < newH; y += 20) {
-            octx.beginPath();
-            octx.arc(x, y, 2, 0, Math.PI * 2);
-            octx.fill();
-          }
-        }
-      } else if (style === 'custom-image' && customImageBlob) {
-        const imgUrl = URL.createObjectURL(customImageBlob);
-        const customImg = new Image();
-        customImg.src = imgUrl;
-        await new Promise(r => { customImg.onload = r; });
-        const pattern = octx.createPattern(customImg, 'repeat');
-        octx.fillStyle = pattern;
-        octx.fillRect(0, 0, newW, newH);
-        URL.revokeObjectURL(imgUrl);
-      } else {
-        octx.fillStyle = '#FFFFFF';
-        octx.fillRect(0, 0, newW, newH);
-      }
-
-      // 2. 画原图
-      octx.drawImage(baseImg, 0, 0);
-
-      const newStroke = document.createElement('canvas');
-      newStroke.width = newW; newStroke.height = newH;
-      newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0);
-
-      const newPaperStroke = document.createElement('canvas');
-      newPaperStroke.width = newW; newPaperStroke.height = newH;
-      newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, 0, 0);
-
-      store.savePaper(imageId, paperLayer.getPapers());
-      store.saveTape(imageId, tapeLayer.getTapes());
-      store.saveTextItems(imageId, textLayer.getItems());
-
-      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
-      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
-      const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
-      const annotatedBlob = await new Promise(r => {
-        const m = document.createElement('canvas');
-        m.width = newW; m.height = newH;
-        const mctx = m.getContext('2d');
-        mctx.drawImage(newOriginal, 0, 0);
-        mctx.drawImage(newStroke, 0, 0);
-        mctx.drawImage(newPaperStroke, 0, 0);
-        m.toBlob(r, 'image/png');
-      });
-
-      await putImageCached({
-        ...img,
-        originalBlob, strokeBlob, paperStrokeBlob, annotatedBlob,
-        width: newW, height: newH,
-        updatedAt: new Date().toISOString(),
-      });
-
-      toastSuccess(`已扩展为 ${newW}×${newH}，即将刷新`);
-      setTimeout(() => location.reload(), 500);
-    }
-
-    async function doResizeToOriginal(newW, newH) {
-      const newOriginal = document.createElement('canvas');
-      newOriginal.width = newW; newOriginal.height = newH;
-      const octx = newOriginal.getContext('2d');
-      octx.fillStyle = '#FFFFFF';
-      octx.fillRect(0, 0, newW, newH);
-      octx.drawImage(baseImg, 0, 0, Math.min(W, newW), Math.min(H, newH), 0, 0, Math.min(W, newW), Math.min(H, newH));
-
-      const newStroke = document.createElement('canvas');
-      newStroke.width = newW; newStroke.height = newH;
-      newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0, Math.min(W, newW), Math.min(H, newH), 0, 0, Math.min(W, newW), Math.min(H, newH));
-
-      store.savePaper(imageId, paperLayer.getPapers());
-      store.saveTape(imageId, tapeLayer.getTapes());
-      store.saveTextItems(imageId, textLayer.getItems());
-
-      const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
-      const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
-      const annotatedBlob = await new Promise(r => {
-        const m = document.createElement('canvas');
-        m.width = newW; m.height = newH;
-        const mctx = m.getContext('2d');
-        mctx.drawImage(newOriginal, 0, 0);
-        mctx.drawImage(newStroke, 0, 0);
-        m.toBlob(r, 'image/png');
-      });
-
-      await putImageCached({
-        ...img,
-        originalBlob, strokeBlob, annotatedBlob,
-        width: newW, height: newH,
-        updatedAt: new Date().toISOString(),
-      });
-
-      toastSuccess(`已调整为原图大小 ${newW}×${newH}，即将刷新`);
-      setTimeout(() => location.reload(), 500);
-    }
-
-    // ============ 文字弹窗（新建文字对象） ============
-    function openTextEditor(pos) {
-      const mask = el('div', { class: 'confirm-mask' }, [
-        el('div', { class: 'confirm-box', style: { maxWidth: '380px' } }, [
-          el('h3', { text: '添加文字' }),
-          el('div', { class: 'field' }, [
-            el('label', { text: '文字（可换行）' }),
-            el('textarea', { id: 'text-input', placeholder: '输入文字，支持换行', style: { minHeight: '80px' } }),
-          ]),
-          el('div', { class: 'field-row' }, [
-            el('div', { class: 'field' }, [
-              el('label', { text: '字号' }),
-              (() => {
-                const num = el('input', { type: 'number', id: 'text-size', value: '20', min: '10', max: '80', style: { width: '60px', textAlign: 'center' } });
-                const minus = el('button', { class: 'btn btn-sm btn-ghost', text: '−', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.max(10, Number(num.value) - 1); } });
-                const plus = el('button', { class: 'btn btn-sm btn-ghost', text: '+', style: { minWidth: '22px', padding: '0 3px', minHeight: '28px' }, onClick: () => { num.value = Math.min(80, Number(num.value) + 1); } });
-                return el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center' } }, [minus, num, plus]);
-              })(),
-            ]),
-            el('div', { class: 'field' }, [
-              el('label', { text: '字体' }),
-              el('div', { class: 'field-row' }, [
-                el('div', { class: 'field' }, [
-                  el('label', { text: '行距' }),
-                  el('input', { type: 'number', id: 'text-line-height', value: '1.5', min: '1', max: '3', step: '0.1' }),
-                ]),
-                el('div', { class: 'field' }, [
-                  el('label', { text: '对齐' }),
-                  el('select', { id: 'text-align' }, [
-                    el('option', { value: 'left', text: '左对齐' }),
-                    el('option', { value: 'center', text: '居中' }),
-                    el('option', { value: 'right', text: '右对齐' }),
-                  ]),
-                ]),
-              ]),
-              el('select', { id: 'text-font' }, [
-                el('option', { value: 'sans-serif', text: '黑体' }),
-                el('option', { value: 'serif', text: '宋体' }),
-                el('option', { value: 'monospace', text: '等宽' }),
-              ]),
-            ]),
-          ]),
-          el('div', { class: 'field' }, [
-            el('label', { text: '文字颜色' }),
-            el('div', { id: 'text-color-picker' }),
-          ]),
-          el('div', { class: 'field' }, [
-            el('label', { text: '背景色（可选无色）' }),
-            el('div', { id: 'text-bg-picker' }),
-          ]),
-          el('div', { class: 'confirm-actions' }, [
-            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-            el('button', {
-              class: 'btn btn-primary', text: '添加',
-              onClick: () => {
-                const text = document.getElementById('text-input').value;
-                const size = Number(document.getElementById('text-size').value) || 20;
-                const font = document.getElementById('text-font').value;
-                const colorPicker = document.getElementById('text-color-picker');
-                const bgPicker = document.getElementById('text-bg-picker');
-                const color = colorPicker?.dataset.color || currentColor;
-                const bg = bgPicker?.dataset.color || '#FFFFFF';
-                const noBg = bg === 'none';
-                // 【新增】读行距和对齐
-                const lineHeight = Number(document.getElementById('text-line-height')?.value) || 1.5;
-                const align = document.getElementById('text-align')?.value || 'left';
-                if (!text) { alert('请输入文字'); return; }
-                pushUndo();
-                const lines = text.split('\n');
-                const maxW = Math.max(...lines.map(l => l.length * size * 0.6));
-                textLayer.addText({
-                  x: pos.x, y: pos.y,
-                  w: Math.max(120, maxW + 16),
-                  h: Math.max(40, lines.length * size * lineHeight + 8),
-                  text, fontSize: size, fontFamily: font,
-                  color, bgColor: bg, noBg,
-                  lineHeight, align,
-                });
-                dirty = true;
-                mask.remove();
-                setActiveTool('text');
-              },
-            }),
-          ]),
-        ]),
-      ]);
-      document.body.appendChild(mask);
-
-      const colorPicker = document.getElementById('text-color-picker');
-      if (colorPicker) {
-        colorPicker.appendChild(renderColorPicker({
-          current: currentColor,
-          onChange: (c) => { colorPicker.dataset.color = c; },
-        }));
-      }
-      const bgPicker = document.getElementById('text-bg-picker');
-      if (bgPicker) {
-        bgPicker.appendChild(renderColorPicker({
-          current: '#FFFFFF',
-          onChange: (c) => { bgPicker.dataset.color = c; },
-          allowNone: true,
-        }));
-      }
-    }
-
-    // ============ 双击编辑已有文字对象 ============
-    function openTextObjectEditor(textItem) {
-      const ta = el('textarea', {
-        value: textItem.text,
-        style: {
-          position: 'fixed',
-          left: '50%', top: '50%',
-          transform: 'translate(-50%, -50%)',
-          width: '80vw', maxWidth: '400px',
-          height: '200px',
-          padding: '12px',
-          fontSize: '15px',
-          border: '2px solid #3B82F6',
-          borderRadius: '10px',
-          outline: 'none',
-          zIndex: '9999',
-          background: '#fff',
-          boxShadow: '0 8px 24px rgba(0,0,0,.2)',
-        },
-      });
-      ta.dataset.textEditor = '1';
-      document.body.appendChild(ta);
-      ta.focus();
-      // 光标放到末尾，不全选
-      ta.setSelectionRange(ta.value.length, ta.value.length);
-
-      function finish() {
-        textLayer.setText(textItem, ta.value);
-        dirty = true;
-        ta.remove();
-        ta.addEventListener('blur', () => {
-          setTimeout(finish, 150);
-        });
-      }
-      let blurTimer = null;
-      ta.addEventListener('blur', () => {
-        blurTimer = setTimeout(finish, 200);
-      });
-      ta.addEventListener('focus', () => {
-        if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
-      });
-      ta.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape') { ta.remove(); }
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) finish();
-      });
-    }
-
-    // ============ 手势 ============
-    let drawing = false;
-    let startPt = null;
-    let points = [];
-    let pointers = new Map();
-    let pinchStartDist = 0;
-    let pinchStartScale = 1;
-    let paperDragOffset = null;
-
-    function canvasToImage(clientX, clientY) {
-      const rect = strokeCanvas.getBoundingClientRect();
-      return {
-        x: (clientX - rect.left) / rect.width * W,
-        y: (clientY - rect.top) / rect.height * H,
-      };
-    }
-
-    function updateTransform() {
-      canvasWrap.style.transform = `translate(${offsetX}px, ${offsetY}px) scale(${scale})`;
-      zoomLabel.textContent = Math.round(scale * 100) + '%';
-    }
-
-    paperCanvas.style.pointerEvents = 'none';
-    paperStrokeCanvas.style.pointerEvents = 'none';
-    textCanvas.style.pointerEvents = 'none';
-    tapeCanvas.style.pointerEvents = 'none';
-    previewCanvas.style.pointerEvents = 'none';
-
-    strokeCanvas.addEventListener('pointerdown', (e) => {
-      if (penOnly && e.pointerType === 'touch' && currentTool !== 'hand') {
-        if (pointers.size === 0) {
-          pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-          return;
-        }
-      }
-
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      if (pointers.size === 2) {
-        const pts = [...pointers.values()];
-        pinchStartDist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        pinchStartScale = scale;
-        drawing = false;
-        return;
-      }
-
-      if (currentTool === 'hand') {
-        drawing = 'pan';
-        startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
-        panMoved = false;
-        return;
-      }
-
-      if (currentTool === 'paper') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        const sel = paperLayer.getSelected();
-
-        if (sel) {
-          const handles = [
-            { id: 'nw', x: sel.x, y: sel.y },
-            { id: 'ne', x: sel.x + sel.w, y: sel.y },
-            { id: 'sw', x: sel.x, y: sel.y + sel.h },
-            { id: 'se', x: sel.x + sel.w, y: sel.y + sel.h },
-            { id: 'n', x: sel.x + sel.w / 2, y: sel.y },
-            { id: 's', x: sel.x + sel.w / 2, y: sel.y + sel.h },
-            { id: 'w', x: sel.x, y: sel.y + sel.h / 2 },
-            { id: 'e', x: sel.x + sel.w, y: sel.y + sel.h / 2 },
-          ];
-          const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 12);
-          if (hitHandle) {
-            paperDragOffset = paperLayer.startResize(hitHandle.id, pt.x, pt.y);
-            drawing = 'paper-resize';
-            return;
-          }
-        }
-
-        // ← 这里加旋转手柄判断
-        if (sel) {
-          const cx = sel.x + sel.w / 2;
-          const cy = sel.y + sel.h / 2;
-          const rad = (sel.rotation || 0) * Math.PI / 180;
-          const hx = cx + Math.sin(rad) * (sel.h / 2 + 20);
-          const hy = cy - Math.cos(rad) * (sel.h / 2 + 20);
-          if (Math.hypot(pt.x - hx, pt.y - hy) < 14) {
-            paperDragOffset = paperLayer.startRotate(pt.x, pt.y);
-            drawing = 'paper-rotate';
-            return;
-          }
-        }
-
-        const hit = paperLayer.hitTest(pt.x, pt.y);
-        if (hit) {
-          const now = Date.now();
-          if (paperLayer._lastClickId === hit.id && now - (paperLayer._lastClickTime || 0) < 350) {
-            paperLayer._lastClickId = null;
-            paperLayer._lastClickTime = 0;
-            openPaperTextEditor(hit);
-            return;
-          }
-          paperLayer._lastClickId = hit.id;
-          paperLayer._lastClickTime = now;
-          paperLayer.select(hit);
-          paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, paper: hit };
-          drawing = 'paper-drag';
-          return;
-        } else return;
-      }
-
-      if (currentTool === 'tape') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        const hitPaper = paperLayer.hitTest(pt.x, pt.y);
-        if (hitPaper) {
-          if (!hitPaper._currentTape) {
-            hitPaper._currentTape = {
-              points: [{ x: pt.x - hitPaper.x, y: pt.y - hitPaper.y }],
-              width: tapeLayer.getWidth(),
-              color: tapeLayer.getColor(),
-              shape: tapeLayer.getTool(),
-            };
-          }
-          pushUndo();
-          drawing = true;
-          points = [pt];
-          return;
-        }
-        const hit = tapeLayer.hitTest(pt.x, pt.y);
-        if (hit) {
-          tapeLayer.toggleVisible(hit.id);
-          dirty = true;
-          return;
-        }
-        pushUndo();
-        drawing = true;
-        points = [pt];
-        return;
-      }
-
-      strokeCanvas.setPointerCapture(e.pointerId);
-
-      if (currentTool === 'pen' || currentTool === 'eraser') {
-        pushUndo();
-        drawing = true;
-        points = [canvasToImage(e.clientX, e.clientY)];
-        if (currentTool === 'eraser') {
-          const pt0 = points[0];
-          eraseCircle(ctx, pt0.x, pt0.y, currentWidth * 2);
-          eraseCircle(paperStrokeCtx, pt0.x, pt0.y, currentWidth * 2);
-          tapeLayer.eraseAt(pt0.x, pt0.y, currentWidth * 2);
-        }
-      } else if (currentTool === 'circle-erase') {
-        pushUndo();
-        drawing = true;
-        startPt = canvasToImage(e.clientX, e.clientY);
-        // 自由形状：记录擦除路径
-        if (eraseShape === 'free') {
-          eraseFreePath = [startPt];
-        }
-      } else if (currentTool === 'text') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        const sel = textLayer.getSelected();
-
-        if (sel) {
-          const handles = [
-            { id: 'nw', x: sel.x, y: sel.y },
-            { id: 'ne', x: sel.x + sel.w, y: sel.y },
-            { id: 'sw', x: sel.x, y: sel.y + sel.h },
-            { id: 'se', x: sel.x + sel.w, y: sel.y + sel.h },
-          ];
-          const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 12);
-          if (hitHandle) {
-            paperDragOffset = textLayer.startResize(hitHandle.id, pt.x, pt.y);
-            drawing = 'text-resize';
-            return;
-          }
-        }
-
-        const hit = textLayer.hitTest(pt.x, pt.y);
-        if (hit) {
-          const now = Date.now();
-          if (textLayer._lastClickId === hit.id && now - (textLayer._lastClickTime || 0) < 350) {
-            textLayer._lastClickId = null;
-            textLayer._lastClickTime = 0;
-            openTextObjectEditor(hit);
-            return;
-          }
-          textLayer._lastClickId = hit.id;
-          textLayer._lastClickTime = now;
-          textLayer.select(hit);
-          paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y };
-          drawing = 'text-drag';
-          return;
-        }
-
-        openTextEditor(pt);
-        drawing = false;
-      } else {
-        pushUndo();
-        drawing = true;
-        startPt = canvasToImage(e.clientX, e.clientY);
-      }
-    });
-
-    strokeCanvas.addEventListener('pointermove', (e) => {
-      if (!pointers.has(e.pointerId)) return;
-      pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
-
-      if (pointers.size === 2) {
-        const pts = [...pointers.values()];
-        const dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
-        if (pinchStartDist > 0) {
-          scale = Math.min(10, Math.max(0.3, pinchStartScale * dist / pinchStartDist));
-          updateTransform();
-        }
-        return;
-      }
-
-      if (drawing === 'pan') {
-        offsetX = e.clientX - startPt.x;
-        offsetY = e.clientY - startPt.y;
-        panMoved = true
-        updateTransform();
-        return;
-      }
-
-      if (drawing === 'paper-drag') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        const p = paperDragOffset.paper;
-        p.x = pt.x - paperDragOffset.dx;
-        p.y = pt.y - paperDragOffset.dy;
-        // 用 requestAnimationFrame 节流
-        if (!paperDragOffset._raf) {
-          paperDragOffset._raf = requestAnimationFrame(() => {
-            paperLayer.redraw();
-            paperDragOffset._raf = null;
-          });
-        }
-        dirty = true;
-        return;
-      }
-
-      if (drawing === 'paper-resize') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        paperDragOffset.move(pt.x, pt.y);
-        dirty = true;
-        return;
-      }
-
-      if (drawing === 'text-drag') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        const sel = textLayer.getSelected();
-        if (sel) {
-          sel.x = pt.x - paperDragOffset.dx;
-          sel.y = pt.y - paperDragOffset.dy;
-          if (!paperDragOffset._raf) {
-            paperDragOffset._raf = requestAnimationFrame(() => {
-              textLayer.redraw();
-              if (paperDragOffset) paperDragOffset._raf = null;
-            });
-          }
-          dirty = true;
-        }
-        return;
-      }
-
-      if (drawing === 'text-resize') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        paperDragOffset.move(pt.x, pt.y);
-        dirty = true;
-        return;
-      }
-
-      if (drawing === 'paper-rotate') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        paperDragOffset.move(pt.x, pt.y);
-        dirty = true;
-        return;
-      }
-
-      if (!drawing) return;
-
-      const pt = canvasToImage(e.clientX, e.clientY);
-
-      if (currentTool === 'pen') {
-        points.push(pt);
-        const hitPaper = paperLayer.hitTest(pt.x, pt.y);
-        if (hitPaper) {
-          const relX = pt.x - hitPaper.x;
-          const relY = pt.y - hitPaper.y;
-          if (!hitPaper._currentStroke) {
-            hitPaper._currentStroke = { points: [], color: currentColor, width: currentWidth };
-          }
-          const lastPt = hitPaper._currentStroke.points[hitPaper._currentStroke.points.length - 1];
-          if (!lastPt || Math.hypot(relX - lastPt.x, relY - lastPt.y) > 1) {
-            hitPaper._currentStroke.points.push({ x: relX, y: relY });
-          }
-          // 实时画到 paperStrokeCtx，不重绘纸张层，避免延时
-          drawSmoothPath(paperStrokeCtx, points.slice(-10), currentColor, currentWidth);
-        } else {
-          drawSmoothPath(ctx, points.slice(-10), currentColor, currentWidth);
-        }
-      } else if (currentTool === 'eraser') {
-        eraseCircle(ctx, pt.x, pt.y, currentWidth * 2);
-        tapeLayer.eraseAt(pt.x, pt.y, currentWidth * 2);
-        updateEraserPreview(pt, currentWidth * 2);
-
-        // 擦纸张内的笔迹和胶带
-        const hitPaper = paperLayer.hitTest(pt.x, pt.y);
-        if (hitPaper) {
-          const relX = pt.x - hitPaper.x;
-          const relY = pt.y - hitPaper.y;
-          let changed = false;
-          if (hitPaper.strokes) {
-            const before = hitPaper.strokes.length;
-            hitPaper.strokes = hitPaper.strokes.filter(s =>
-              !s.points.some(p => Math.hypot(p.x - relX, p.y - relY) < currentWidth * 2)
-            );
-            if (hitPaper.strokes.length !== before) changed = true;
-          }
-          if (hitPaper.tapes) {
-            const before = hitPaper.tapes.length;
-            hitPaper.tapes = hitPaper.tapes.filter(t =>
-              !t.points.some(p => Math.hypot(p.x - relX, p.y - relY) < currentWidth * 2 + t.width / 2)
-            );
-            if (hitPaper.tapes.length !== before) changed = true;
-          }
-          if (changed) {
-            paperLayer.save();
-            paperLayer.redraw();
-          }
-        }
-      } else if (currentTool === 'tape') {
-        points.push(pt);
-        const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
-        if (hitPaper) {
-          const relX = pt.x - hitPaper.x;
-          const relY = pt.y - hitPaper.y;
-          const lastPt = hitPaper._currentTape.points[hitPaper._currentTape.points.length - 1];
-          if (!lastPt || Math.hypot(relX - lastPt.x, relY - lastPt.y) > 1) {
-            hitPaper._currentTape.points.push({ x: relX, y: relY });
-            paperLayer.redraw();
-          }
-        } else {
-          const tempTape = {
-            id: '__temp__',
-            points: points,
-            width: tapeLayer.getWidth(),
-            pattern: tapeLayer.getPattern(),
-            patternImageId: null,
-            shape: tapeLayer.getTool(),
-            color: tapeLayer.getColor(),
-            visible: true,
-            erasedPath: [],
-          };
-          if (!window.__tapeRaf) {
-            window.__tapeRaf = requestAnimationFrame(() => {
-              tapeLayer.redraw();
-              drawTempTape(tapeCanvas, tempTape);
-              window.__tapeRaf = null;
-            });
-          }
-        }
-      } else if (currentTool === 'circle-erase') {
-        clearPreview();
-        previewCtx.save();
-        previewCtx.strokeStyle = 'rgba(59,130,246,.9)';
-        previewCtx.lineWidth = 2;
-        previewCtx.setLineDash([6, 4]);
-        if (eraseShape === 'free') {
-          if (eraseFreePath) {
-            eraseFreePath.push(pt);
-            previewCtx.beginPath();
-            previewCtx.moveTo(eraseFreePath[0].x, eraseFreePath[0].y);
-            for (let i = 1; i < eraseFreePath.length; i++) previewCtx.lineTo(eraseFreePath[i].x, eraseFreePath[i].y);
-            previewCtx.stroke();
-          }
-        } else if (eraseShape === 'rect') {
-          previewCtx.strokeRect(
-            Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y),
-            Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)
-          );
-        } else {
-          const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
-          previewCtx.beginPath();
-          previewCtx.arc(startPt.x, startPt.y, r, 0, Math.PI * 2);
-          previewCtx.stroke();
-        }
-        previewCtx.restore();
-      } else {
-        const snap = undoStack[undoStack.length - 1];
-        if (snap) ctx.putImageData(snap.stroke, 0, 0);
-        if (currentTool === 'arrow') drawArrow(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
-        else if (currentTool === 'rect') {
-          const bc = window.__rectBorderColor || currentColor;
-          const fc = window.__rectFillColor || 'none';
-          const x = Math.min(startPt.x, pt.x);
-          const y = Math.min(startPt.y, pt.y);
-          const w = Math.abs(pt.x - startPt.x);
-          const h = Math.abs(pt.y - startPt.y);
-          if (fc !== 'none' && fc !== 'transparent') {
-            ctx.save();
-            ctx.fillStyle = fc;
-            ctx.globalAlpha = 0.4;
-            ctx.fillRect(x, y, w, h);
-            ctx.restore();
-          }
-          ctx.save();
-          ctx.strokeStyle = bc;
-          ctx.lineWidth = currentWidth;
-          ctx.strokeRect(x, y, w, h);
-          ctx.restore();
-        }
-        else if (currentTool === 'line') drawLine(ctx, startPt.x, startPt.y, pt.x, pt.y, currentColor, currentWidth);
-        else if (currentTool === 'wave') {
-          clearPreview();
-          previewCtx.save();
-          previewCtx.strokeStyle = currentColor;
-          previewCtx.lineWidth = currentWidth;
-          previewCtx.lineCap = 'round';
-          const wdx = pt.x - startPt.x, wdy = pt.y - startPt.y;
-          const wlen = Math.hypot(wdx, wdy);
-          if (wlen < 1) { previewCtx.restore(); return; }
-          const wsteps = Math.max(20, Math.floor(wlen / 4));
-          const wnx = -wdy / wlen, wny = wdx / wlen;
-          previewCtx.beginPath();
-          for (let i = 0; i <= wsteps; i++) {
-            const t = i / wsteps;
-            const baseX = startPt.x + wdx * t;
-            const baseY = startPt.y + wdy * t;
-            const wave = Math.sin(t * Math.PI * 8) * waveAmplitude;
-            const px = baseX + wnx * wave;
-            const py = baseY + wny * wave;
-            if (i === 0) previewCtx.moveTo(px, py); else previewCtx.lineTo(px, py);
-          }
-          previewCtx.stroke();
-          previewCtx.restore();
-        }
-      }
-      dirty = true;
-    });
-
-    function drawTempTape(canvas, t) {
-      const c = canvas.getContext('2d');
-      c.save();
-      c.fillStyle = t.color;
-      c.strokeStyle = t.color;
-      c.lineWidth = t.width;
-      c.lineJoin = 'round';
-      if (t.shape === 'line-round' || t.shape === 'line-square') {
-        c.lineCap = t.shape === 'line-round' ? 'round' : 'butt';
-        if (t.points.length < 2) { c.restore(); return; }
-        c.beginPath();
-        c.moveTo(t.points[0].x, t.points[0].y);
-        for (let i = 1; i < t.points.length; i++) c.lineTo(t.points[i].x, t.points[i].y);
-        c.stroke();
-      } else if (t.shape === 'rect') {
-        const p0 = t.points[0], p1 = t.points[t.points.length - 1];
-        c.fillRect(Math.min(p0.x, p1.x), Math.min(p0.y, p1.y), Math.abs(p1.x - p0.x), Math.abs(p1.y - p0.y));
-      } else if (t.shape === 'circle') {
-        const p0 = t.points[0], p1 = t.points[t.points.length - 1];
-        const r = Math.hypot(p1.x - p0.x, p1.y - p0.y);
-        c.beginPath();
-        c.arc(p0.x, p0.y, r, 0, Math.PI * 2);
-        c.fill();
-      }
-      c.restore();
-    }
-
-    strokeCanvas.addEventListener('pointerup', async (e) => {
-      clearPreview();
-      if (window.__tapeRaf) { cancelAnimationFrame(window.__tapeRaf); window.__tapeRaf = null; }
-      pointers.delete(e.pointerId);
-
-      if (drawing === 'pan') {
-        drawing = false;
-        if (!panMoved && currentTool === 'hand') {
-          setActiveTool('pen');
-        }
-        return;
-      }
-      if (drawing === 'paper-drag') {
-        if (paperDragOffset._raf) {
-          cancelAnimationFrame(paperDragOffset._raf);
-          paperDragOffset._raf = null;
-        }
-        paperLayer.save();
-        drawing = false;
-        paperDragOffset = null;
-        return;
-      }
-      if (drawing === 'paper-resize') {
-        paperDragOffset.end();
-        drawing = false;
-        paperDragOffset = null;
-        return;
-      }
-      if (drawing === 'text-drag') {
-        if (paperDragOffset._raf) { cancelAnimationFrame(paperDragOffset._raf); paperDragOffset._raf = null; }
-        textLayer.save();
-        drawing = false;
-        paperDragOffset = null;
-        return;
-      }
-      if (drawing === 'text-resize') {
-        paperDragOffset.end();
-        drawing = false;
-        paperDragOffset = null;
-        return;
-      }
-      if (drawing === 'paper-rotate') {
-        paperDragOffset.end();
-        drawing = false;
-        paperDragOffset = null;
-        return;
-      }
-      if (!drawing) return;
-
-      // 画笔结束：把纸张内的笔迹存进纸张
-      if (currentTool === 'pen') {
-        const hitPaper = paperLayer.getPapers().find(p => p._currentStroke);
-        if (hitPaper) {
-          if (!hitPaper.strokes) hitPaper.strokes = [];
-          hitPaper.strokes.push(hitPaper._currentStroke);
-          delete hitPaper._currentStroke;
-          paperLayer.save();
-          // 清空临时笔迹层，让纸张层重绘最终笔迹
-          paperStrokeCtx.clearRect(0, 0, W, H);
-          paperLayer.redraw();
-        }
-      }
-
-      if (currentTool === 'tape') {
-        const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
-        if (hitPaper) {
-          if (!hitPaper.tapes) hitPaper.tapes = [];
-          hitPaper.tapes.push(hitPaper._currentTape);
-          delete hitPaper._currentTape;
-          paperLayer.save();
-          paperLayer.redraw();
-        } else if (points.length >= 2) {
-          const tape = {
-            id: (crypto.randomUUID && crypto.randomUUID()) || String(Date.now()),
-            points: points,
-            width: tapeLayer.getWidth(),
-            pattern: tapeLayer.getPattern(),
-            patternImageId: tapeLayer.getPatternImageId ? tapeLayer.getPatternImageId() : null,
-            shape: tapeLayer.getTool(),
-            color: tapeLayer.getColor(),
-            visible: true,
-            erasedPath: [],
-          };
-          if (tape.pattern === 'custom' && tape.patternImageId) {
-            await tapeLayer.loadPatternImage(tape.patternImageId);
-          }
-          tapeLayer.addTape(tape);
-        }
-      } else if (currentTool === 'circle-erase') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-
-        // 【自由形状】沿路径逐点擦除
-        if (eraseShape === 'free' && eraseFreePath) {
-          eraseFreePath.forEach(p => {
-            eraseCircle(ctx, p.x, p.y, currentWidth * 2);
-            eraseCircle(paperStrokeCtx, p.x, p.y, currentWidth * 2);
-            tapeLayer.eraseAt(p.x, p.y, currentWidth * 2);
-          });
-          eraseFreePath = null;
-        } else if (eraseShape === 'rect') {
-          // 矩形擦除
-          eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
-          eraseRect(paperStrokeCtx, startPt.x, startPt.y, pt.x, pt.y);
-          tapeLayer.eraseAt((startPt.x + pt.x) / 2, (startPt.y + pt.y) / 2, Math.max(Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y)) / 2);
-        } else {
-          // 圆形擦除
-          const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
-          eraseCircle(ctx, startPt.x, startPt.y, r);
-          eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
-          tapeLayer.eraseAt(startPt.x, startPt.y, r);
-        }
-
-        // 擦纸张内的笔迹和胶带（原有逻辑保留）
-        paperLayer.getPapers().forEach(p => {
-          if (p.x > Math.max(startPt.x, pt.x) || p.x + p.w < Math.min(startPt.x, pt.x) ||
-            p.y > Math.max(startPt.y, pt.y) || p.y + p.h < Math.min(startPt.y, pt.y)) return;
-          const minX = Math.min(startPt.x, pt.x) - p.x;
-          const maxX = Math.max(startPt.x, pt.x) - p.x;
-          const minY = Math.min(startPt.y, pt.y) - p.y;
-          const maxY = Math.max(startPt.y, pt.y) - p.y;
-          if (p.strokes) {
-            p.strokes = p.strokes.filter(s =>
-              !s.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
-            );
-          }
-          if (p.tapes) {
-            p.tapes = p.tapes.filter(t =>
-              !t.points.some(pt2 => pt2.x >= minX && pt2.x <= maxX && pt2.y >= minY && pt2.y <= maxY)
-            );
-          }
-        });
-      }
-      drawing = false;
-      points = [];
-      startPt = null;
-      dirty = true;
-    });
-
-    strokeCanvas.addEventListener('pointercancel', (e) => {
-      clearPreview();
-      if (window.__tapeRaf) { cancelAnimationFrame(window.__tapeRaf); window.__tapeRaf = null; }
-      pointers.delete(e.pointerId);
-      drawing = false;
-      paperDragOffset = null;
-    });
-
-    wrap.addEventListener('wheel', (e) => {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? 0.9 : 1.1;
-      scale = Math.min(10, Math.max(0.3, scale * delta));
-      updateTransform();
-    }, { passive: false });
-
-    strokeCanvas.addEventListener('click', (e) => {
-      if (currentTool === 'paper') {
-        const pt = canvasToImage(e.clientX, e.clientY);
-        if (!paperLayer.hitTest(pt.x, pt.y)) paperLayer.select(null);
-      }
-    });
-
-    // ============ 纸张文字编辑 ============
-    function openPaperTextEditor(paper) {
-      const rect = strokeCanvas.getBoundingClientRect();
-      const sx = rect.width / W;
-      const sy = rect.height / H;
-
-      const ta = el('textarea', {
-        value: paper.text || '',
-        placeholder: '输入文字…',
-        style: {
-          position: 'fixed',
-          left: (rect.left + paper.x * sx + 4) + 'px',
-          top: (rect.top + paper.y * sy + 4) + 'px',
-          width: Math.max(80, paper.w * sx - 8) + 'px',
-          height: Math.max(40, paper.h * sy - 8) + 'px',
-          fontSize: Math.max(12, (paper.textStyle?.fontSize || 16) * sx) + 'px',
-          color: paper.textStyle?.color || '#2B2D42',
-          background: 'rgba(255,255,255,.95)',
-          border: '2px solid #3B82F6',
-          borderRadius: '6px',
-          padding: '4px 6px',
-          resize: 'none',
-          zIndex: '999',
-          outline: 'none',
-          fontFamily: '-apple-system, "PingFang SC", sans-serif',
-        },
-      });
-
-      ta.dataset.paperEditor = '1';
-
-      function finish() {
-        if (blurTimer) { clearTimeout(blurTimer); blurTimer = null; }
-        const val = ta.value;
-        ta.remove();
-        if (val !== paper.text) {
-          pushUndo();
-          paper.text = val;
-          paperLayer.save();
-          paperLayer.redraw();
-          dirty = true;
-        }
-        document.removeEventListener('pointerdown', outsideClick, true);
-        document.removeEventListener('keydown', onKey, true);
-      }
-      function outsideClick(e) {
-        if (!ta.contains(e.target)) finish();
-      }
-      function onKey(e) {
-        if (e.key === 'Escape') {
-          ta.remove();
-          document.removeEventListener('pointerdown', outsideClick, true);
-          document.removeEventListener('keydown', onKey, true);
-        }
-        if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) finish();
-      }
-
-      document.body.appendChild(ta);
-      ta.focus();
-      ta.select();
-      setTimeout(() => {
-        document.addEventListener('pointerdown', outsideClick, true);
-        document.addEventListener('keydown', onKey, true);
-      }, 50);
-    }
-
-    // ============ 保存 ============
-    async function saveAll(showToast = false) {
-      const strokeBlob = await new Promise(r => strokeCanvas.toBlob(r, 'image/png'));
-      const paperStrokeBlob = await new Promise(r => paperStrokeCanvas.toBlob(r, 'image/png'));
-
-      const merged = document.createElement('canvas');
-      merged.width = W;
-      merged.height = H;
-      const mctx = merged.getContext('2d');
-      mctx.drawImage(baseImg, 0, 0);
-      mctx.drawImage(paperCanvas, 0, 0);
-      mctx.drawImage(paperStrokeCanvas, 0, 0);
-      mctx.drawImage(strokeCanvas, 0, 0);
-      mctx.drawImage(textCanvas, 0, 0);
-      mctx.drawImage(tapeCanvas, 0, 0);
-      const annotatedBlob = await new Promise(r => merged.toBlob(r, 'image/png'));
-
-      await putImageCached({
-        ...img,
-        strokeBlob,
-        paperStrokeBlob,
-        annotatedBlob,
-        updatedAt: new Date().toISOString(),
-      });
-      store.saveTape(imageId, tapeLayer.getTapes());
-      store.savePaper(imageId, paperLayer.getPapers());
-      store.saveTextItems(imageId, textLayer.getItems());
-      dirty = false;
-      if (showToast) toastSuccess('已保存');
-    }
-
-    window.__saveAll = saveAll;
-
-    updateSubToolbar();
+    // ========== 清理 ==========
+    if (window.__annotatorAbort) window.__annotatorAbort.abort();
+    const abort = new AbortController();
+    window.__annotatorAbort = abort;
 
     window.__annotatorCleanup = () => {
-      window.__annotatorActive = false;
-      window.__saveAll = null;
-      // 清理所有浮动 textarea
-      document.querySelectorAll('textarea[data-paper-editor], textarea[data-text-editor]').forEach(t => t.remove());
-      const w = document.querySelector('.annotator-wrap');
-      if (w) w.remove();
+      if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
+      document.querySelectorAll('.annotator-bottom-bar, .annotator-hint, .annotator-zoom').forEach(n => n.remove());
+      document.querySelectorAll('textarea[data-text-editor]').forEach(t => t.remove());
+      hideTooltip();
+      URL.revokeObjectURL(urlDisplay);
+      abort.abort();
+      window.__annotatorCleanup = null;
     };
+  }).catch(err => {
+    console.error(err);
+    toastError('标注页加载失败：' + err.message);
   });
 }

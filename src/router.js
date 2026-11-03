@@ -27,17 +27,14 @@ export async function render() {
   }
   document.getElementById('view').innerHTML = '<div class="empty"><div class="empty-icon">🤔</div>页面不存在</div>';
 }
-function updateNav(path) {
-  document.querySelectorAll('#bottombar a').forEach(a => {
-    const tab = a.getAttribute('data-tab');
-    a.classList.toggle('active',
-      (tab === 'home' && (path === '/' || path.startsWith('/chapter'))) ||
-      (tab === 'review' && path.startsWith('/review')) ||
-      (tab === 'trash' && path.startsWith('/trash'))
-    );
-  });
-}
+
 export function startRouter() {
   window.addEventListener('hashchange', render);
   render();
 }
+
+export function goBack() {
+  history.back();
+}
+
+function updateNav() {}

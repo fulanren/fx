@@ -21,6 +21,8 @@ import { renderAnnotator } from './views/annotator.js';
 import { renderComposer } from './views/composer.js';
 import { renderSettings } from './views/settings.js';
 import { renderHelp } from './views/help.js';
+import { renderTemplate } from './views/template.js';
+import { renderCountdownPage } from './views/countdownPage.js';
 
 async function boot() {
   migrate();
@@ -51,6 +53,8 @@ async function boot() {
   register('/compose', renderComposer);
   register('/settings', renderSettings);
   register('/help', renderHelp);
+  register('/template', renderTemplate);
+  register('/countdown', renderCountdownPage);
 
   startRouter();
 
@@ -119,6 +123,8 @@ function openMoreMenu() {
     { icon: '🎯', label: '复习', href: '#/review' },
     { icon: '🔍', label: '搜索', href: '#/search' },
     { icon: '📥', label: '速记', href: '#/inbox' },
+    { icon: '📋', label: '资料模板', href: '#/template' },
+    { icon: '⏰', label: '考试倒计时', href: '#/countdown' },
     { icon: '🗑', label: '回收站', href: '#/trash' },
     { icon: '❓', label: '帮助', href: '#/help' },
     { icon: '⚙️', label: '设置', href: '#/settings' },
