@@ -8,6 +8,7 @@ const K = {
   recycle: 'kg_recycle_bin',
   streak: 'kg_streak',
   lastReview: 'kg_last_review_at',
+  patterns: 'kg_patterns',
 };
 
 function read(key) {
@@ -542,8 +543,7 @@ export function savePatterns(list) {
 export function addPattern(pattern) {
   const list = getPatterns();
   list.push(pattern);
-  savePatterns(list);
-  return pattern;
+  localStorage.setItem('kg_patterns', JSON.stringify(list));
 }
 export function removePattern(id) {
   savePatterns(getPatterns().filter(p => p.id !== id));
@@ -773,4 +773,29 @@ export function incrementErrorCount(pointId) {
   list[i].isErrorProne = true;
   list[i].updatedAt = now();
   write(K.points, list);
+}
+
+// ============ 标注模板 ============
+const TEMPLATE_KEY = 'kg_annotator_templates';
+
+export function getTemplates() {
+  try { return JSON.parse(localStorage.getItem(TEMPLATE_KEY) || '[]'); }
+  catch { return []; }
+}
+
+export function saveTemplates(list) {
+  localStorage.setItem(TEMPLATE_KEY, JSON.stringify(list));
+}
+
+export function addTemplate(template) {
+  const list = getTemplates();
+  list.push({ ...template, id: crypto.randomUUID(), createdAt: new Date().toISOString() });
+  saveTemplates(list);
+  return list;
+}
+
+export function deleteTemplate(id) {
+  const list = getTemplates().filter(t => t.id !== id);
+  saveTemplates(list);
+  return list;
 }

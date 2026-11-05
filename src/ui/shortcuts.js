@@ -26,7 +26,7 @@ export function initShortcuts() {
     // N 新建
     if (e.key === 'n' || e.key === 'N') {
       const hash = location.hash;
-      if (hash === '#/' || hash === '') navigate('#/edit/task/new');
+      if (hash === '#/' || hash === '') navigate('#/edit-task/new');
     }
   });
 }

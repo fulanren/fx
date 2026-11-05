@@ -158,7 +158,7 @@ export function renderChapterList({ params }) {
   if (!chMulti) {
     view.appendChild(el('button', {
       class: 'fab', text: '+', 'aria-label': '新建章节',
-      onClick: () => navigate(`#/edit/chapter/new?taskId=${task.id}`),
+      onClick: () => navigate(`#/edit-chapter/new?taskId=${task.id}`),
     }));
   }
 }
@@ -194,7 +194,7 @@ function chapterCard(c, taskId) {
       el('span', { text: `💡 ${points.length} 知识点` }),
     ]),
     !chMulti ? el('div', { class: 'card-actions' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit/chapter/${c.id}`) }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
         onClick: async () => {
@@ -356,7 +356,7 @@ export function renderChapterDetail({ params }) {
   if (!ptMulti) {
     view.appendChild(el('button', {
       class: 'fab', text: '+', 'aria-label': '新建知识点',
-      onClick: () => navigate(`#/edit/point/new?chapterId=${chapter.id}`),
+      onClick: () => navigate(`#/edit-point/new?chapterId=${chapter.id}`),
     }));
   }
 }
@@ -529,7 +529,7 @@ function pointCard(p, chapterId) {
       })(),
     ]) : null,
     el('div', { class: 'card-actions' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit/point/${p.id}`); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-point/${p.id}`); } }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: p.isErrorProne ? '取消易错' : '标记易错',
         onClick: (e) => { e.stopPropagation(); store.updatePoint(p.id, { isErrorProne: !p.isErrorProne }); renderChapterDetail({ params: { id: chapterId } }); },

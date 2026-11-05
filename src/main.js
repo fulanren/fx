@@ -29,6 +29,15 @@ async function boot() {
 
   const check = await storageSelfCheck();
   if (!check.ok) { showStorageError(); return; }
+  // 申请持久化存储，防止浏览器自动清理数据
+  if (navigator.storage?.persist) {
+    try {
+      const granted = await navigator.storage.persist();
+      console.log('持久化存储:', granted ? '已授权' : '未授权');
+    } catch (e) {
+      console.warn('申请持久化存储失败', e);
+    }
+  }
 
   if (navigator.storage?.persist) {
     try { await navigator.storage.persist(); } catch { }
@@ -42,9 +51,9 @@ async function boot() {
   register('/', renderHome);
   register('/chapter-list/:taskId', renderChapterList);
   register('/chapter/:id', renderChapterDetail);
-  register('/edit/task/:id', renderEditTask);
-  register('/edit/chapter/:id', renderEditChapter);
-  register('/edit/point/:id', renderEditPoint);
+  register('/edit-task/:id', renderEditTask);
+  register('/edit-chapter/:id', renderEditChapter);
+  register('/edit-point/:id', renderEditPoint);
   register('/review', renderReview);
   register('/trash', renderRecycle);
   register('/search', renderSearch);
@@ -69,17 +78,16 @@ async function boot() {
   const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
-    if (hash.startsWith('#/edit/')) {
-      if (hash.includes('/edit/task/')) navigate('#/');
-      else if (hash.includes('/edit/chapter/')) {
-        const m = hash.match(/taskId=([^&]+)/);
-        if (m) navigate(`#/chapter-list/${m[1]}`);
-        else history.back();
-      } else if (hash.includes('/edit/point/')) {
-        const m = hash.match(/chapterId=([^&]+)/);
-        if (m) navigate(`#/chapter/${m[1]}`);
-        else history.back();
-      } else history.back();
+    if (hash.startsWith('#/edit-task/')) {
+      navigate('#/');
+    } else if (hash.startsWith('#/edit-chapter/')) {
+      const m = hash.match(/taskId=([^&]+)/);
+      if (m) navigate(`#/chapter-list/${m[1]}`);
+      else history.back();
+    } else if (hash.startsWith('#/edit-point/')) {
+      const m = hash.match(/chapterId=([^&]+)/);
+      if (m) navigate(`#/chapter/${m[1]}`);
+      else history.back();
     } else if (hash.startsWith('#/chapter/')) {
       const chapterId = hash.split('/')[2]?.split('?')[0];
       const chapter = store.getChapter(chapterId);

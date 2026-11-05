@@ -1,16 +1,18 @@
-﻿export function el(tag, attrs = {}, children = []) {
+﻿export function el(tag, props = {}, children = []) {
   const node = document.createElement(tag);
-  for (const [k, v] of Object.entries(attrs)) {
+  Object.entries(props).forEach(([k, v]) => {
     if (k === 'class') node.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
     else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'html') node.innerHTML = v;
     else if (k === 'text') node.textContent = v;
-    else node.setAttribute(k, v);
-  }
-  for (const c of [].concat(children)) {
-    if (c == null) continue;
-    node.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+    else if (k === 'checked' || k === 'value' || k === 'selected' || k === 'disabled') node[k] = v;
+    else if (v === true) node.setAttribute(k, '');
+    else if (v !== false && v !== null && v !== undefined) node.setAttribute(k, v);
+  });
+  if (Array.isArray(children)) {
+    children.forEach(c => c && node.appendChild(c));
+  } else if (children) {
+    node.appendChild(children);
   }
   return node;
 }

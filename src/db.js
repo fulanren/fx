@@ -8,7 +8,7 @@ export function openDB() {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
     req.onupgradeneeded = (e) => {
       const db = e.target.result;
-      ['images', 'patterns', 'audios', 'audio_chunks', 'ocr_cache', 'backups', 'attachments'].forEach(name => {
+      ['images', 'patterns', 'audios', 'audio_chunks', 'ocr_cache', 'backups', 'attachments', 'versions'].forEach(name => {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       });
     };
