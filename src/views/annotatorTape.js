@@ -245,14 +245,16 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
       }
     }
 
-    // 擦除
+    // 擦除（用 source-atop，只擦胶带区域，不擦背景）
     if (t.erasedPath && t.erasedPath.length) {
-      ctx.globalCompositeOperation = 'destination-out';
+      ctx.globalCompositeOperation = 'source-atop';
+      ctx.fillStyle = 'rgba(0,0,0,0)';
       t.erasedPath.forEach(p => {
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         ctx.fill();
       });
+      ctx.globalCompositeOperation = 'source-over';
     }
     ctx.restore();
   }
@@ -299,19 +301,27 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
   }
 
   // ============ 重绘（同步） ============
-  function redraw() {
+    function redraw() {
     ctx.clearRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
+
     tapes.forEach(t => {
       if (!t.visible) return;
       drawTape(ctx, t);
     });
-    // 选中框
+
     selectedIds.forEach(id => {
       const sel = tapes.find(t => t.id === id);
       if (sel && sel.visible) drawSelection(ctx, sel);
     });
+  }
+
+  // 引用纸张绘制（用于合并渲染）
+  function drawPaper(ctx, p) {
+    if (window.__paperLayer && window.__paperLayer.drawPaperRaw) {
+      window.__paperLayer.drawPaperRaw(ctx, p);
+    }
   }
 
   async function redrawAsync() {
@@ -1104,6 +1114,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
     redraw,
     redrawAsync,
     previewTape,
+    previewTape,
     createTapeFromPoints,
     addTape,
     toggleVisible,
@@ -1141,6 +1152,6 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
     openShapeManager,
     openPatternManager,
     selectInRect,
-        drawTapeRaw: (targetCtx, t) => drawTape(targetCtx, t),
+    drawTapeRaw: (targetCtx, t) => drawTape(targetCtx, t),
   };
 }

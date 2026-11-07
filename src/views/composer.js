@@ -31,6 +31,57 @@ export function renderComposer({ params, query }) {
   let bg = '#FFFFFF';
   let showIndex = true;
 
+  // ============ 新增：图片选择 ============
+  const allIds = [...(point.imageIds || []), ...(point.compositeImageIds || [])];
+  let selectedIds = new Set(allIds); // 默认全选
+
+  // 在样式选择上方插入勾选区域
+  const pickerWrap = el('div', {
+    style: { display: 'flex', gap: '8px', overflowX: 'auto', padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,.05)', marginBottom: '16px' }
+  });
+
+  allIds.forEach(id => {
+    const item = el('div', {
+      style: {
+        position: 'relative', flexShrink: 0, width: '60px', height: '60px',
+        borderRadius: '6px', overflow: 'hidden', cursor: 'pointer',
+        border: '2px solid transparent', opacity: 0.5, transition: 'all .2s'
+      },
+      onClick: () => {
+        if (selectedIds.has(id)) {
+          selectedIds.delete(id);
+          item.style.borderColor = 'transparent';
+          item.style.opacity = '0.5';
+        } else {
+          selectedIds.add(id);
+          item.style.borderColor = 'var(--primary)';
+          item.style.opacity = '1';
+        }
+        loadedImages = []; // 清空缓存
+        schedulePreview(); // 重新渲染
+      }
+    });
+
+    // 默认选中状态
+    if (selectedIds.has(id)) {
+      item.style.borderColor = 'var(--primary)';
+      item.style.opacity = '1';
+    }
+
+    import('../db.js').then(({ dbGet }) => {
+      dbGet('images', id).then(rec => {
+        if (!rec) return;
+        const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
+        item.appendChild(el('img', { src: url, style: { width: '100%', height: '100%', objectFit: 'cover' }, onLoad: () => URL.revokeObjectURL(url) }));
+      });
+    });
+
+    pickerWrap.appendChild(item);
+  });
+
+  view.appendChild(el('div', { style: { marginBottom: '8px', fontSize: '13px', color: 'var(--text-2)' }, text: '选择参与合成的图片：' }));
+  view.appendChild(pickerWrap);
+
   const preview = el('canvas', { class: 'compose-preview' });
   const previewCtx = preview.getContext('2d');
 
@@ -74,8 +125,9 @@ export function renderComposer({ params, query }) {
     el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [indexCheck, '显示序号']),
   ]));
   view.appendChild(el('div', { style: { margin: '16px 0', textAlign: 'center' } }, [preview]));
-  view.appendChild(el('div', { style: { display: 'flex', gap: '8px' } }, [
+  view.appendChild(el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
     el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => navigate(`#/chapter/${point.chapterId}`) }),
+    el('button', { class: 'btn btn-ghost', text: '🖨 导出 PDF', onClick: exportPdf }),
     el('button', { class: 'btn btn-primary', text: '生成并保存', onClick: generate }),
   ]));
 
@@ -87,10 +139,12 @@ export function renderComposer({ params, query }) {
   }
 
   async function loadAllImages() {
-    const ids = [...(point.imageIds || []), ...(point.compositeImageIds || [])];
+    // 只加载被选中的
+    const ids = Array.from(selectedIds);
     const result = [];
     for (const id of ids) {
       const img = await getImageCached(id);
+      // ... 原有的读取逻辑 ...
       if (!img) continue;
       const blob = img.annotatedBlob || img.originalBlob;
       if (!blob) continue;
@@ -193,6 +247,97 @@ export function renderComposer({ params, query }) {
     });
   }
 
+  // ============ 导出为 PDF ============
+  async function exportPdf() {
+    if (!loadedImages.length) loadedImages = await loadAllImages();
+    if (loadedImages.length === 0) { toastError('没有图片可导出'); return; }
+
+    try {
+      // 1. 使用和预览相同的排版逻辑，生成一张高清大图
+      const layout = computeLayout(loadedImages);
+      const c = document.createElement('canvas');
+      c.width = layout.width;
+      c.height = layout.height;
+      const cctx = c.getContext('2d');
+      cctx.fillStyle = bg;
+      cctx.fillRect(0, 0, c.width, c.height);
+
+      layout.items.forEach(it => {
+        cctx.drawImage(it.img, it.x, it.y, it.w, it.h);
+        if (showIndex) {
+          cctx.fillStyle = 'rgba(59,130,246,.9)';
+          cctx.beginPath();
+          cctx.arc(it.x + 20, it.y + 20, 16, 0, Math.PI * 2);
+          cctx.fill();
+          cctx.fillStyle = '#fff';
+          cctx.font = 'bold 20px sans-serif';
+          cctx.textAlign = 'center';
+          cctx.textBaseline = 'middle';
+          cctx.fillText(String(it.index), it.x + 20, it.y + 20);
+        }
+      });
+
+      // 2. 将合成图转为 Base64
+      const base64Url = c.toDataURL('image/jpeg', 0.9);
+
+      // 3. 构造打印用的 HTML
+      // 这里根据合成样式决定是横屏还是竖屏
+      const isLandscape = style === 'horizontal';
+      const pageSize = isLandscape ? 'A4 landscape' : 'A4 portrait';
+
+      const html = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <title>导出 PDF</title>
+          <style>
+            @page { size: ${pageSize}; margin: 10mm; }
+            body { 
+              margin: 0; 
+              display: flex; 
+              align-items: center; 
+              justify-content: center; 
+              min-height: 100vh; 
+              background: #fff;
+            }
+            img { 
+              max-width: 100%; 
+              max-height: 100vh; 
+              object-fit: contain; 
+              box-shadow: 0 0 10px rgba(0,0,0,0.1); /* 仅预览用 */
+            }
+            @media print {
+              body { min-height: auto; }
+              img { box-shadow: none; max-height: 100%; }
+            }
+          </style>
+        </head>
+        <body>
+          <img src="${base64Url}" />
+        </body>
+        </html>
+      `;
+
+      // 4. 打开新窗口触发打印
+      const w = window.open('', '_blank');
+      if (!w) {
+        toastError('请允许浏览器弹出窗口以导出 PDF');
+        return;
+      }
+      w.document.write(html);
+      w.document.close();
+
+      // 等待图片渲染后触发打印
+      setTimeout(() => {
+        w.focus();
+        w.print();
+      }, 600);
+
+    } catch (e) {
+      toastError('导出失败：' + e.message);
+    }
+  }
+
   async function generate() {
     if (!loadedImages.length) loadedImages = await loadAllImages();
     if (loadedImages.length === 0) { toastError('没有图片可合成'); return; }
@@ -228,7 +373,7 @@ export function renderComposer({ params, query }) {
         width: c.width,
         height: c.height,
         createdAt: new Date().toISOString(),
-        sourceImageIds: point.imageIds || [],
+        sourceImageIds: Array.from(selectedIds), // 👈 只记选中的
       });
       store.addCompositeToPoint(pointId, newId);
       toastSuccess('合成完成');

@@ -1,19 +1,38 @@
-﻿export function el(tag, props = {}, children = []) {
+﻿export function el(tag, attrs = {}, children = []) {
   const node = document.createElement(tag);
-  Object.entries(props).forEach(([k, v]) => {
+  
+  // 处理属性
+  for (const [k, v] of Object.entries(attrs || {})) {
     if (k === 'class') node.className = v;
-    else if (k === 'style' && typeof v === 'object') Object.assign(node.style, v);
-    else if (k.startsWith('on') && typeof v === 'function') node.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'text') node.textContent = v;
-    else if (k === 'checked' || k === 'value' || k === 'selected' || k === 'disabled') node[k] = v;
-    else if (v === true) node.setAttribute(k, '');
-    else if (v !== false && v !== null && v !== undefined) node.setAttribute(k, v);
-  });
-  if (Array.isArray(children)) {
-    children.forEach(c => c && node.appendChild(c));
-  } else if (children) {
-    node.appendChild(children);
+    else if (k === 'style' && typeof v === 'object') {
+      Object.assign(node.style, v);
+    } else if (k.startsWith('on') && typeof v === 'function') {
+      node.addEventListener(k.slice(2).toLowerCase(), v);
+    } else if (k === 'text') {
+      node.textContent = v;
+    } else {
+      node.setAttribute(k, v);
+    }
   }
+
+  // 👇 修复这里：处理子元素，过滤无效内容
+  const appendChild = (child) => {
+    if (child === null || child === undefined || child === false) return;
+    if (typeof child === 'string' || typeof child === 'number') {
+      node.appendChild(document.createTextNode(child));
+    } else if (child instanceof Node) {
+      node.appendChild(child);
+    } else {
+      console.warn('el() 接收到了无效的子元素:', child);
+    }
+  };
+
+  if (Array.isArray(children)) {
+    children.forEach(appendChild);
+  } else {
+    appendChild(children);
+  }
+
   return node;
 }
 export function debounce(fn, ms) {

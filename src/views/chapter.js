@@ -7,6 +7,7 @@ import { confirmBox } from '../ui/confirm.js';
 import { mergeModal } from '../ui/mergeModal.js';
 import { makeSortable } from '../ui/sortable.js';
 import { getImageCached } from '../db.js';
+import { globalImportDocModal, globalBatchImportModal } from './importDoc.js';
 
 // ============ 导出格式选择菜单 ============
 function showExportMenu(scope, id) {
@@ -127,13 +128,6 @@ export function renderChapterList({ params }) {
         onClick: () => showExportMenu('task', task.id),
       }),
       // 【按模板导入：自动识别章节和知识点】
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📄 模板导入',
-        onClick: async () => {
-          const { templateImportModal } = await import('../views/pdfTemplateImport.js');
-          await templateImportModal(task.id);
-        },
-      }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { chMulti = true; renderChapterList({ params }); } }),
     ]));
   }
@@ -195,6 +189,10 @@ function chapterCard(c, taskId) {
     ]),
     !chMulti ? el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
+      // 👇 新增：缩小版的上下移按钮
+      el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
+      // 👇 删除按钮
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
         onClick: async () => {
@@ -205,10 +203,6 @@ function chapterCard(c, taskId) {
           }
         },
       }),
-    ]) : null,
-    !chMulti ? el('div', { class: 'move-btns' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↑', onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↓', onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
     ]) : null,
   ]);
 }
@@ -315,22 +309,6 @@ export function renderChapterDetail({ params }) {
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📤 导出本章',
         onClick: () => showExportMenu('chapter', chapter.id),
-      }),
-      // 【导入文档：DOCX / TXT / PDF 文字版 / 扫描版 OCR】
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📄 导入文档',
-        onClick: async () => {
-          const { docImportModal } = await import('../views/docImport.js');
-          await docImportModal(chapter.id);
-        },
-      }),
-      // 【批量导入：粘贴多行文本】
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📋 批量导入',
-        onClick: async () => {
-          const { batchImportModal } = await import('../views/batchImport.js');
-          batchImportModal(chapter.id);
-        },
       }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderChapterDetail({ params }); } }),
     ]));
@@ -567,10 +545,9 @@ function pointCard(p, chapterId) {
     (!ptMulti && allImageIds.length > 0) ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }, text: `🖼 ${allImageIds.length} 张图片` }) : null,
     (!ptMulti && p.audioIds && p.audioIds.length > 0) ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }, text: `🎙 ${p.audioIds.length} 条录音` }) : null,
     detail,
-    !ptMulti ? el('div', { class: 'move-btns' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↑', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '↓', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } }),
-    ]) : null,
+    // 加在你原有的 编辑/删除 按钮旁边：
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } }),
   ]);
 
   card.addEventListener('click', (e) => {

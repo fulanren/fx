@@ -158,7 +158,7 @@ export function renderHome() {
   if (!multiSelectMode) {
     view.appendChild(el('button', {
       class: 'fab', text: '+', 'aria-label': '新建任务',
-      onClick: () => navigate('#/edit/task/new'),
+      onClick: () => navigate('#/edit-task/new'),
     }));
   }
 
@@ -197,9 +197,28 @@ function taskCard(task) {
     ]) : null,
     el('div', { class: 'card-title', text: task.name }),
     task.note ? el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '8px' }, text: task.note }) : null,
-    el('div', { class: 'card-meta' }, [
+        el('div', { class: 'card-meta' }, [
       el('span', { text: `📖 ${chapters.length} 章节` }),
       el('span', { text: `💡 ${pointCount} 知识点` }),
+      // 复习进度条
+      (() => {
+        let totalPts = 0;
+        let reviewedPts = 0;
+        chapters.forEach(c => {
+          const pts = store.getPoints(c.id);
+          totalPts += pts.length;
+          reviewedPts += pts.filter(p => (p.reviewCount || 0) > 0).length;
+        });
+        if (totalPts === 0) return null;
+        const percent = Math.round((reviewedPts / totalPts) * 100);
+        return el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', width: '100%', marginTop: '4px' } }, [
+          el('div', { style: { flex: 1, height: '6px', background: 'rgba(0,0,0,0.06)', borderRadius: '3px', overflow: 'hidden' } }, [
+            el('div', { style: { height: '100%', width: `${percent}%`, background: 'var(--green)', borderRadius: '3px', transition: 'width 0.3s' } })
+          ]),
+          el('span', { style: { fontSize: '11px', color: 'var(--green)', fontWeight: 'bold' }, text: `${percent}%` })
+        ]);
+      })(),
+      
       !multiSelectMode ? el('span', {
         class: 'chapter-toggle',
         style: { cursor: 'pointer', color: 'var(--primary-dark)', fontSize: '13px', marginLeft: 'auto', userSelect: 'none' },
@@ -228,7 +247,7 @@ function taskCard(task) {
         ]))
     ) : null,
     !multiSelectMode ? el('div', { class: 'card-actions' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit/task/${task.id}`) }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-task/${task.id}`) }),
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
         onClick: async () => {
@@ -286,6 +305,21 @@ export function renderSidebar() {
   }
 
   clear(tree);
+
+  // ============ 新增：错题本入口 ============
+  tree.appendChild(el('div', { style: { marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,.06)', paddingBottom: '12px' } }, [
+    el('div', {
+      style: { padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '8px' },
+      onClick: () => {
+        navigate('#/error-book');
+        if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
+      }
+    }, [
+      el('span', { text: '❗' }),
+      el('span', { text: '错题本' })
+    ])
+  ]));
+  // ======================================
 
   const tasks = store.getTasks();
   if (tasks.length === 0) {

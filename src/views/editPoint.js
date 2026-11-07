@@ -3,11 +3,12 @@ import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { saveDraft, loadDraft, clearDraft, hasChanges } from '../autosave.js';
 import { confirmBox } from '../ui/confirm.js';
-import { toastSuccess } from '../ui/toast.js';
+import { toastSuccess, toastError } from '../ui/toast.js';
 import { fmtDate } from '../utils/date.js';
 import { attachSpeechButton } from '../ui/speech.js';
 import { isMobile } from '../utils/platform.js';
 import { audioRecorderModal, getAudiosForPoint, renderAudioList } from './audio.js';
+import { renderImageList } from './imageList.js';
 
 export function renderEditPoint({ params, query }) {
   const isNew = params.id === 'new';
@@ -36,9 +37,57 @@ export function renderEditPoint({ params, query }) {
 
   const contentInput = el('textarea', { placeholder: '知识点内容（必填）', onInput: e => { form.content = e.target.value; queueSave(); } });
   contentInput.value = form.content;
+
+  // ============ 拍照识别按钮 ============
+  const ocrBtn = el('button', {
+    class: 'btn btn-ghost', title: '拍题识别',
+    style: { padding: '8px', fontSize: '18px', borderRadius: '10px', background: 'rgba(142,202,230,.15)', height: '44px', flexShrink: '0' },
+    text: '📷',
+    onClick: () => {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/*';
+      // 手机端唤起后置摄像头拍照，电脑端不受影响
+      fileInput.capture = 'environment';
+      fileInput.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        toastSuccess('正在识别文字，请稍候…');
+
+        try {
+          // 注意：如果你的 OCR 模块不是 '../utils/ocr.js'，请把这里改成你的真实路径
+          const ocrModule = await import('../utils/ocr.js');
+          // 尝试寻找识别方法（兼容不同的写法命名）
+          const recognize = ocrModule.ocrImage || ocrModule.recognizeImage || ocrModule.default;
+
+          if (typeof recognize !== 'function') {
+            throw new Error('未找到 OCR 识别函数，请检查 utils/ocr.js 的导出名称');
+          }
+
+          const text = await recognize(file);
+          if (text && text.trim()) {
+            // 追加识别结果
+            contentInput.value += (contentInput.value ? '\n' : '') + text.trim();
+            form.content = contentInput.value;
+            queueSave(); // 触发自动保存
+            toastSuccess('文字识别成功');
+          } else {
+            toastError('未识别到文字内容');
+          }
+        } catch (err) {
+          console.error('OCR 识别失败:', err);
+          alert('识别失败，请重试。原因：' + err.message);
+        }
+      };
+      fileInput.click();
+    }
+  });
+
+  // 把 ocrBtn 加进 contentRow 里
   const contentRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
     contentInput,
     isMobile ? null : attachSpeechButton(contentInput),
+    ocrBtn,
   ]);
 
   const explainInput = el('textarea', { placeholder: '文字解释（可选）', onInput: e => { form.explanation = e.target.value; queueSave(); } });
@@ -176,42 +225,180 @@ export function renderEditPoint({ params, query }) {
         onClick: () => doSave(),
       }));
     } else {
-      import('./imageList.js').then(({ renderImageList }) => {
-        const refresh = () => {
-          imgBody.innerHTML = '';
-          const refreshed = store.getPoint(params.id);
-          if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
+      // ============ 图片列表（静态引入版） ============
+      const refresh = () => {
+        imgBody.innerHTML = '';
+        const refreshed = store.getPoint(params.id);
+        if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
 
-          imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
-              onClick: async () => {
-                const { pdfImportModal } = await import('../views/pdfImport.js');
-                await pdfImportModal(params.id);
-                refresh();
-              },
-            }),
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
-              onClick: () => {
-                const input = document.getElementById('hidden-image-input');
-                if (input) input.click();
-                else alert('图片上传组件未加载，请刷新页面重试');
-              },
-            }),
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '🖼 合成图片',
-              onClick: () => {
+        // 图片列表下方的操作按钮组
+        imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
+            onClick: async () => {
+              const { pdfImportModal } = await import('../views/pdfImport.js');
+              await pdfImportModal(params.id);
+              refresh();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
+            onClick: () => {
+              const fileInput = document.createElement('input');
+              fileInput.type = 'file';
+              fileInput.accept = 'image/*';
+              fileInput.multiple = true;
+
+              fileInput.onchange = async (e) => {
+                const files = Array.from(e.target.files || []);
+                if (files.length === 0) return;
+
                 const pt = store.getPoint(params.id);
-                const count = ((pt && pt.imageIds) ? pt.imageIds.length : 0);
-                if (count < 2) { alert('至少需要 2 张图片才能合成，当前有 ' + count + ' 张'); return; }
-                navigate(`#/compose?pointId=${params.id}`);
-              },
-            }),
-          ]));
+                if (!pt) { toastError('知识点未找到'); return; }
+
+                const { dbPut } = await import('../db.js');
+                if (!pt.imageIds) pt.imageIds = [];
+
+                for (const f of files) {
+                  const img = new Image();
+                  const url = URL.createObjectURL(f);
+                  await new Promise(r => { img.onload = r; img.src = url; });
+
+                  const id = crypto.randomUUID();
+                  await dbPut('images', {
+                    id,
+                    originalBlob: f,
+                    annotatedBlob: f,
+                    width: img.width,
+                    height: img.height,
+                    dpr: window.devicePixelRatio || 1,
+                    source: 'upload',
+                    createdAt: new Date().toISOString(),
+                  });
+                  URL.revokeObjectURL(url);
+                  pt.imageIds.push(id);
+                }
+
+                store.updatePoint(pt.id, { imageIds: pt.imageIds });
+                toastSuccess(`已添加 ${files.length} 张图片`);
+
+                refresh();
+              };
+
+              fileInput.click();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '🖼 合成图片',
+            onClick: () => {
+              const pt = store.getPoint(params.id);
+              const count = ((pt && pt.imageIds) ? pt.imageIds.length : 0);
+              if (count < 2) { alert('至少需要 2 张图片才能合成，当前有 ' + count + ' 张'); return; }
+              navigate(`#/compose?pointId=${params.id}`);
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📄 合成 PDF',
+            onClick: async () => {
+              const pt = store.getPoint(params.id);
+              const ids = (pt && pt.imageIds) ? pt.imageIds : [];
+              if (ids.length === 0) { alert('当前没有图片，无法合成'); return; }
+
+              toastSuccess('正在生成 PDF 预览，请稍候…');
+              const { dbGet } = await import('../db.js');
+
+              let html = '<html><head><style>';
+              html += 'body { margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; background: #fff; }';
+              html += 'img { max-width: 100%; max-height: 100vh; object-fit: contain; page-break-after: always; margin-bottom: 20px; }';
+              html += '@media print { body { background: none; } img { margin: 0; max-height: 100vh; } }';
+              html += '</style></head><body>';
+
+              for (const id of ids) {
+                const rec = await dbGet('images', id);
+                if (!rec || !rec.annotatedBlob) continue;
+
+                const url = URL.createObjectURL(rec.annotatedBlob);
+                const img = new Image();
+                await new Promise(r => { img.onload = r; img.src = url; });
+
+                const canvas = document.createElement('canvas');
+                const MAX_W = 1200;
+                const scale = Math.min(1, MAX_W / img.width);
+                canvas.width = img.width * scale;
+                canvas.height = img.height * scale;
+                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                const base64 = canvas.toDataURL('image/jpeg', 0.85);
+                html += `<img src="${base64}" />`;
+                URL.revokeObjectURL(url);
+              }
+
+              html += '</body></html>';
+
+              const w = window.open('', '_blank');
+              if (!w) { alert('请允许浏览器弹出窗口'); return; }
+              w.document.write(html);
+              w.document.close();
+
+              setTimeout(() => {
+                w.focus();
+                w.print();
+              }, 800);
+            },
+          }),
+        ]));
+
+        // 拖拽上传绑定
+        imgBody.style.position = 'relative';
+        // 移除旧的监听器（避免每次 refresh 重复绑定）
+        imgBody.ondragover = (e) => {
+          e.preventDefault();
+          imgBody.style.boxShadow = 'inset 0 0 0 2px var(--primary)';
         };
-        refresh();
-      });
+        imgBody.ondragleave = (e) => {
+          e.preventDefault();
+          imgBody.style.boxShadow = 'none';
+        };
+        imgBody.ondrop = async (e) => {
+          e.preventDefault();
+          imgBody.style.boxShadow = 'none';
+
+          const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
+          if (files.length === 0) return;
+
+          const pt = store.getPoint(params.id);
+          if (!pt) { toastError('知识点未找到'); return; }
+
+          const { dbPut } = await import('../db.js');
+          if (!pt.imageIds) pt.imageIds = [];
+
+          for (const f of files) {
+            const img = new Image();
+            const url = URL.createObjectURL(f);
+            await new Promise(r => { img.onload = r; img.src = url; });
+
+            const id = crypto.randomUUID();
+            await dbPut('images', {
+              id,
+              originalBlob: f,
+              annotatedBlob: f,
+              width: img.width,
+              height: img.height,
+              dpr: window.devicePixelRatio || 1,
+              source: 'upload',
+              createdAt: new Date().toISOString(),
+            });
+            URL.revokeObjectURL(url);
+            pt.imageIds.push(id);
+          }
+
+          store.updatePoint(pt.id, { imageIds: pt.imageIds });
+          toastSuccess(`已添加 ${files.length} 张图片`);
+          refresh();
+        };
+      };
+
+      refresh(); // 直接执行一次
     }
   }
 

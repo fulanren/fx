@@ -30,6 +30,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
   const H = height;
 
   let papers = [];
+  let selectedShapes = [];  // [{ paper, shape }]
   let selected = null;
   let currentTool = null;
 
@@ -146,26 +147,35 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
     }
 
     // 文字
-    if (p.text) {
-      const fs = p.textStyle && p.textStyle.fontSize ? p.textStyle.fontSize : 16;
-      const fontFamily = p.textStyle && p.textStyle.fontFamily ? p.textStyle.fontFamily : 'sans-serif';
+    if (p.text && p.textVisible !== false) {
+      const ts = p.textStyle || {};
+      const fs = ts.fontSize || 16;
+      const fontFamily = ts.fontFamily || 'sans-serif';
+      const lineHeight = ts.lineHeight || 1.5;
+      const align = ts.align || 'left';
       ctx.font = `${fs}px ${fontFamily}`;
-      ctx.fillStyle = (p.textStyle && p.textStyle.color) || '#2B2D42';
+      ctx.fillStyle = ts.color || '#2B2D42';
       ctx.textBaseline = 'top';
       const lines = wrapText(ctx, p.text, p.w - 16);
       lines.forEach((line, i) => {
         const displayLine = line.replace(/ /g, '\u00A0');
-        ctx.fillText(displayLine, 8, 8 + i * (fs + 4));
+        let tx = 8;
+        if (align === 'center') {
+          tx = (p.w - ctx.measureText(line).width) / 2;
+        } else if (align === 'right') {
+          tx = p.w - 8 - ctx.measureText(line).width;
+        }
+        ctx.fillText(displayLine, tx, 8 + i * fs * lineHeight);
       });
     }
 
-    // 纸张上的笔迹（只画笔迹，不画胶带）
+    // ============ 纸张上的笔迹（只画 pen，不画选中框） ============
     if (p.strokes && p.strokes.length) {
       p.strokes.forEach(s => {
-        if (s.type !== 'pen' && s.type !== 'eraser') return;
+        if (s.type !== 'pen') return;
+        if (s.visible === false) return;
         if (!s.points || s.points.length < 2) return;
         ctx.save();
-        ctx.globalCompositeOperation = s.type === 'eraser' ? 'destination-out' : 'source-over';
         ctx.strokeStyle = s.color || '#2B2D42';
         ctx.lineWidth = s.width || 10;
         ctx.lineCap = 'round';
@@ -178,15 +188,132 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
       });
     }
 
-    // 纸张上的胶带：用 tapeLayer 的完整绘制
-    if (p.tapes && p.tapes.length && window.__drawTapeOnPaper) {
-      p.tapes.forEach(t => {
-        if (!t.points || t.points.length < 2) return;
-        window.__drawTapeOnPaper(ctx, t);
+    // ============ 纸张上的形状 ============
+    if (p.shapes && p.shapes.length) {
+      p.shapes.forEach(s => {
+        if (s.visible === false) return;
+        ctx.save();
+        if (s.rotation) {
+          const cx = (s.x1 + s.x2) / 2;
+          const cy = (s.y1 + s.y2) / 2;
+          ctx.translate(cx, cy);
+          ctx.rotate(s.rotation * Math.PI / 180);
+          ctx.translate(-cx, -cy);
+        }
+
+        if (s.opacity !== undefined && s.opacity < 1) ctx.globalAlpha = s.opacity;
+        ctx.strokeStyle = s.borderColor || '#2B2D42';
+        if (s.opacity !== undefined && s.opacity < 1) ctx.globalAlpha = s.opacity;
+        ctx.strokeStyle = s.borderColor || '#2B2D42';
+        ctx.fillStyle = s.fillColor || 'transparent';
+        ctx.lineWidth = (s.width || 4) / Math.sqrt(W / 800);
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+
+        const x1 = s.x1, y1 = s.y1, x2 = s.x2, y2 = s.y2;
+        const x = Math.min(x1, x2), y = Math.min(y1, y2);
+        const w = Math.abs(x2 - x1), h = Math.abs(y2 - y1);
+        const cx = x + w / 2, cy = y + h / 2;
+
+        const fillIf = (pathFn) => {
+          if (s.fillColor && s.fillColor !== 'transparent' && s.fillColor !== 'none') {
+            ctx.beginPath(); pathFn(); ctx.fill();
+          }
+        };
+
+        if (s.type === 'rect') {
+          fillIf(() => ctx.rect(x, y, w, h));
+          ctx.strokeRect(x, y, w, h);
+        } else if (s.type === 'circle') {
+          fillIf(() => ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2));
+          ctx.beginPath(); ctx.ellipse(cx, cy, w / 2, h / 2, 0, 0, Math.PI * 2); ctx.stroke();
+        } else if (s.type === 'line') {
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        } else if (s.type === 'arrow') {
+          ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+          const ang = Math.atan2(y2 - y1, x2 - x1);
+          const headLen = Math.max(12, ctx.lineWidth * 4);
+          ctx.beginPath();
+          ctx.moveTo(x2, y2);
+          ctx.lineTo(x2 - headLen * Math.cos(ang - Math.PI / 7), y2 - headLen * Math.sin(ang - Math.PI / 7));
+          ctx.lineTo(x2 - headLen * Math.cos(ang + Math.PI / 7), y2 - headLen * Math.sin(ang + Math.PI / 7));
+          ctx.closePath();
+          ctx.fillStyle = s.borderColor || '#2B2D42';
+          ctx.fill();
+        } else if (s.type === 'triangle') {
+          fillIf(() => { ctx.moveTo(cx, y); ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.closePath(); });
+          ctx.beginPath(); ctx.moveTo(cx, y); ctx.lineTo(x + w, y + h); ctx.lineTo(x, y + h); ctx.closePath(); ctx.stroke();
+        } else if (s.type === 'star') {
+          const pts = []; const outerR = Math.min(w, h) / 2; const innerR = outerR * 0.4;
+          for (let i = 0; i < 10; i++) {
+            const r = i % 2 === 0 ? outerR : innerR;
+            const a = -Math.PI / 2 + i * Math.PI / 5;
+            pts.push({ x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) });
+          }
+          fillIf(() => { ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); });
+          ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y); for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y); ctx.closePath(); ctx.stroke();
+        } else if (s.type === 'wave') {
+          const amp = s.waveAmplitude || 8;
+          const dx = x2 - x1, dy = y2 - y1;
+          const len = Math.hypot(dx, dy);
+          const steps = Math.max(20, Math.floor(len / 4));
+          const nx = -dy / len, ny = dx / len;
+          ctx.beginPath();
+          for (let i = 0; i <= steps; i++) {
+            const t = i / steps;
+            const bx = x1 + dx * t, by = y1 + dy * t;
+            const wv = Math.sin(t * Math.PI * 8) * amp;
+            const px = bx + nx * wv, py = by + ny * wv;
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          }
+          ctx.stroke();
+        } else if (s.type === 'check') {
+          ctx.beginPath();
+          ctx.moveTo(x + w * 0.2, y + h * 0.5);
+          ctx.lineTo(x + w * 0.4, y + h * 0.8);
+          ctx.lineTo(x + w * 0.85, y + h * 0.2);
+          ctx.stroke();
+        } else if (s.type === 'cross') {
+          ctx.beginPath();
+          ctx.moveTo(x + w * 0.2, y + h * 0.2); ctx.lineTo(x + w * 0.8, y + h * 0.8);
+          ctx.moveTo(x + w * 0.8, y + h * 0.2); ctx.lineTo(x + w * 0.2, y + h * 0.8);
+          ctx.stroke();
+        } else if (s.type === 'ban') {
+          const r = Math.min(w, h) / 2;
+          ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+          const a = Math.PI / 4;
+          ctx.beginPath();
+          ctx.moveTo(cx - r * Math.cos(a), cy - r * Math.sin(a));
+          ctx.lineTo(cx + r * Math.cos(a), cy + r * Math.sin(a));
+          ctx.stroke();
+        }
+
+        // 选中高亮
+        if (selectedShapes.some(sel => sel.shape === s && sel.paper === p)) {
+          ctx.save();
+          const bx1 = Math.min(s.x1, s.x2), by1 = Math.min(s.y1, s.y2);
+          const bw = Math.abs(s.x2 - s.x1), bh = Math.abs(s.y2 - s.y1);
+          ctx.strokeStyle = '#EF476F';
+          ctx.lineWidth = 2 / Math.sqrt(W / 800);
+          ctx.setLineDash([6 / Math.sqrt(W / 800), 4 / Math.sqrt(W / 800)]);
+          ctx.strokeRect(bx1 - 4, by1 - 4, bw + 8, bh + 8);
+          ctx.setLineDash([]);
+          const hs = 10 / Math.sqrt(W / 800);
+          [[bx1, by1], [bx1 + bw, by1], [bx1 + bw, by1 + bh], [bx1, by1 + bh]].forEach(([hx, hy]) => {
+            ctx.fillStyle = '#fff';
+            ctx.strokeStyle = '#EF476F';
+            ctx.lineWidth = 2 / Math.sqrt(W / 800);
+            ctx.fillRect(hx - hs / 2, hy - hs / 2, hs, hs);
+            ctx.strokeRect(hx - hs / 2, hy - hs / 2, hs, hs);
+          });
+          ctx.restore();
+        }
+
+        ctx.restore();
       });
     }
 
-    // 锁定图标
+    // 纸张锁定图标
     if (p.locked) {
       ctx.fillStyle = '#EF476F';
       ctx.font = '14px sans-serif';
@@ -356,6 +483,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
       locked: false,
       strokes: [],
       tapes: [],
+      shapes: [],
     };
     papers.push(p);
     selected = p;
@@ -367,6 +495,20 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
   // ============ 删除 ============
   function removeSelected() {
     if (!selected || selected.locked) return;
+
+    // 1. 获取要删除的纸张 ID
+    const paperId = selected.id;
+
+    // 2. 从全局胶带池中，清理绑定在这张纸上的胶带
+    if (window.__tapeLayer) {
+      const tapes = window.__tapeLayer.getTapes();
+      const remainTapes = tapes.filter(t => t._boundPaperId !== paperId);
+      if (tapes.length !== remainTapes.length) {
+        window.__tapeLayer.restore(remainTapes); // 更新全局胶带池并保存
+      }
+    }
+
+    // 3. 删除纸张本体
     const idx = papers.indexOf(selected);
     if (idx >= 0) papers.splice(idx, 1);
     selected = null;
@@ -432,29 +574,118 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
     input.onchange = async () => {
       const f = input.files?.[0];
       if (!f) return;
-      if (!window.pdfjsLib) {
-        alert('PDF.js 未加载');
-        return;
-      }
+      if (!window.pdfjsLib) { alert('PDF.js 未加载'); return; }
+
       try {
         const buf = await f.arrayBuffer();
         const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-        const page = await pdf.getPage(1);
-        const vp = page.getViewport({ scale: 2 });
-        const canvas = document.createElement('canvas');
-        canvas.width = Math.round(vp.width);
-        canvas.height = Math.round(vp.height);
-        const c = canvas.getContext('2d');
-        await page.render({ canvasContext: c, viewport: vp }).promise;
-        const bgUrl = canvas.toDataURL('image/jpeg', 0.85);
-        const p = addPaper('blank');
-        p.w = Math.min(canvas.width * 0.5, W * 0.8);
-        p.h = Math.min(canvas.height * 0.5, H * 0.8);
-        p.bgColor = '#FFFFFF';
-        p.pdfImage = bgUrl;
-        save();
-        redraw();
-        renderPaperToolbar();
+        const totalPages = pdf.numPages;
+        const selected = new Set();
+
+        // 渲染缩略图
+        const grid = el('div', {
+          style: {
+            display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+            gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0',
+          },
+        });
+
+        const thumbnails = [];
+        for (let i = 1; i <= Math.min(totalPages, 60); i++) {
+          const page = await pdf.getPage(i);
+          const vp = page.getViewport({ scale: 0.4 });
+          const canvas = document.createElement('canvas');
+          canvas.width = vp.width;
+          canvas.height = vp.height;
+          await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+          const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+
+          const thumb = el('div', {
+            style: {
+              position: 'relative', cursor: 'pointer', borderRadius: '6px',
+              overflow: 'hidden', border: '2px solid transparent',
+            },
+            onClick: () => {
+              if (selected.has(i)) selected.delete(i);
+              else selected.add(i);
+              thumb.style.border = selected.has(i) ? '2px solid var(--primary)' : '2px solid transparent';
+              updateCount();
+            },
+          }, [
+            el('img', { src: dataUrl, style: { width: '100%', display: 'block' } }),
+            el('div', {
+              style: {
+                position: 'absolute', top: '4px', left: '4px',
+                background: 'rgba(0,0,0,.6)', color: '#fff',
+                fontSize: '10px', padding: '1px 4px', borderRadius: '3px',
+              },
+              text: String(i),
+            }),
+          ]);
+          grid.appendChild(thumb);
+          thumbnails.push({ pageNum: i, thumb });
+        }
+
+        const countEl = el('span', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: '未选择' });
+        const updateCount = () => {
+          countEl.textContent = selected.size > 0 ? `已选 ${selected.size} 页` : '未选择';
+        };
+
+        const mask = el('div', { class: 'confirm-mask' }, [
+          el('div', { class: 'confirm-box', style: { maxWidth: '600px', maxHeight: '85vh', overflowY: 'auto' } }, [
+            el('h3', { text: '从 PDF 导入（共 ' + totalPages + ' 页）' }),
+            el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' } }, [
+              el('button', {
+                class: 'btn btn-sm btn-ghost', text: '全选',
+                onClick: () => {
+                  thumbnails.forEach(t => selected.add(t.pageNum));
+                  thumbnails.forEach(t => t.thumb.style.border = '2px solid var(--primary)');
+                  updateCount();
+                },
+              }),
+              el('button', {
+                class: 'btn btn-sm btn-ghost', text: '全不选',
+                onClick: () => {
+                  selected.clear();
+                  thumbnails.forEach(t => t.thumb.style.border = '2px solid transparent');
+                  updateCount();
+                },
+              }),
+              countEl,
+            ]),
+            grid,
+            el('div', { class: 'confirm-actions' }, [
+              el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+              el('button', {
+                class: 'btn btn-primary', text: '导入选中页',
+                onClick: async () => {
+                  if (selected.size === 0) { alert('请先选择页面'); return; }
+                  const pages = [...selected].sort((a, b) => a - b);
+                  mask.remove();
+                  for (const pageNum of pages) {
+                    const page = await pdf.getPage(pageNum);
+                    const vp = page.getViewport({ scale: 2 });
+                    const canvas = document.createElement('canvas');
+                    canvas.width = Math.round(vp.width);
+                    canvas.height = Math.round(vp.height);
+                    await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+                    const bgUrl = canvas.toDataURL('image/jpeg', 0.85);
+                    const p = addPaper('blank');
+                    p.w = Math.min(canvas.width * 0.5, W * 0.8);
+                    p.h = Math.min(canvas.height * 0.5, H * 0.8);
+                    p.bgColor = '#FFFFFF';
+                    p.pdfImage = bgUrl;
+                  }
+                  save();
+                  redraw();
+                  renderPaperToolbar();
+                  toastSuccess(`已导入 ${pages.length} 页`);
+                },
+              }),
+            ]),
+          ]),
+        ]);
+        document.body.appendChild(mask);
       } catch (e) {
         alert('PDF 导入失败：' + e.message);
       }
@@ -462,30 +693,41 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
     input.click();
   }
 
-  // ============ 从图片导入为纸张 ============
+  // ============ 从图片导入为纸张（支持多选） ============
   function openImageImport() {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
+    input.multiple = true;   // 关键：允许多选
     input.onchange = async () => {
-      const f = input.files?.[0];
-      if (!f) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        const img = new Image();
-        img.onload = () => {
-          const p = addPaper('blank');
-          p.w = Math.min(img.width * 0.5, W * 0.8);
-          p.h = Math.min(img.height * 0.5, H * 0.8);
-          p.bgColor = '#FFFFFF';
-          p.bgImage = reader.result;
-          save();
-          redraw();
-          renderPaperToolbar();
-        };
-        img.src = reader.result;
-      };
-      reader.readAsDataURL(f);
+      const files = Array.from(input.files || []);
+      if (files.length === 0) return;
+
+      for (const f of files) {
+        await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            const img = new Image();
+            img.onload = () => {
+              const p = addPaper('blank');
+              p.w = Math.min(img.width * 0.5, W * 0.8);
+              p.h = Math.min(img.height * 0.5, H * 0.8);
+              p.bgColor = '#FFFFFF';
+              p.bgImage = reader.result;
+              resolve();
+            };
+            img.onerror = resolve;
+            img.src = reader.result;
+          };
+          reader.onerror = resolve;
+          reader.readAsDataURL(f);
+        });
+      }
+
+      save();
+      redraw();
+      renderPaperToolbar();
+      toastSuccess(`已导入 ${files.length} 张图片`);
     };
     input.click();
   }
@@ -493,6 +735,15 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
   // ============ 工具栏 ============
   function renderPaperToolbar() {
     const bar = el('div', { class: 'tape-toolbar' });
+
+    // ============ 新增：顶部操作栏（纸张列表） ============
+    bar.appendChild(el('div', { class: 'tape-row' }, [
+      el('button', {
+        class: 'tape-chip', text: '📋 纸张列表',
+        onClick: () => openPaperListManager()
+      }),
+      el('span', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: `共 ${papers.length} 张` })
+    ]));
 
     // ============ 添加纸张：前 4 个 + 更多下拉 ============
     const addRow = el('div', { class: 'tape-row' }, [
@@ -532,10 +783,19 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
       bar.appendChild(el('div', { class: 'tape-row' }, [
         el('span', { class: 'tape-label', text: '选中' }),
         el('button', {
-          class: 'tape-chip', style: smallBtn, text: '✏️ 编辑文字', onClick: () => {
-            if (window.__openPaperTextEditor) window.__openPaperTextEditor(sel);
-            else { const t = prompt('输入文字', sel.text || ''); if (t !== null) setText(t); }
-          }
+          class: 'tape-chip',
+          text: '✏️ 编辑文字',
+          onClick: () => {
+            if (window.__openPaperTextEditor) {
+              window.__openPaperTextEditor(sel);
+              setTimeout(() => {
+                if (window.__updateSubToolbar) window.__updateSubToolbar();
+              }, 350);
+            } else {
+              const newText = prompt('输入文字', sel.text || '');
+              if (newText !== null) setText(newText);
+            }
+          },
         }),
         el('button', { class: 'tape-chip', style: smallBtn, text: '📋 复制', onClick: () => { if (window.__copyPaper) window.__copyPaper(sel); } }),
         el('button', { class: 'tape-chip', style: smallBtn, text: '📥 粘贴', onClick: () => { if (window.__pasteClipboard) window.__pasteClipboard(); } }),
@@ -721,6 +981,8 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
 
   return {
     redraw,
+    drawPaperRaw: (ctx, p) => drawPaper(ctx, p),
+    drawSelection,
     hitTest,
     select,
     getSelected,
@@ -749,5 +1011,72 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
     bringToFront,
     sendToBack,
     openPaperListManager,
+
+    // ============ 形状拖动 / 缩放 ============
+    startShapeDrag: (selection, startX, startY) => {
+      const { paper, shape } = selection;
+      if (shape.locked) return null;
+      const orig = { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
+      return {
+        move(clientX, clientY) {
+          const dx = clientX - startX;
+          const dy = clientY - startY;
+          shape.x1 = orig.x1 + dx;
+          shape.y1 = orig.y1 + dy;
+          shape.x2 = orig.x2 + dx;
+          shape.y2 = orig.y2 + dy;
+          redraw();
+        },
+        end() { save(); },
+      };
+    },
+    startShapeResize: (selection, handleId, startX, startY) => {
+      const { paper, shape } = selection;
+      if (shape.locked) return null;
+      const orig = { x1: shape.x1, y1: shape.y1, x2: shape.x2, y2: shape.y2 };
+      return {
+        move(clientX, clientY) {
+          const dx = clientX - startX;
+          const dy = clientY - startY;
+          if (handleId === 'nw') {
+            shape.x1 = orig.x1 + dx; shape.y1 = orig.y1 + dy;
+          } else if (handleId === 'ne') {
+            shape.x2 = orig.x2 + dx; shape.y1 = orig.y1 + dy;
+          } else if (handleId === 'se') {
+            shape.x2 = orig.x2 + dx; shape.y2 = orig.y2 + dy;
+          } else if (handleId === 'sw') {
+            shape.x1 = orig.x1 + dx; shape.y2 = orig.y2 + dy;
+          }
+          redraw();
+        },
+        end() { save(); },
+      };
+    },
+    hitShapeHandle: (x, y) => {
+      if (selectedShapes.length !== 1) return null;
+      const { paper, shape } = selectedShapes[0];
+      const relX = x - paper.x;
+      const relY = y - paper.y;
+      const bx1 = Math.min(shape.x1, shape.x2), by1 = Math.min(shape.y1, shape.y2);
+      const bw = Math.abs(shape.x2 - shape.x1), bh = Math.abs(shape.y2 - shape.y1);
+      const handles = [
+        { id: 'nw', x: bx1, y: by1 },
+        { id: 'ne', x: bx1 + bw, y: by1 },
+        { id: 'se', x: bx1 + bw, y: by1 + bh },
+        { id: 'sw', x: bx1, y: by1 + bh },
+      ];
+      const r = 12 / Math.sqrt(W / 800);
+      for (const h of handles) {
+        if (Math.hypot(relX - h.x, relY - h.y) < r) return h.id;
+      }
+      return null;
+    },
+
+    setShapeSelection: (list) => {
+      selectedShapes = list;
+      redraw();
+    },
+    getSelectedShapes: () => selectedShapes,
+    clearShapeSelection: () => { selectedShapes = []; redraw(); },
   };
 }

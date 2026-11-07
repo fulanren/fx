@@ -27,9 +27,37 @@ const TOOLS = [
   { id: 'eyedropper', label: '💧', name: '吸管' },
 ];
 
-const DEFAULT_LAYER_ORDER = ['base', 'stroke', 'text', 'tape', 'paper', 'paperStroke'];
+const DEFAULT_TOP_BAR_CONFIG = {
+  '←': true, '→': true, '↑': true, '↓': true,
+  '🔍+': true, '🔍-': true, '1:1': true,
+  '↶': true, '🗑': true, '➕': true, '📚': true, '💾': true, '🔒': true
+};
+
+const DEFAULT_MODE_BAR_CONFIG = {
+  'pen-first': true, 'finger-draw': true, 'pen-only': true
+};
+
+function getTopBarConfig() {
+  try { return JSON.parse(localStorage.getItem('kg_topbar_config') || 'null') || { ...DEFAULT_TOP_BAR_CONFIG }; }
+  catch { return { ...DEFAULT_TOP_BAR_CONFIG }; }
+}
+function getModeBarConfig() {
+  try { return JSON.parse(localStorage.getItem('kg_modebar_config') || 'null') || { ...DEFAULT_MODE_BAR_CONFIG }; }
+  catch { return { ...DEFAULT_MODE_BAR_CONFIG }; }
+}
+
+const DEFAULT_LAYER_ORDER = ['base', 'shape', 'stroke', 'text', 'tape', 'paper', 'paperStroke'];
 
 const imageCache = new Map();
+let paperStrokeSelected = null;
+let paperStrokeSelectedList = [];
+let paperTapeSelected = null;
+let paperTapeSelectedList = [];
+let paperShapeSelected = null;
+let paperShapeSelectedList = [];
+window.__paperShapeSelectedList = paperShapeSelectedList;
+window.__paperTapeSelectedList = paperTapeSelectedList;
+
 async function getImageCached(id) {
   if (imageCache.has(id)) return imageCache.get(id);
   const rec = await dbGet('images', id);
@@ -73,6 +101,7 @@ export async function renderAnnotator({ params, query }) {
 
   // 输入模式切换
   let inputMode = 'pen-first';
+  const modeConfig = getModeBarConfig(); // 读取配置
   const modeBar = el('div', { class: 'annotator-mode-bar' });
   const modeBtns = {};
   [
@@ -80,6 +109,7 @@ export async function renderAnnotator({ params, query }) {
     { id: 'finger-draw', label: '👆 手指也可画', tip: '手指和触控笔都可绘制' },
     { id: 'pen-only', label: '🖊 仅触控笔绘制', tip: '手指只能平移/缩放，不能绘制' },
   ].forEach(m => {
+    if (modeConfig[m.id] === false) return; // 根据配置隐藏
     const btn = el('button', {
       class: 'mode-btn' + (m.id === inputMode ? ' active' : ''),
       text: m.label,
@@ -91,20 +121,176 @@ export async function renderAnnotator({ params, query }) {
   });
   wrap.appendChild(modeBar);
 
+  function openTopBarConfigPanel() {
+    const topConfig = getTopBarConfig();
+    const modeConfig = getModeBarConfig();
+    const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } });
+
+    const allLabels = {
+      '←': '← 左移', '→': '→ 右移', '↑': '↑ 上移', '↓': '↓ 下移',
+      '🔍+': '🔍+ 放大', '🔍-': '🔍- 缩小', '1:1': '1:1 原始大小',
+      '↶': '↶ 撤销', '🗑': '🗑 清除', '➕': '➕ 扩展画布', '📚': '📚 图层顺序', '💾': '💾 保存', '🔒': '🔒 锁图标开关'
+    };
+    const allModes = {
+      'pen-first': '✍️ 触控笔优先', 'finger-draw': '👆 手指也可画', 'pen-only': '🖊 仅触控笔绘制'
+    };
+
+    const renderList = () => {
+      list.innerHTML = '';
+
+      // 顶栏按钮 全选/全不选
+      list.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '8px', marginBottom: '4px' } }, [
+        el('span', { style: { fontWeight: '600' }, text: '顶栏按钮' }),
+        el('div', { style: { display: 'flex', gap: '6px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => {
+              Object.keys(allLabels).forEach(k => topConfig[k] = true);
+              localStorage.setItem('kg_topbar_config', JSON.stringify(topConfig));
+              renderList();
+            }
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => {
+              Object.keys(allLabels).forEach(k => topConfig[k] = false);
+              localStorage.setItem('kg_topbar_config', JSON.stringify(topConfig));
+              renderList();
+            }
+          })
+        ])
+      ]));
+
+      Object.entries(allLabels).forEach(([key, text]) => {
+        list.appendChild(el('label', { style: { display: 'flex', gap: '8px', alignItems: 'center', cursor: 'pointer' } }, [
+          el('input', {
+            type: 'checkbox', checked: topConfig[key] !== false, onChange: (e) => {
+              topConfig[key] = e.target.checked;
+              localStorage.setItem('kg_topbar_config', JSON.stringify(topConfig));
+            }
+          }),
+          el('span', { text })
+        ]));
+      });
+
+      // 输入模式按钮 全选/全不选
+      list.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '16px', marginBottom: '4px' } }, [
+        el('span', { style: { fontWeight: '600' }, text: '输入模式按钮' }),
+        el('div', { style: { display: 'flex', gap: '6px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => {
+              Object.keys(allModes).forEach(k => modeConfig[k] = true);
+              localStorage.setItem('kg_modebar_config', JSON.stringify(modeConfig));
+              renderList();
+            }
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => {
+              Object.keys(allModes).forEach(k => modeConfig[k] = false);
+              localStorage.setItem('kg_modebar_config', JSON.stringify(modeConfig));
+              renderList();
+            }
+          })
+        ])
+      ]));
+
+      Object.entries(allModes).forEach(([key, text]) => {
+        list.appendChild(el('label', { style: { display: 'flex', gap: '8px', alignItems: 'center', cursor: 'pointer' } }, [
+          el('input', {
+            type: 'checkbox', checked: modeConfig[key] !== false, onChange: (e) => {
+              modeConfig[key] = e.target.checked;
+              localStorage.setItem('kg_modebar_config', JSON.stringify(modeConfig));
+            }
+          }),
+          el('span', { text })
+        ]));
+      });
+    };
+
+    renderList();
+
+    const mask = el('div', { class: 'confirm-mask' }, [
+      el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
+        el('h3', { text: '工具栏管理' }),
+        list,
+        el('div', { class: 'confirm-actions' }, [
+          el('button', { class: 'btn btn-ghost', text: '关闭', onClick: () => mask.remove() }),
+          el('button', {
+            class: 'btn btn-primary', text: '应用并刷新',
+            onClick: () => {
+              mask.remove();
+              renderAnnotator({ params: { id: imageId }, query: { pointId } });
+            }
+          })
+        ])
+      ])
+    ]);
+    document.body.appendChild(mask);
+  }
+
   function setInputMode(mode) {
     inputMode = mode;
     Object.entries(modeBtns).forEach(([id, btn]) => btn.classList.toggle('active', id === mode));
     toastSuccess(mode === 'pen-first' ? '触控笔优先' : mode === 'finger-draw' ? '手指也可画' : '仅触控笔');
   }
 
+  // ============ 容器 ============
   const canvasWrap = el('div', { class: 'annotator-canvas-wrap' });
+  canvasWrap.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;touch-action:none;z-index: 10;`;
   wrap.appendChild(canvasWrap);
+
+    // ============ 边缘切图按钮 ============
+  if (pointId) {
+    const pt = store.getPoint(pointId);
+    if (pt) {
+      const allImageIds = [...(pt.imageIds || []), ...(pt.compositeImageIds || [])];
+      const currentIndex = allImageIds.indexOf(imageId);
+
+      if (currentIndex > 0) {
+        const prevBtn = el('button', {
+          style: {
+            position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
+            width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
+            color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(4px)'
+          },
+          text: '❮',
+          title: '上一张',
+          onClick: () => {
+            if (window.__saveAll) window.__saveAll(false).then(() => {
+              window.location.hash = `#/annotate/${allImageIds[currentIndex - 1]}?pointId=${pointId}`;
+            });
+          }
+        });
+        wrap.appendChild(prevBtn);
+      }
+
+      if (currentIndex >= 0 && currentIndex < allImageIds.length - 1) {
+        const nextBtn = el('button', {
+          style: {
+            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+            width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
+            color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            backdropFilter: 'blur(4px)'
+          },
+          text: '❯',
+          title: '下一张',
+          onClick: () => {
+            if (window.__saveAll) window.__saveAll(false).then(() => {
+              window.location.hash = `#/annotate/${allImageIds[currentIndex + 1]}?pointId=${pointId}`;
+            });
+          }
+        });
+        wrap.appendChild(nextBtn);
+      }
+    }
+  }
 
   // ============ 底图 ============
   const base = el('img', {
     class: 'annotator-base',
     src: baseUrl,
-    style: { width: W + 'px', height: H + 'px', display: 'block', userSelect: 'none' },
+    style: { width: W + 'px', height: H + 'px', display: 'block', userSelect: 'none', pointerEvents: 'none' },
   });
   canvasWrap.appendChild(base);
 
@@ -113,8 +299,8 @@ export async function renderAnnotator({ params, query }) {
   strokeCanvas.className = 'annotator-stroke';
   strokeCanvas.width = W;
   strokeCanvas.height = H;
-  strokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;touch-action:none;z-index:2;`;
-  const ctx = strokeCanvas.getContext('2d');
+  strokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
+  const ctx = strokeCanvas.getContext('2d', { willReadFrequently: true });
   const strokeImg = img;
   if (strokeImg && strokeImg.strokeBlob) {
     const strokeUrl = URL.createObjectURL(strokeImg.strokeBlob);
@@ -130,7 +316,7 @@ export async function renderAnnotator({ params, query }) {
   paperStrokeCanvas.className = 'annotator-paper-stroke';
   paperStrokeCanvas.width = W;
   paperStrokeCanvas.height = H;
-  paperStrokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:3;`;
+  paperStrokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   const paperStrokeCtx = paperStrokeCanvas.getContext('2d');
   if (strokeImg && strokeImg.paperStrokeBlob) {
     const psUrl = URL.createObjectURL(strokeImg.paperStrokeBlob);
@@ -146,7 +332,7 @@ export async function renderAnnotator({ params, query }) {
   textCanvas.className = 'annotator-text';
   textCanvas.width = W;
   textCanvas.height = H;
-  textCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:4;`;
+  textCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   canvasWrap.appendChild(textCanvas);
   const textLayer = createTextLayer({ canvas: textCanvas, width: W, height: H, imageId, store });
 
@@ -155,66 +341,57 @@ export async function renderAnnotator({ params, query }) {
   tapeCanvas.className = 'annotator-tape';
   tapeCanvas.width = W;
   tapeCanvas.height = H;
-  tapeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:5;`;
+  tapeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   canvasWrap.appendChild(tapeCanvas);
   const tapeLayer = createTapeLayer({ canvas: tapeCanvas, width: W, height: H, imageId, store, baseImg });
-  // 预加载自定义形状图片
-  window.__shapeImageCache = {};
-  if (store.getPatterns) {
-    store.getPatterns().filter(p => p.type === 'shape-image').forEach(async p => {
-      try {
-        const rec = await dbGet('patterns', p.id);
-        if (rec && rec.blob) {
-          const url = URL.createObjectURL(rec.blob);
-          const img = new Image();
-          img.src = url;
-          await new Promise(r => { img.onload = r; });
-          window.__shapeImageCache[p.id] = img;
-        }
-      } catch { }
-    });
-  }
-  window.__drawTapeOnPaper = (targetCtx, t) => {
-    // 克隆一份，避免影响全局胶带层
-    const ctx2 = targetCtx;
-    // 直接用 tapeLayer 的 drawTape
-    tapeLayer.drawTapeRaw(ctx2, t);
-  };
   window.__tapeLayer = tapeLayer;
-  await tapeLayer.redrawAsync();
-
-  window.__copyTape = (tape) => {
-    clipboard = { type: 'tape', data: JSON.parse(JSON.stringify(tape)) };
-    toastSuccess('已复制胶带');
-  };
-  window.__pasteClipboard = () => pasteClipboard();
 
   // ============ 纸张层 ============
   const paperCanvas = document.createElement('canvas');
   paperCanvas.className = 'annotator-paper';
   paperCanvas.width = W;
   paperCanvas.height = H;
-  paperCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:6;`;
+  paperCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   canvasWrap.appendChild(paperCanvas);
   const paperLayer = createPaperLayer({ canvas: paperCanvas, width: W, height: H, imageId, store, textCanvas, textLayer });
   window.__paperLayer = paperLayer;
-  await paperLayer.redraw();
-
-  window.__copyPaper = (paper) => {
-    clipboard = { type: 'paper', data: JSON.parse(JSON.stringify(paper)) };
-    toastSuccess('已复制纸张');
-  };
 
   // ============ 预览层 ============
   const previewCanvas = document.createElement('canvas');
   previewCanvas.className = 'annotator-preview';
   previewCanvas.width = W;
   previewCanvas.height = H;
-  previewCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:7;`;
+  previewCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   const previewCtx = previewCanvas.getContext('2d');
   canvasWrap.appendChild(previewCanvas);
 
   function clearPreview() { previewCtx.clearRect(0, 0, W, H); }
+
+  // ============ 查找点击位置的形状 ============
+  function findShapeAt(x, y) {
+    const papers = paperLayer.getPapers();
+    for (let i = papers.length - 1; i >= 0; i--) {
+      const p = papers[i];
+      if (!p.shapes || p.visible === false) continue;
+      const relX = x - p.x;
+      const relY = y - p.y;
+      const sorted = [...p.shapes].sort((a, b) => (b.sortOrder || b.zIndex || 0) - (a.sortOrder || a.zIndex || 0));
+      for (const s of sorted) {
+        if (s.visible === false) continue;
+        const x1 = Math.min(s.x1, s.x2), x2 = Math.max(s.x1, s.x2);
+        const y1 = Math.min(s.y1, s.y2), y2 = Math.max(s.y1, s.y2);
+        if (relX >= x1 - 8 && relX <= x2 + 8 && relY >= y1 - 8 && relY <= y2 + 8) {
+          return { paper: p, shape: s };
+        }
+      }
+    }
+    return null;
+  }
+  function findShapeHandleAt(x, y) {
+    return paperLayer.hitShapeHandle ? paperLayer.hitShapeHandle(x, y) : null;
+  }
+
+
 
   // ============ 对齐辅助线 ============
   function drawGuideLines(target) {
@@ -304,12 +481,20 @@ export async function renderAnnotator({ params, query }) {
   function applyLayerOrder(order) {
     const previewEl = previewCanvas;
     [...canvasWrap.children].forEach((child) => { if (child !== previewEl) canvasWrap.removeChild(child); });
+
+    // 根据面板顺序，依次追加到 DOM 中，决定谁盖住谁
     order.forEach((key) => { if (layerMap[key]) canvasWrap.appendChild(layerMap[key]); });
     canvasWrap.appendChild(previewEl);
+
+    if (window.__tapeLayer) window.__tapeLayer.redraw();
+    if (window.__paperLayer) window.__paperLayer.redraw();
+    if (window.__textLayer) window.__textLayer.redraw();
   }
 
   const savedOrder = store.getLayerOrder ? store.getLayerOrder() : null;
-  let currentLayerOrder = savedOrder && savedOrder.length === 6 ? [...savedOrder] : [...DEFAULT_LAYER_ORDER];
+  let currentLayerOrder = savedOrder && savedOrder.length === DEFAULT_LAYER_ORDER.length
+    ? [...savedOrder]
+    : [...DEFAULT_LAYER_ORDER];
   applyLayerOrder(currentLayerOrder);
   // ============ 状态变量 ============
   let currentTool = 'pen';
@@ -337,12 +522,19 @@ export async function renderAnnotator({ params, query }) {
   let panelVisible = false;
   let clipboard = null;
   let tapeSelectMode = false;
+  let paperTapeSelectMode = false;
   let formatClipboard = null;
+  let shapeOnPaper = true;  // true=画在纸张上，false=画在底图上
+  let shapeDragOffset = null;
+  let shapeSelectTimer = null;
+  let shapeLongPressFired = false;
   let polygonPoints = [];
   let polygonDrawing = false;
 
+
   function canvasToImage(clientX, clientY) {
-    const rect = strokeCanvas.getBoundingClientRect();
+    // 注意：这里必须用 canvasWrap 的 rect，不能用 strokeCanvas！
+    const rect = canvasWrap.getBoundingClientRect();
     return {
       x: (clientX - rect.left) / rect.width * W,
       y: (clientY - rect.top) / rect.height * H,
@@ -385,13 +577,15 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 纸张文字浮动编辑 ============
   function openPaperTextEditor(paper) {
+    if (!paper) return;
+    window.__paperEditingItem = paper;
+
     const rect = strokeCanvas.getBoundingClientRect();
     const sx = rect.width / W;
     const sy = rect.height / H;
 
     paper.textVisible = false;
     paperLayer.redraw();
-    window.__paperEditingItem = paper;
 
     const ta = document.createElement('textarea');
     ta.value = paper.text || '';
@@ -416,30 +610,10 @@ export async function renderAnnotator({ params, query }) {
     document.body.appendChild(ta);
     ta.focus();
     ta.select();
-    if (window.visualViewport) {
-      const adjustPosition = () => {
-        const vv = window.visualViewport;
-        const editorRect = ta.getBoundingClientRect();
-        if (editorRect.bottom > vv.height - 20) {
-          ta.style.top = Math.max(10, vv.height - editorRect.height - 30) + 'px';
-        }
-      };
-      window.visualViewport.addEventListener('resize', adjustPosition);
-    }
 
-    if (window.visualViewport) {
-      const adjustPosition = () => {
-        const vv = window.visualViewport;
-        const editorRect = ta.getBoundingClientRect();
-        if (editorRect.bottom > vv.height - 20) {
-          ta.style.top = Math.max(10, vv.height - editorRect.height - 30) + 'px';
-        }
-      };
-      window.visualViewport.addEventListener('resize', adjustPosition);
-    }
+    updateSubToolbar();
 
     function finish() {
-      window.__paperEditingItem = null;
       const val = ta.value;
       ta.remove();
       paper.textVisible = true;
@@ -450,22 +624,50 @@ export async function renderAnnotator({ params, query }) {
       }
       paperLayer.redraw();
       dirty = true;
+      window.__paperEditingItem = null;
+      updateSubToolbar();
       document.removeEventListener('pointerdown', outsideClick, true);
       document.removeEventListener('keydown', onKey, true);
-      updateSubToolbar();
     }
     function outsideClick(e) {
-      if (!ta.contains(e.target)) finish();
+      if (ta.contains(e.target)) return;
+      // 点击子工具栏/设置面板/底部工具栏时不关闭
+      if (e.target.closest && e.target.closest('.sub-toolbar')) return;
+      if (e.target.closest && e.target.closest('.annotator-setting-panel')) return;
+      if (e.target.closest && e.target.closest('.annotator-bottom-bar')) return;
+      if (e.target.closest && e.target.closest('.tape-row')) return;
+      if (e.target.closest && e.target.closest('.tape-toolbar')) return;
+      finish();
     }
     function onKey(e) {
       if (e.key === 'Escape') {
         window.__paperEditingItem = null;
         paper.textVisible = true;
-        paperLayer.redraw();
+        // 不要重绘整张纸和所有胶带，只在纸张上重绘这根笔迹
+        // 这里我们用一个更轻量的方式，直接画在纸张的画布上
+        const pctx = window.__paperLayerCtx;
+        if (pctx) {
+          const p = hitPaper;
+          pctx.save();
+          pctx.translate(p.x + p.w / 2, p.y + p.h / 2);
+          pctx.rotate((p.rotation || 0) * Math.PI / 180);
+          pctx.translate(-p.w / 2, -p.h / 2);
+          pctx.strokeStyle = currentColor;
+          pctx.lineWidth = currentWidth;
+          pctx.lineCap = 'round';
+          const pts = hitPaper._currentStroke.points;
+          if (pts.length >= 2) {
+            pctx.beginPath();
+            pctx.moveTo(pts[pts.length - 2].x, pts[pts.length - 2].y);
+            pctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+            pctx.stroke();
+          }
+          pctx.restore();
+        }
         ta.remove();
+        updateSubToolbar();
         document.removeEventListener('pointerdown', outsideClick, true);
         document.removeEventListener('keydown', onKey, true);
-        updateSubToolbar();
       }
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) finish();
     }
@@ -473,8 +675,9 @@ export async function renderAnnotator({ params, query }) {
     setTimeout(() => {
       document.addEventListener('pointerdown', outsideClick, true);
       document.addEventListener('keydown', onKey, true);
-    }, 50);
+    }, 300);
   }
+  window.__openPaperTextEditor = openPaperTextEditor;
   window.__openPaperTextEditor = openPaperTextEditor;
 
   // ============ 保存 ============
@@ -512,14 +715,18 @@ export async function renderAnnotator({ params, query }) {
     if (typeof setSaveStatus === 'function') setSaveStatus('saved');
   }
 
-  // ============ 返回 ============
+    // ============ 返回 ============
   async function goBack() {
     if (dirty) {
       const r = await confirmBox({ title: '未保存', message: '当前标注未保存，是否保存？', confirmText: '保存并返回', cancelText: '不保存' });
       if (r) await saveAll(true);
     }
-    if (pointId) window.location.hash = `#/edit-point/${pointId}`;
-    else history.back();
+    if (pointId) {
+      // 加时间戳强制刷新
+      window.location.hash = `#/edit-point/${pointId}?t=${Date.now()}`;
+    } else {
+      history.back();
+    }
   }
   document.getElementById('btn-back').onclick = goBack;
 
@@ -610,12 +817,36 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 子工具栏 ============
   function updateSubToolbar() {
+    // 每次刷新子工具栏时，同步选中列表到 window，供 annotatorPaper.js 读取
+    window.__paperShapeSelectedList = paperShapeSelectedList;
+    window.__paperTapeSelectedList = paperTapeSelectedList;
+    window.__updateSubToolbar = updateSubToolbar;
     subBar.innerHTML = '';
     // 根据工具决定颜色条和粗细行的显示
     const showColorAndWidth = ['pen', 'eraser', 'circle-erase', 'shape', 'eyedropper', 'hand'].includes(currentTool);
     colorBar.style.display = showColorAndWidth ? 'flex' : 'none';
     widthRow.style.display = showColorAndWidth ? 'flex' : 'none';
     if (currentTool === 'shape') {
+      // 绘制位置开关
+      subBar.appendChild(el('div', { class: 'tape-row' }, [
+        el('span', { class: 'tape-label', text: '画在' }),
+        el('button', {
+          class: 'tape-chip' + (shapeOnPaper === false ? ' active' : ''),
+          text: '底图上',
+          onClick: () => {
+            shapeOnPaper = false;
+            updateSubToolbar();
+          },
+        }),
+        el('button', {
+          class: 'tape-chip' + (shapeOnPaper === true ? ' active' : ''),
+          text: '纸张上',
+          onClick: () => {
+            shapeOnPaper = true;
+            updateSubToolbar();
+          },
+        }),
+      ]));
       // 形状按钮：前 3 个 + 更多下拉
       const allShapes = [
         { id: 'arrow', label: '↗' },
@@ -735,12 +966,125 @@ export async function renderAnnotator({ params, query }) {
         }
       }
 
+      // ============ 形状管理 ============
+      subBar.appendChild(el('div', { class: 'tape-row' }, [
+        el('button', {
+          class: 'tape-chip', text: '⚙️ 管理形状',
+          onClick: () => openShapeImageManager(),
+        }),
+      ]));
+
       // 自由多边形提示
       if (shapeType === 'polygon') {
         subBar.appendChild(el('div', { class: 'tape-row' }, [
           el('span', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: '连续点多个点，双击结束' }),
         ]));
       }
+      // ============ 选中纸张形状后的操作（多选版） ============
+      const selectedShapes = paperLayer.getSelectedShapes ? paperLayer.getSelectedShapes() : [];
+      if (selectedShapes.length > 0) {
+        const firstSel = selectedShapes[0];
+        const s = firstSel.shape;
+
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: `已选 ${selectedShapes.length} 个形状` }),
+          el('button', {
+            class: 'tape-chip', text: '👁 显/隐',
+            onClick: () => {
+              selectedShapes.forEach(({ shape }) => {
+                shape.visible = shape.visible === false ? true : false;
+              });
+              paperLayer.save();
+              paperLayer.redraw();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip' + (s.locked ? ' active' : ''),
+            text: s.locked ? '🔒 已锁' : '🔓 锁定',
+            onClick: () => {
+              const nextLocked = !s.locked;
+              selectedShapes.forEach(({ shape }) => { shape.locked = nextLocked; });
+              paperLayer.save();
+              paperLayer.redraw();
+              updateSubToolbar();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip', text: '📋 复制',
+            onClick: () => {
+              const data = selectedShapes.map(({ paper, shape }) => ({
+                paperId: paper.id,
+                shape: JSON.parse(JSON.stringify(shape))
+              }));
+              clipboard = { type: 'shape', data: data };
+              toastSuccess(`已复制 ${data.length} 个形状`);
+            },
+          }),
+          el('button', {
+            class: 'tape-chip', text: '📥 粘贴',
+            onClick: () => {
+              pasteClipboard();
+              updateSubToolbar();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip', text: '🗑 删除',
+            onClick: () => {
+              selectedShapes.forEach(({ paper, shape }) => {
+                if (!paper.shapes) return;
+                const idx = paper.shapes.indexOf(shape);
+                if (idx >= 0) paper.shapes.splice(idx, 1);
+              });
+              paperLayer.setShapeSelection([]);
+              paperLayer.save();
+              paperLayer.redraw();
+              updateSubToolbar();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip', text: '取消选中',
+            onClick: () => {
+              paperLayer.setShapeSelection([]);
+              updateSubToolbar();
+            },
+          }),
+        ]));
+
+        // 透明度和旋转（只操作第一个，应用到所有选中项）
+        const opNum = el('input', {
+          type: 'number', min: '0', max: '1', step: '0.1',
+          value: String(s.opacity !== undefined ? s.opacity : 1),
+          style: { width: '48px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' },
+          onInput: (e) => {
+            const v = Math.max(0, Math.min(1, Number(e.target.value) || 1));
+            selectedShapes.forEach(({ shape }) => { shape.opacity = v; });
+            paperLayer.save();
+            paperLayer.redraw();
+          },
+        });
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '透明' }), opNum,
+        ]));
+
+        // 旋转
+        const rotNum = el('input', {
+          type: 'number', min: '-180', max: '180', step: '15',
+          value: String(s.rotation || 0),
+          style: { width: '56px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' },
+          onInput: (e) => {
+            const v = Number(e.target.value) || 0;
+            selectedShapes.forEach(({ shape }) => { shape.rotation = v; });
+            paperLayer.save();
+            paperLayer.redraw();
+          },
+        });
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '旋转' }),
+          rotNum,
+          el('span', { style: { fontSize: '11px', color: 'var(--text-2)' }, text: '°' }),
+        ]));
+      }
+
     }
 
     if (currentTool === 'circle-erase') {
@@ -761,65 +1105,268 @@ export async function renderAnnotator({ params, query }) {
     }
 
     if (currentTool === 'tape') {
-      console.log('胶带 pointerdown，tapeSelectMode:', tapeSelectMode, 'drawing:', drawing);
-      const selectedCount = tapeLayer.getSelectedIds().length;
+      // ============ 全局胶带 + 纸张胶带 统一选中提示 ============
+      const globalCount = tapeLayer.getSelectedIds().length;
+      const paperCount = paperTapeSelectedList.length;
+      const selectedCount = globalCount + paperCount;
+
       if (selectedCount > 0) {
-        // 已选中：显示选中状态 + 框选更多 + 取消选中
         subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', {
-            style: { fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark)' },
-            text: `已选中 ${selectedCount} 条胶带`,
-          }),
-          el('button', {
-            class: 'tape-chip' + (tapeSelectMode ? ' active' : ''),
-            text: tapeSelectMode ? '🔲 框选中（拖框）' : '🔲 框选更多',
-            onClick: () => {
-              tapeSelectMode = !tapeSelectMode;
-              toastSuccess(tapeSelectMode ? '拖框选中更多胶带' : '已退出框选');
-              updateSubToolbar();
-            },
-          }),
+          el('span', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark)' }, text: `已选中 ${selectedCount} 条胶带` }),
+          el('button', { class: 'tape-chip', text: '🔲 框选更多', onClick: () => { tapeSelectMode = true; updateSubToolbar(); } }),
           el('button', {
             class: 'tape-chip', text: '取消选中',
             onClick: () => {
               tapeLayer.clearSelection();
+              paperTapeSelectedList = [];
+              paperTapeSelected = null;
+              window.__paperTapeSelectedList = paperTapeSelectedList;
               tapeSelectMode = false;
+              updateSubToolbar();
+            }
+          }),
+        ]));
+
+        // 第二行：全选、全不选、批量删除
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('button', {
+            class: 'tape-chip', text: '全选',
+            onClick: () => {
+              tapeLayer.selectAll();
+              paperTapeSelectedList = [];
+              paperLayer.getPapers().forEach(p => {
+                if (p.tapes) p.tapes.forEach(t => paperTapeSelectedList.push({ paper: p, tape: t }));
+              });
+              window.__paperTapeSelectedList = paperTapeSelectedList;
+              updateSubToolbar();
+            }
+          }),
+          el('button', {
+            class: 'tape-chip', text: '全不选',
+            onClick: () => {
+              tapeLayer.clearSelection();
+              paperTapeSelectedList = [];
+              paperTapeSelected = null;
+              window.__paperTapeSelectedList = paperTapeSelectedList;
+              updateSubToolbar();
+            }
+          }),
+          el('button', {
+            class: 'tape-chip', text: '🗑 批量删除',
+            onClick: () => {
+              // 删除全局胶带
+              tapeLayer.getSelectedIds().forEach(id => {
+                const tapes = tapeLayer.getTapes();
+                const idx = tapes.findIndex(t => t.id === id);
+                if (idx >= 0) tapes.splice(idx, 1);
+              });
+              tapeLayer.clearSelection();
+              if (store.saveTape) store.saveTape(imageId, tapeLayer.getTapes());
+              tapeLayer.redrawAsync();
+
+              // 删除纸张胶带
+              paperTapeSelectedList.forEach(({ paper: p, tape: t }) => {
+                const idx = p.tapes.indexOf(t);
+                if (idx >= 0) p.tapes.splice(idx, 1);
+              });
+              paperTapeSelectedList = [];
+              paperTapeSelected = null;
+              window.__paperTapeSelectedList = [];
+              paperLayer.save();
+              paperLayer.redraw();
+
               updateSubToolbar();
             },
           }),
         ]));
-      }
-      subBar.appendChild(tapeLayer.renderTapeToolbar());
-    }
-    if (currentTool === 'paper') {
-      subBar.appendChild(paperLayer.renderPaperToolbar());
-      if (window.__paperEditingItem) {
-        const item = window.__paperEditingItem;
+
+        // 第三行：锁定、显隐、置顶/置底、删除
         subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '字号' }),
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '−', onClick: () => {
-              item.textStyle = item.textStyle || {};
-              item.textStyle.fontSize = Math.max(10, (item.textStyle.fontSize || 16) - 1);
-              paperLayer.save(); paperLayer.redraw();
+            class: 'tape-chip', text: '🔓 锁定',
+            onClick: () => {
+              const t = tapeLayer.getSelected();
+              if (t) { t.locked = !t.locked; store.saveTape(imageId, tapeLayer.getTapes()); tapeLayer.redraw(); }
+              paperTapeSelectedList.forEach(({ tape }) => { tape.locked = !tape.locked; });
+              if (paperTapeSelectedList.length > 0) { paperLayer.save(); paperLayer.redraw(); }
+              updateSubToolbar();
             }
           }),
-          el('span', { style: { fontSize: '12px' }, text: String(item.textStyle?.fontSize || 16) }),
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '+', onClick: () => {
-              item.textStyle = item.textStyle || {};
-              item.textStyle.fontSize = Math.min(48, (item.textStyle.fontSize || 16) + 1);
-              paperLayer.save(); paperLayer.redraw();
+            class: 'tape-chip', text: '👁 显/隐',
+            onClick: () => {
+              const t = tapeLayer.getSelected();
+              if (t) { t.visible = !t.visible; store.saveTape(imageId, tapeLayer.getTapes()); tapeLayer.redraw(); }
+              paperTapeSelectedList.forEach(({ tape }) => { tape.visible = tape.visible === false ? true : false; });
+              if (paperTapeSelectedList.length > 0) { paperLayer.save(); paperLayer.redraw(); }
+              updateSubToolbar();
+            }
+          }),
+
+          // ====================================================
+          el('button', {
+            class: 'tape-chip', text: '🗑 删除',
+            onClick: () => {
+              // 删除全局胶带
+              const t = tapeLayer.getSelected();
+              if (t) {
+                const tapes = tapeLayer.getTapes();
+                const idx = tapes.indexOf(t);
+                if (idx >= 0) tapes.splice(idx, 1);
+                tapeLayer.clearSelection();
+                store.saveTape(imageId, tapeLayer.getTapes());
+                tapeLayer.redrawAsync();
+              }
+              // 删除纸张胶带
+              if (paperTapeSelectedList.length > 0) {
+                paperTapeSelectedList.forEach(({ paper: p, tape: pt }) => {
+                  const idx = p.tapes.indexOf(pt);
+                  if (idx >= 0) p.tapes.splice(idx, 1);
+                });
+                paperTapeSelectedList = [];
+                paperTapeSelected = null;
+                window.__paperTapeSelectedList = [];
+                paperLayer.save();
+                paperLayer.redraw();
+              }
+              updateSubToolbar();
             }
           }),
         ]));
+
+        // 透明度调节
+        //const sel = tapeLayer.getSelected();
+        //const firstPaper = paperTapeSelectedList[0] ? paperTapeSelectedList[0].tape : null;
+
+      }
+
+      // 原有的工具栏
+      subBar.appendChild(tapeLayer.renderTapeToolbar());
+    }
+
+    if (currentTool === 'paper') {
+      subBar.appendChild(paperLayer.renderPaperToolbar());
+      // 检查编辑项是否还存在
+      if (window.__paperEditingItem) {
+        const papers = paperLayer.getPapers();
+        if (!papers.find(p => p.id === window.__paperEditingItem.id)) {
+          window.__paperEditingItem = null;
+        }
+      }
+
+      if (window.__paperEditingItem) {
+        const item = window.__paperEditingItem;
+        const ts = item.textStyle || {};
+        const fs = ts.fontSize || 16;
+        const lh = ts.lineHeight || 1.5;
+        const ff = ts.fontFamily || 'sans-serif';
+        const al = ts.align || 'left';
+
+        const updatePaperText = () => {
+          item.textStyle = item.textStyle || {};
+          paperLayer.save();
+          paperLayer.redraw();
+        };
+
+        // 字号
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '字号' }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '−',
+            style: { minWidth: '22px', padding: '0 3px', fontSize: '12px', minHeight: '26px' },
+            onClick: () => {
+              item.textStyle.fontSize = Math.max(10, fs - 1);
+              updatePaperText(); updateSubToolbar();
+            }
+          }),
+          el('span', { style: { fontSize: '12px', minWidth: '24px', textAlign: 'center' }, text: String(fs) }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '+',
+            style: { minWidth: '22px', padding: '0 3px', fontSize: '12px', minHeight: '26px' },
+            onClick: () => {
+              item.textStyle.fontSize = Math.min(48, fs + 1);
+              updatePaperText(); updateSubToolbar();
+            }
+          }),
+        ]));
+
+        // 行距
+        const lhRow = el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '行距' }),
+        ]);
+        const lhCustom = el('input', {
+          type: 'number', min: '0.5', max: '5.0', step: '0.1',
+          value: String(lh),
+          placeholder: '行距',
+          style: { width: '56px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)', display: 'none' },
+          onInput: (e) => {
+            item.textStyle.lineHeight = Math.max(0.5, Math.min(5.0, Number(e.target.value) || 1.5));
+            updatePaperText();
+          },
+        });
+        const lhSelect = el('select', {
+          style: { width: '80px', padding: '4px', fontSize: '13px', borderRadius: '6px', border: '1px solid var(--border)' },
+          onChange: (e) => {
+            const v = e.target.value;
+            if (v === 'custom') {
+              lhCustom.style.display = 'inline-block';
+              lhCustom.focus();
+            } else {
+              lhCustom.style.display = 'none';
+              item.textStyle.lineHeight = Number(v);
+              updatePaperText();
+            }
+          },
+        }, [
+          ...[1.0, 1.1, 1.2, 1.25, 1.5, 2.0].map(v => el('option', {
+            value: String(v),
+            text: String(v),
+            selected: lh === v,
+          })),
+          el('option', { value: 'custom', text: '自定义…' }),
+        ]);
+        lhRow.appendChild(lhSelect);
+        lhRow.appendChild(lhCustom);
+        subBar.appendChild(lhRow);
+
+        // 字体
+        const fontSelect = el('select', {
+          style: { flex: '1', padding: '4px 6px', fontSize: '13px', borderRadius: '6px', border: '1px solid var(--border)' },
+          onChange: (e) => {
+            item.textStyle.fontFamily = e.target.value;
+            updatePaperText();
+          },
+        }, [
+          el('option', { value: 'sans-serif', text: '黑体', selected: ff === 'sans-serif' }),
+          el('option', { value: 'serif', text: '宋体', selected: ff === 'serif' }),
+          el('option', { value: 'monospace', text: '等宽', selected: ff === 'monospace' }),
+        ]);
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '字体' }),
+          fontSelect,
+        ]));
+
+        // 对齐
+        subBar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: '对齐' }),
+          ...['left', 'center', 'right'].map(a => el('button', {
+            class: 'tape-chip' + (al === a ? ' active' : ''),
+            text: a === 'left' ? '左对齐' : a === 'center' ? '居中' : '右对齐',
+            onClick: () => {
+              item.textStyle.align = a;
+              updatePaperText();
+              updateSubToolbar();
+            },
+          })),
+        ]));
+
+        // 文字颜色
         const cw = el('div');
         cw.appendChild(renderColorPicker({
-          current: item.textStyle?.color || '#2B2D42',
+          current: ts.color || '#2B2D42',
           onChange: (c) => {
-            item.textStyle = item.textStyle || {};
             item.textStyle.color = c;
-            paperLayer.save(); paperLayer.redraw();
+            updatePaperText();
           },
         }));
         subBar.appendChild(el('div', { class: 'tape-row' }, [
@@ -827,65 +1374,6 @@ export async function renderAnnotator({ params, query }) {
         ]));
       }
 
-      subBar.appendChild(el('div', { class: 'tape-row' }, [
-        el('button', {
-          class: 'tape-chip', text: '📋 纸张列表/进入编辑',
-          onClick: () => paperLayer.openPaperListManager(),
-        }),
-      ]));
-      const sel = paperLayer.getSelected();
-      if (sel) {
-        subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '文字预设' }),
-          ...[
-            { name: '标题', fontSize: 24, color: '#2B2D42' },
-            { name: '正文', fontSize: 16, color: '#2B2D42' },
-            { name: '注释', fontSize: 12, color: '#64748B' },
-            { name: '重点', fontSize: 18, color: '#EF476F' },
-          ].map(p => el('button', {
-            class: 'tape-chip',
-            text: p.name,
-            onClick: () => {
-              sel.textStyle = { ...sel.textStyle, fontSize: p.fontSize, color: p.color };
-              paperLayer.save(); paperLayer.redraw();
-            },
-          })),
-        ]));
-      }
-      // 如果正在编辑纸张文字，加字号/颜色控件
-      if (window.__paperEditingItem) {
-        const item = window.__paperEditingItem;
-        subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '字号' }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '−', onClick: () => {
-              item.textStyle = item.textStyle || {};
-              item.textStyle.fontSize = Math.max(10, (item.textStyle.fontSize || 16) - 1);
-              paperLayer.save(); paperLayer.redraw();
-            }
-          }),
-          el('span', { style: { fontSize: '12px' }, text: String(item.textStyle?.fontSize || 16) }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '+', onClick: () => {
-              item.textStyle = item.textStyle || {};
-              item.textStyle.fontSize = Math.min(48, (item.textStyle.fontSize || 16) + 1);
-              paperLayer.save(); paperLayer.redraw();
-            }
-          }),
-        ]));
-        const cw = el('div');
-        cw.appendChild(renderColorPicker({
-          current: item.textStyle?.color || '#2B2D42',
-          onChange: (c) => {
-            item.textStyle = item.textStyle || {};
-            item.textStyle.color = c;
-            paperLayer.save(); paperLayer.redraw();
-          },
-        }));
-        subBar.appendChild(el('div', { class: 'tape-row' }, [
-          el('span', { class: 'tape-label', text: '文字颜色' }), cw,
-        ]));
-      }
     }
 
     if (currentTool === 'text') {
@@ -1111,10 +1599,12 @@ export async function renderAnnotator({ params, query }) {
 
     const fill = (pathFn) => {
       if (fc && fc !== 'transparent' && fc !== 'none') {
+        targetCtx.save();
         targetCtx.fillStyle = fc;
         targetCtx.beginPath();
         pathFn();
         targetCtx.fill();
+        targetCtx.restore();
       }
     };
 
@@ -1246,6 +1736,91 @@ export async function renderAnnotator({ params, query }) {
       updateSubToolbar();
     };
     input.click();
+  }
+  // ============ 形状图片管理 ============
+  function openShapeImageManager() {
+    const shapes = (store.getPatterns ? store.getPatterns() : []).filter(p => p.type === 'shape-image');
+    const selected = new Set();
+    const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } });
+
+    function renderList() {
+      list.innerHTML = '';
+      if (shapes.length === 0) {
+        list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有自定义形状' }));
+        return;
+      }
+      shapes.forEach(p => {
+        const checked = selected.has(p.id);
+        const isUsing = window.__shapeImageId === p.id;
+        const isFav = p.favorited === true;
+        const isLocked = p.locked === true;
+        list.appendChild(el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
+        }, [
+          el('input', { type: 'checkbox', checked, onChange: (e) => { if (e.target.checked) selected.add(p.id); else selected.delete(p.id); } }),
+          p.thumbUrl ? el('img', { src: p.thumbUrl, style: { width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: '#fff' } }) : null,
+          el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: p.id.slice(0, 8) }),
+          el('button', {
+            class: 'tape-chip' + (isFav ? ' active' : ''),
+            text: isFav ? '⭐' : '☆',
+            onClick: () => {
+              p.favorited = !isFav;
+              if (store.getPatterns) {
+                const all = store.getPatterns();
+                const idx = all.findIndex(x => x.id === p.id);
+                if (idx >= 0) { all[idx].favorited = p.favorited; }
+                localStorage.setItem('kg_patterns', JSON.stringify(all));
+              }
+              renderList();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip' + (isLocked ? ' active' : ''),
+            text: isLocked ? '🔒' : '🔓',
+            onClick: () => {
+              p.locked = !isLocked;
+              if (store.getPatterns) {
+                const all = store.getPatterns();
+                const idx = all.findIndex(x => x.id === p.id);
+                if (idx >= 0) { all[idx].locked = p.locked; }
+                localStorage.setItem('kg_patterns', JSON.stringify(all));
+              }
+              renderList();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip' + (isUsing ? ' active' : ''),
+            text: isUsing ? '✅ 使用中' : '使用',
+            onClick: () => {
+              if (isLocked && !isUsing) { toastError('已锁定，先解锁'); return; }
+              if (isUsing) { window.__shapeImageId = null; shapeType = 'arrow'; }
+              else { shapeType = 'custom-image'; window.__shapeImageId = p.id; }
+              updateSubToolbar();
+              mask.remove();
+            },
+          }),
+        ]));
+      });
+    }
+    renderList();
+
+    const mask = el('div', { class: 'confirm-mask' }, [
+      el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
+        el('h3', { text: '管理自定义形状' }),
+        el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { shapes.forEach(p => selected.add(p.id)); renderList(); } }),
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selected.clear(); renderList(); } }),
+        ]),
+        list,
+        el('div', { class: 'confirm-actions' }, [
+          el('button', { class: 'btn btn-ghost', text: '关闭', onClick: () => mask.remove() }),
+          el('button', {
+            class: 'btn btn-danger', text: '删除选中',
+          }),
+        ]),
+      ]),
+    ]);
+    document.body.appendChild(mask);
   }
   // ============ 内联文字编辑 ============
   function openInlineTextEditor(textItem) {
@@ -1549,41 +2124,87 @@ export async function renderAnnotator({ params, query }) {
   }
 
   // ============ 顶栏动态按钮 ============
+  // ============ 顶栏动态按钮 ============
   const dynBar = document.getElementById('topbar-dynamic');
   let setSaveStatus = () => { };
   let updateUndoBtn = () => { };
+
   if (dynBar) {
     dynBar.innerHTML = '';
+    const topConfig = getTopBarConfig(); // 读取配置
+
     const mk = (label, title, fn) => {
+      if (topConfig[label] === false) return; // 根据配置决定是否显示
       const b = el('button', { class: 'btn btn-sm btn-ghost', text: label, title, onClick: fn });
       attachLongPress(b, title);
+      dynBar.appendChild(b);
       return b;
     };
+
+        // 👇 新增：切换上一张/下一张图片
+    if (pointId) {
+      const pt = store.getPoint(pointId);
+      if (pt) {
+        const allImageIds = [...(pt.imageIds || []), ...(pt.compositeImageIds || [])];
+        const currentIndex = allImageIds.indexOf(imageId);
+
+        if (currentIndex > 0) {
+          const prevId = allImageIds[currentIndex - 1];
+          dynBar.appendChild(mk('⏮', '上一张图片', () => {
+            window.location.hash = `#/annotate/${prevId}?pointId=${pointId}`;
+          }));
+        }
+
+        if (currentIndex >= 0 && currentIndex < allImageIds.length - 1) {
+          const nextId = allImageIds[currentIndex + 1];
+          dynBar.appendChild(mk('⏭', '下一张图片', () => {
+            window.location.hash = `#/annotate/${nextId}?pointId=${pointId}`;
+          }));
+        }
+      }
+    }
+
+    // 原有的移动/缩放/撤销等按钮
     dynBar.appendChild(mk('←', '左移', () => { offsetX += 40; updateTransform(); }));
-    dynBar.appendChild(mk('→', '右移', () => { offsetX -= 40; updateTransform(); }));
-    dynBar.appendChild(mk('↑', '上移', () => { offsetY += 40; updateTransform(); }));
-    dynBar.appendChild(mk('↓', '下移', () => { offsetY -= 40; updateTransform(); }));
-    dynBar.appendChild(mk('🔍+', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); }));
-    dynBar.appendChild(mk('🔍-', '缩小', () => { scale = Math.max(0.3, scale / 1.25); updateTransform(); }));
-    dynBar.appendChild(mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); }));
+
+    mk('←', '左移', () => { offsetX += 40; updateTransform(); });
+    mk('→', '右移', () => { offsetX -= 40; updateTransform(); });
+    mk('↑', '上移', () => { offsetY += 40; updateTransform(); });
+    mk('↓', '下移', () => { offsetY -= 40; updateTransform(); });
+    mk('🔍+', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); });
+    mk('🔍-', '缩小', () => { scale = Math.max(0.3, scale / 1.25); updateTransform(); });
+    mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); });
+
+    // 撤销按钮需要特殊处理，因为要更新数字
     const undoBtn = mk('↶', '撤销', undo);
-    dynBar.appendChild(undoBtn);
-    updateUndoBtn = () => {
-      const n = undoStack.length;
-      undoBtn.textContent = n > 0 ? `↶ ${n}` : '↶';
-      undoBtn.style.opacity = n > 0 ? '1' : '0.4';
-    };
-    updateUndoBtn();
-    dynBar.appendChild(mk('🗑', '清除', clearAll));
-    dynBar.appendChild(mk('➕', '扩展画布', openExpandDialog));
-    dynBar.appendChild(mk('📚', '图层顺序', openLayerPanel));
-    dynBar.appendChild(mk('💾', '保存', () => saveAll(true)));
-    dynBar.appendChild(mk('🔒', '显示/隐藏全部锁图标', () => {
+    if (undoBtn) {
+      updateUndoBtn = () => {
+        const n = undoStack.length;
+        undoBtn.textContent = n > 0 ? `↶ ${n}` : '↶';
+        undoBtn.style.opacity = n > 0 ? '1' : '0.4';
+      };
+      updateUndoBtn();
+    }
+
+    mk('🗑', '清除', clearAll);
+    mk('➕', '扩展画布', openExpandDialog);
+    mk('📚', '图层顺序', openLayerPanel);
+    mk('🔒', '显示/隐藏全部锁图标', () => {
       const cur = textLayer.getShowLockIcons();
       textLayer.setShowLockIcons(!cur);
       tapeLayer.setShowLockIcons(!cur);
       toastSuccess(cur ? '锁图标已隐藏' : '锁图标已显示');
+    });
+
+    // 齿轮按钮：管理工具栏
+    dynBar.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⚙️', title: '管理工具栏',
+      onClick: openTopBarConfigPanel
     }));
+
+    mk('💾', '保存', () => saveAll(true));
+
+    // 保存状态灯
     const saveStatusDot = el('span', { style: { display: 'inline-block', width: '10px', height: '10px', borderRadius: '50%', background: '#06D6A0', marginLeft: '6px', transition: 'background .3s' }, title: '已保存' });
     dynBar.appendChild(saveStatusDot);
     setSaveStatus = (status) => {
@@ -1618,40 +2239,82 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 清除 ============
   async function clearAll() {
-    const mask = el('div', { class: 'confirm-mask' }, [
-      el('div', { class: 'confirm-box', style: { maxWidth: '300px' } }, [
+    const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } }, [
+      el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
         el('h3', { text: '清除' }),
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', margin: '12px 0' } }, [
-          el('label', {}, [el('input', { type: 'checkbox', id: 'clr-stroke', checked: true }), ' 笔迹']),
-          el('label', {}, [el('input', { type: 'checkbox', id: 'clr-tape', checked: true }), ' 胶带']),
-          el('label', {}, [el('input', { type: 'checkbox', id: 'clr-paper', checked: true }), ' 纸张']),
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+            el('input', { type: 'checkbox', id: 'clr-stroke', checked: true }),
+            el('span', { text: '笔迹' }),
+          ]),
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+            el('input', { type: 'checkbox', id: 'clr-tape', checked: true }),
+            el('span', { text: '胶带' }),
+          ]),
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+            el('input', { type: 'checkbox', id: 'clr-shape', checked: true }),
+            el('span', { text: '形状' }),
+          ]),
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+            el('input', { type: 'checkbox', id: 'clr-text', checked: true }),
+            el('span', { text: '文字' }),
+          ]),
+          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
+            el('input', { type: 'checkbox', id: 'clr-paper', checked: true }),
+            el('span', { text: '纸张' }),
+          ]),
         ]),
         el('div', { class: 'confirm-actions' }, [
           el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
           el('button', {
-            class: 'btn btn-danger', text: '清除',
+            class: 'btn btn-danger', text: '确定清除',
             onClick: () => {
-              pushUndo(true);
+              // 1. 清除笔迹（全局笔迹 + 纸张上的笔迹）
               if (document.getElementById('clr-stroke').checked) {
                 ctx.clearRect(0, 0, W, H);
                 paperStrokeCtx.clearRect(0, 0, W, H);
-                textLayer.getItems().length = 0;
-                textLayer.save();
-                textLayer.redraw();
+                paperLayer.getPapers().forEach(p => { p.strokes = []; });
+                paperLayer.save();
+                paperLayer.redraw();
               }
+
+              // 2. 清除胶带（全局胶带 + 纸张绑定的胶带）
               if (document.getElementById('clr-tape').checked) {
                 tapeLayer.getTapes().length = 0;
                 store.saveTape(imageId, []);
                 tapeLayer.redrawAsync();
+                paperLayer.getPapers().forEach(p => { p.tapes = []; });
+                paperLayer.save();
               }
+
+              // 3. 清除形状（纸张上的形状）
+              if (document.getElementById('clr-shape').checked) {
+                paperLayer.getPapers().forEach(p => { p.shapes = []; });
+                paperLayer.setShapeSelection([]);
+                paperLayer.save();
+                paperLayer.redraw();
+              }
+
+              // 4. 清除文字（全局文字）
+              if (document.getElementById('clr-text').checked) {
+                textLayer.getItems().length = 0;
+                textLayer.select(null);
+                textLayer.save();
+                textLayer.redraw();
+              }
+
+              // 5. 清除纸张（连带纸张上的笔迹、胶带、形状）
               if (document.getElementById('clr-paper').checked) {
                 paperLayer.getPapers().length = 0;
                 store.savePaper(imageId, []);
+                paperLayer.setShapeSelection([]);
                 paperLayer.redraw();
               }
+
               dirty = true;
-              setSaveStatus('dirty');
+              if (typeof setSaveStatus === 'function') setSaveStatus('dirty');
               mask.remove();
+              toastSuccess('已清除');
             },
           }),
         ]),
@@ -1663,52 +2326,182 @@ export async function renderAnnotator({ params, query }) {
   // ============ 图层顺序 ============
   function openLayerPanel() {
     const tempOrder = [...currentLayerOrder];
-    const labels = { base: '🖼 底图', stroke: '✏️ 笔迹', text: 'T 文字', tape: '🎗️ 胶带', paper: '📄 纸张', paperStroke: '✏️ 纸张笔迹' };
-    const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
+    const labels = {
+      base: '🖼 底图',
+      stroke: '✏️ 笔迹',
+      text: 'T 文字',
+      tape: '🎗️ 胶带',
+      paper: '📄 纸张',
+      shape: '🔺 形状',
+      paperStroke: '✏️ 纸张笔迹'
+    };
+
+    const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', userSelect: 'none' } });
+
+    let dragIndex = -1;
+    let dragEl = null;
+    let startY = 0;
+    let dragging = false;
+
     function renderList() {
       list.innerHTML = '';
-      if (shapes.length === 0) {
-        list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有自定义形状' }));
-        return;
-      }
-      shapes.forEach(p => {
-        const checked = selected.has(p.id);
-        const row = el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
+      // 倒序显示：数组最后一个（最顶层）显示在面板最上面
+      [...tempOrder].reverse().forEach((key, i) => {
+        const item = el('div', {
+          style: {
+            display: 'flex', alignItems: 'center', gap: '8px',
+            padding: '12px 16px', background: 'var(--card)',
+            borderRadius: '8px', border: '1px solid rgba(0,0,0,.06)',
+            cursor: 'grab', transition: 'transform 0.1s',
+            touchAction: 'none' // 防止触屏滚动干扰
+          },
+          'data-key': key
         }, [
-          el('input', {
-            type: 'checkbox',
-            checked: checked,
-            onChange: (e) => {
-              if (e.target.checked) selected.add(p.id);
-              else selected.delete(p.id);
-            },
-          }),
-          p.thumbUrl ? el('img', { src: p.thumbUrl, style: { width: '32px', height: '32px', borderRadius: '4px', objectFit: 'cover' } }) : null,
-          el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: p.id.slice(0, 8) }),
-          el('button', {
-            class: 'tape-chip', text: tapePatternImageId === p.id ? '✅ 使用中' : '使用',
-            onClick: () => {
-              tapeShape = 'custom';
-              tapePatternImageId = p.id;
-              renderTapeToolbar();
-              mask.remove();
-            },
-          }),
+          el('span', { style: { flex: '1', fontWeight: '600', fontSize: '14px' }, text: labels[key] || key }),
+          el('span', { style: { color: 'var(--text-2)' }, text: '≡' }) // 拖拽手柄图标
         ]);
-        list.appendChild(row);
+
+        // ============ 拖拽逻辑 ============
+        item.addEventListener('pointerdown', (e) => {
+          if (e.pointerType === 'mouse' && e.button !== 0) return;
+          e.preventDefault();
+
+          dragIndex = i;
+          dragEl = item;
+          startY = e.clientY;
+          dragging = false;
+
+          item.style.cursor = 'grabbing';
+          item.style.zIndex = '10';
+          item.style.boxShadow = '0 8px 24px rgba(0,0,0,.15)';
+
+          item.setPointerCapture(e.pointerId);
+
+          const onMove = (ev) => {
+            const dy = ev.clientY - startY;
+            if (Math.abs(dy) > 5) dragging = true;
+            if (!dragging) return;
+
+            item.style.transform = `translateY(${dy}px)`;
+
+            // 判断是否越过相邻元素
+            const items = [...list.children];
+            const currentRect = item.getBoundingClientRect();
+            const currentCenter = currentRect.top + currentRect.height / 2;
+
+            let targetIndex = dragIndex;
+
+            items.forEach((other, idx) => {
+              if (other === item) return;
+              const otherRect = other.getBoundingClientRect();
+              const otherCenter = otherRect.top + otherRect.height / 2;
+
+              if (idx < dragIndex && currentCenter < otherCenter) {
+                targetIndex = idx;
+              } else if (idx > dragIndex && currentCenter > otherCenter) {
+                targetIndex = idx;
+              }
+            });
+
+            if (targetIndex !== dragIndex) {
+              // 视觉交换
+              const temp = tempOrder[tempOrder.length - 1 - dragIndex];
+              tempOrder[tempOrder.length - 1 - dragIndex] = tempOrder[tempOrder.length - 1 - targetIndex];
+              tempOrder[tempOrder.length - 1 - targetIndex] = temp;
+
+              dragIndex = targetIndex;
+              startY = ev.clientY;
+              item.style.transform = 'translateY(0)';
+
+              // 重新渲染列表，并把原元素重新绑定
+              const currentKey = item.getAttribute('data-key');
+              renderList();
+
+              // 找到新渲染出来的元素并重新设置拖拽状态
+              dragEl = list.querySelector(`[data-key="${currentKey}"]`);
+              if (dragEl) {
+                dragEl.style.cursor = 'grabbing';
+                dragEl.style.zIndex = '10';
+                dragEl.style.boxShadow = '0 8px 24px rgba(0,0,0,.15)';
+                dragEl.setPointerCapture(ev.pointerId);
+                bindDrag(dragEl);
+              }
+            }
+          };
+
+          const onUp = (ev) => {
+            if (dragEl) {
+              dragEl.style.cursor = 'grab';
+              dragEl.style.zIndex = 'auto';
+              dragEl.style.boxShadow = 'none';
+              dragEl.style.transform = 'translateY(0)';
+            }
+            item.releasePointerCapture(ev.pointerId);
+            item.removeEventListener('pointermove', onMove);
+            item.removeEventListener('pointerup', onUp);
+            item.removeEventListener('pointercancel', onUp);
+
+            if (dragging) {
+              // 应用新顺序
+              applyLayerOrder(tempOrder);
+            }
+            dragging = false;
+          };
+
+          item.addEventListener('pointermove', onMove);
+          item.addEventListener('pointerup', onUp);
+          item.addEventListener('pointercancel', onUp);
+        });
+
+        list.appendChild(item);
       });
     }
+
+    // 绑定新元素的拖拽事件（因为拖动过程中会重新渲染DOM）
+    function bindDrag(newEl) {
+      const key = newEl.getAttribute('data-key');
+      const i = tempOrder.length - 1 - tempOrder.indexOf(key);
+
+      newEl.addEventListener('pointerdown', (e) => {
+        // 触发和上面一样的拖拽逻辑
+        newEl.dispatchEvent(new PointerEvent('pointerdown', e));
+      });
+    }
+
     renderList();
+
     const mask = el('div', { class: 'confirm-mask' }, [
       el('div', { class: 'confirm-box', style: { maxWidth: '380px' } }, [
         el('h3', { text: '图层顺序' }),
-        el('p', { text: '从下到上排列', style: { fontSize: '13px', color: 'var(--text-2)' } }),
+        el('p', { text: '长按拖动调整顺序，越靠上，层级越高', style: { fontSize: '13px', color: 'var(--text-2)' } }),
         list,
         el('div', { class: 'confirm-actions', style: { flexWrap: 'wrap' } }, [
-          el('button', { class: 'btn btn-ghost', text: '恢复默认', onClick: () => { tempOrder.length = 0; tempOrder.push(...DEFAULT_LAYER_ORDER); applyLayerOrder(tempOrder); renderList(); } }),
-          el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => { applyLayerOrder(DEFAULT_LAYER_ORDER); currentLayerOrder = [...DEFAULT_LAYER_ORDER]; if (store.saveLayerOrder) store.saveLayerOrder(DEFAULT_LAYER_ORDER); mask.remove(); } }),
-          el('button', { class: 'btn btn-primary', text: '保存', onClick: () => { currentLayerOrder = [...tempOrder]; if (store.saveLayerOrder) store.saveLayerOrder(currentLayerOrder); mask.remove(); toastSuccess('已保存'); } }),
+          el('button', {
+            class: 'btn btn-ghost', text: '恢复默认',
+            onClick: () => {
+              tempOrder.length = 0;
+              tempOrder.push(...DEFAULT_LAYER_ORDER);
+              applyLayerOrder(tempOrder);
+              renderList();
+            }
+          }),
+          el('button', {
+            class: 'btn btn-ghost', text: '取消',
+            onClick: () => {
+              applyLayerOrder(currentLayerOrder); // 恢复原样
+              mask.remove();
+            }
+          }),
+          el('button', {
+            class: 'btn btn-primary', text: '保存',
+            onClick: () => {
+              currentLayerOrder = [...tempOrder];
+              if (store.saveLayerOrder) store.saveLayerOrder(currentLayerOrder);
+              applyLayerOrder(currentLayerOrder); // 保存后立刻应用并重绘
+              mask.remove();
+              toastSuccess('图层顺序已保存');
+            }
+          }),
         ]),
       ]),
     ]);
@@ -1744,31 +2537,60 @@ export async function renderAnnotator({ params, query }) {
       tapeLayer.redrawAsync();
       setActiveTool('tape');
     } else if (clipboard.type === 'paper') {
-      const copy = { ...clipboard.data, id: crypto.randomUUID(), x: clipboard.data.x + 20, y: clipboard.data.y + 20, locked: false, strokes: clipboard.data.strokes ? JSON.parse(JSON.stringify(clipboard.data.strokes)) : [] };
+      const copy = {
+        ...clipboard.data, id: crypto.randomUUID(), x: clipboard.data.x + 20, y: clipboard.data.y + 20, locked: false, strokes: clipboard.data.strokes ? JSON.parse(JSON.stringify(clipboard.data.strokes)) : [],
+        tapes: clipboard.data.tapes ? JSON.parse(JSON.stringify(clipboard.data.tapes)) : [],
+        shapes: clipboard.data.shapes ? JSON.parse(JSON.stringify(clipboard.data.shapes)) : [],
+      };
+
       paperLayer.getPapers().push(copy);
       paperLayer.select(copy);
       paperLayer.save();
       paperLayer.redraw();
       setActiveTool('paper');
+    } else if (clipboard.type === 'shape') {
+      const newSelections = [];
+      clipboard.data.forEach(item => {
+        const paper = paperLayer.getPapers().find(p => p.id === item.paperId);
+        if (!paper) return;
+        if (!paper.shapes) paper.shapes = [];
+
+        const newShape = JSON.parse(JSON.stringify(item.shape));
+        newShape.id = crypto.randomUUID();
+        // 偏移 20px 避免重叠
+        newShape.x1 += 20; newShape.y1 += 20;
+        newShape.x2 += 20; newShape.y2 += 20;
+
+        paper.shapes.push(newShape);
+        newSelections.push({ paper, shape: newShape });
+      });
+      paperLayer.save();
+      paperLayer.redraw();
+      paperLayer.setShapeSelection(newSelections);
+      setActiveTool('shape');
     }
     dirty = true;
     setSaveStatus('dirty');
     toastSuccess('已粘贴');
   }
   // ============ 手势事件 ============
-  strokeCanvas.addEventListener('pointerdown', (e) => {
+  canvasWrap.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    // 阻止拖动底图（浏览器默认行为）
+    e.preventDefault();
+    e.stopPropagation();
 
     const isTouch = e.pointerType === 'touch';
     const shouldDrawWithFinger = inputMode === 'finger-draw';
-    const shouldPanWithFinger = isTouch && !shouldDrawWithFinger;
+    const shouldPanWithFinger = isTouch && !shouldDrawWithFinger && currentTool === 'hand';
 
-    if (shouldPanWithFinger && currentTool !== 'hand') {
+    // ============ 双指操作 ============
+    if (shouldPanWithFinger) {
       if (pointers.size === 0) {
         pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
         drawing = 'pan';
         startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
-        strokeCanvas.setPointerCapture(e.pointerId);
+        try { strokeCanvas.setPointerCapture(e.pointerId); } catch { }
         return;
       }
       pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -1786,17 +2608,30 @@ export async function renderAnnotator({ params, query }) {
 
     pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
+    // 强制重置
+    drawing = false;
+    points = [];
+    startPt = null;
+
+    // 如果是手指，且没开“手指也可画”，且不是抓手，直接拦截
+    if (isTouch && !shouldDrawWithFinger && currentTool !== 'hand') {
+      return;
+    }
+
+    // 双指缩放
     if (pointers.size === 2) {
-      drawing = false;
       const pts = [...pointers.values()];
       startPt = { dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2 };
       drawing = 'pinch';
       return;
     }
 
-    // 吸管
+    // 统一坐标转换
+    const pt = canvasToImage(e.clientX, e.clientY);
+
+
+    // ============ 吸管 ============
     if (currentTool === 'eyedropper') {
-      const pt = canvasToImage(e.clientX, e.clientY);
       const tempCanvas = document.createElement('canvas');
       tempCanvas.width = W;
       tempCanvas.height = H;
@@ -1813,46 +2648,58 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // 抓手
+    // ============ 抓手 ============
     if (currentTool === 'hand') {
       drawing = 'pan';
       startPt = { x: e.clientX - offsetX, y: e.clientY - offsetY };
-      strokeCanvas.setPointerCapture(e.pointerId);
+      try { strokeCanvas.setPointerCapture(e.pointerId); } catch { }
       return;
     }
 
-    // 统一坐标转换
-    const pt = canvasToImage(e.clientX, e.clientY);
-
     // ============ 胶带 ============
     if (currentTool === 'tape') {
-      console.log('胶带 pointerdown，tapeSelectMode:', tapeSelectMode, 'drawing:', drawing, '选中数:', tapeLayer.getSelectedIds().length);
-
-      // 框选模式：只有已选中胶带时才进入
-      if (tapeSelectMode && tapeLayer.getSelectedIds().length > 0) {
-        const tapes = tapeLayer.getTapes();
-        let hit = null;
-        for (let i = tapes.length - 1; i >= 0; i--) {
-          if (tapeLayer.hitTape(tapes[i], pt.x, pt.y, 0)) {
-            hit = tapes[i];
-            break;
+      // 先检查纸张胶带
+      const papers = paperLayer.getPapers();
+      for (let i = papers.length - 1; i >= 0; i--) {
+        const p = papers[i];
+        if (!p.tapes || p.visible === false) continue;
+        for (let j = p.tapes.length - 1; j >= 0; j--) {
+          const t = p.tapes[j];
+          if (t.visible === false) continue;
+          const relX = pt.x - p.x;
+          const relY = pt.y - p.y;
+          if (tapeLayer.hitTape(t, relX, relY, 0)) {
+            let longPressed = false;
+            const timer = setTimeout(() => {
+              longPressed = true;
+              tapeSelectMode = true;
+              if (!paperTapeSelectedList.find(item => item.tape.id === t.id)) {
+                paperTapeSelectedList.push({ paper: p, tape: t });
+                paperTapeSelected = { paper: p, tape: t };
+              }
+              window.__paperTapeSelectedList = paperTapeSelectedList;
+              updateSubToolbar();
+              toastSuccess('已选中纸张胶带');
+            }, 500);
+            const onUp = () => {
+              clearTimeout(timer);
+              if (!longPressed) {
+                t.visible = !t.visible;
+                paperLayer.save();
+                paperLayer.redraw();
+                window.__tapeLayer.redraw();
+              }
+              strokeCanvas.removeEventListener('pointerup', onUp);
+              strokeCanvas.removeEventListener('pointercancel', onUp);
+            };
+            strokeCanvas.addEventListener('pointerup', onUp);
+            strokeCanvas.addEventListener('pointercancel', onUp);
+            return;
           }
         }
-        if (hit) {
-          tapeLayer.toggleSelect(hit.id);
-          updateSubToolbar();
-          const count = tapeLayer.getSelectedIds().length;
-          toastSuccess(count > 0 ? `已选中 ${count} 条胶带` : '已取消选中');
-        } else {
-          drawing = 'tape-select';
-          startPt = pt;
-          points = [pt];
-          strokeCanvas.setPointerCapture(e.pointerId);
-        }
-        return;
       }
 
-      // 非框选模式：单击显隐 / 长按选中
+      // 再检查全局胶带
       const tapes = tapeLayer.getTapes();
       for (let i = tapes.length - 1; i >= 0; i--) {
         if (tapeLayer.hitTape(tapes[i], pt.x, pt.y, 0)) {
@@ -1864,10 +2711,7 @@ export async function renderAnnotator({ params, query }) {
             tapeLayer.toggleVisible(hitTape.id);
             tapeLayer.toggleSelect(hitTape.id);
             updateSubToolbar();
-            panelVisible = true;
             if (settingPanel) settingPanel.style.display = 'flex';
-            const count = tapeLayer.getSelectedIds().length;
-            toastSuccess(count > 1 ? `已选中 ${count} 条胶带` : '已选中胶带');
           }, 500);
           const onUp = () => {
             clearTimeout(timer);
@@ -1880,11 +2724,10 @@ export async function renderAnnotator({ params, query }) {
         }
       }
 
-      // 点空白：画新胶带（如果在纸张内，记到纸张上）
+      // 点空白：画新胶带
       pushUndo();
       const hitPaper = paperLayer.hitTest(pt.x, pt.y);
       if (hitPaper && !hitPaper.locked) {
-        // 纸张内胶带
         if (!hitPaper._currentTape) {
           hitPaper._currentTape = {
             id: crypto.randomUUID(),
@@ -1897,6 +2740,7 @@ export async function renderAnnotator({ params, query }) {
             opacity: 1,
             rotation: 0,
             visible: true,
+            locked: false,
             erasedPath: [],
           };
         }
@@ -1913,106 +2757,12 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // ============ 画笔 / 橡皮 ============
-    if (currentTool === 'pen' || currentTool === 'eraser') {
-      pushUndo();
-      drawing = currentTool === 'eraser' ? 'eraser' : true;
-      const pressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
-      points = [{ ...pt, pressure }];
-      if (currentTool === 'eraser') {
-        const eraserRadius = currentWidth * 2 / Math.sqrt(W / 800);
-        if (eraserShape === 'square') {
-          eraseSquare(ctx, pt.x, pt.y, eraserRadius);
-          eraseSquare(paperStrokeCtx, pt.x, pt.y, eraserRadius);
-        } else {
-          eraseCircle(ctx, pt.x, pt.y, eraserRadius);
-          eraseCircle(paperStrokeCtx, pt.x, pt.y, eraserRadius);
-        }
-        tapeLayer.eraseSegment(pt.x, pt.y, pt.x, pt.y, eraserRadius);
-      }
-      strokeCanvas.setPointerCapture(e.pointerId);
-      return;
-    }
-
-    // ============ 圈擦 ============
-    if (currentTool === 'circle-erase') {
-      pushUndo();
-      drawing = 'circle-erase';
-      startPt = pt;
-      if (eraseShape === 'free') eraseFreePath = [pt];
-      strokeCanvas.setPointerCapture(e.pointerId);
-      return;
-    }
-
-    // ============ 形状 ============
-    if (currentTool === 'shape') {
-      // 自由多边形：点一下加一个点
-      if (shapeType === 'polygon') {
-        if (!polygonDrawing) {
-          pushUndo();
-          polygonDrawing = true;
-          polygonPoints = [pt];
-        } else {
-          // 判断是否双击结束（距离上一个点很近）
-          const last = polygonPoints[polygonPoints.length - 1];
-          if (Math.hypot(pt.x - last.x, pt.y - last.y) < 10 && polygonPoints.length >= 3) {
-            // 双击结束：绘制多边形
-            drawPolygonOnCanvas();
-            polygonDrawing = false;
-            polygonPoints = [];
-            clearPreview();
-            dirty = true;
-          } else {
-            polygonPoints.push(pt);
-            // 预览
-            clearPreview();
-            previewCtx.save();
-            previewCtx.strokeStyle = window.__shapeBorderColor || currentColor;
-            previewCtx.lineWidth = currentWidth;
-            previewCtx.setLineDash([6, 4]);
-            previewCtx.beginPath();
-            previewCtx.moveTo(polygonPoints[0].x, polygonPoints[0].y);
-            for (let i = 1; i < polygonPoints.length; i++) previewCtx.lineTo(polygonPoints[i].x, polygonPoints[i].y);
-            previewCtx.stroke();
-            previewCtx.restore();
-          }
-        }
-        return;
-      }
-      pushUndo();
-      drawing = shapeType;
-      startPt = pt;
-      strokeCanvas.setPointerCapture(e.pointerId);
-      return;
-    }
-
-
     // ============ 文字 ============
     if (currentTool === 'text') {
       const hit = textLayer.hitTest(pt.x, pt.y);
       if (hit) {
         const wasSelected = textLayer.getSelected() === hit;
         textLayer.select(hit);
-        panelVisible = true;
-        if (formatClipboard) {
-          hit.fontSize = formatClipboard.fontSize;
-          hit.fontFamily = formatClipboard.fontFamily;
-          hit.lineHeight = formatClipboard.lineHeight;
-          hit.align = formatClipboard.align;
-          hit.color = formatClipboard.color;
-          hit.bgColor = formatClipboard.bgColor;
-          hit.noBg = formatClipboard.noBg;
-          const lines = (hit.text || '').split('\n');
-          hit.h = Math.max(40, lines.length * hit.fontSize * hit.lineHeight + 8);
-          textLayer.save();
-          textLayer.redraw();
-          formatClipboard = null;
-          updateSubToolbar();
-          return;
-        }
-        if (settingPanel) settingPanel.style.display = 'flex';
-        updateSubToolbar();
-        if (hit.locked) { toastError('已锁定'); return; }
         if (wasSelected) {
           const handle = textLayer.hitHandle(pt.x, pt.y);
           if (handle) {
@@ -2034,69 +2784,188 @@ export async function renderAnnotator({ params, query }) {
         pushUndo();
         const newItem = textLayer.addText({ x: pt.x, y: pt.y, text: '', fontSize: 20, fontFamily: 'sans-serif', lineHeight: 1.5, align: 'left', color: currentColor, bgColor: '#FFFFFF', noBg: true, w: 160, h: 40 });
         textLayer.select(newItem);
-        panelVisible = true;
-        if (settingPanel) settingPanel.style.display = 'flex';
         openInlineTextEditor(newItem);
         updateSubToolbar();
-        dirty = true;
-        setSaveStatus('dirty');
       }
       return;
     }
 
-    // ============ 纸张 ============
+    // ============ 画笔 / 橡皮 / 圈擦 ============
+    if (currentTool === 'pen' || currentTool === 'eraser' || currentTool === 'circle-erase') {
+      pushUndo();
+      e.preventDefault();
+
+      const hitPaper = paperLayer.hitTest(pt.x, pt.y);
+
+      if (currentTool === 'eraser') {
+        drawing = 'eraser';
+      } else if (currentTool === 'circle-erase') {
+        drawing = 'circle-erase';
+        if (eraseShape === 'free') eraseFreePath = [pt];
+      } else {
+        drawing = 'pen';
+        if (hitPaper && !hitPaper.locked) {
+          hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
+        }
+      }
+
+      startPt = pt;
+      points = [{ ...pt, pressure: e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5 }];
+      try { strokeCanvas.setPointerCapture(e.pointerId); } catch { }
+      return;
+    }
+
+    // ============ 形状 ============
+    if (currentTool === 'shape') {
+      // 先检查是否点中选中形状的控制手柄
+      const handleId = findShapeHandleAt(pt.x, pt.y);
+      if (handleId) {
+        pushUndo();
+        const sel = paperLayer.getSelectedShapes()[0];
+        shapeDragOffset = paperLayer.startShapeResize(sel, handleId, pt.x - sel.paper.x, pt.y - sel.paper.y);
+        drawing = 'shape-resize';
+        strokeCanvas.setPointerCapture(e.pointerId);
+        return;
+      }
+
+      // 检查是否点中已有形状
+      const clickedShape = findShapeAt(pt.x, pt.y);
+      if (clickedShape) {
+        if (clickedShape.shape.locked) {
+          toastError('已锁定');
+          return;
+        }
+
+        const cur = paperLayer.getSelectedShapes ? paperLayer.getSelectedShapes() : [];
+
+        // 长按进入多选模式
+        shapeLongPressFired = false;
+        shapeSelectTimer = setTimeout(() => {
+          shapeLongPressFired = true;
+          let newSel;
+          if (cur.some(sel => sel.shape === clickedShape.shape)) {
+            newSel = cur;
+          } else {
+            newSel = [...cur, clickedShape];
+          }
+          paperLayer.setShapeSelection(newSel);
+          updateSubToolbar();
+          toastSuccess('多选模式：继续点击可加选/减选');
+        }, 500);
+
+        // 短按逻辑（松手时判断）
+        const onUp = () => {
+          clearTimeout(shapeSelectTimer);
+          strokeCanvas.removeEventListener('pointerup', onUp);
+          strokeCanvas.removeEventListener('pointercancel', onUp);
+          if (shapeLongPressFired) return;
+
+          // 短按
+          let newSel;
+          if (e.ctrlKey || e.metaKey || e.shiftKey) {
+            if (cur.some(sel => sel.shape === clickedShape.shape)) {
+              newSel = cur.filter(sel => sel.shape !== clickedShape.shape);
+            } else {
+              newSel = [...cur, clickedShape];
+            }
+          } else {
+            // 已选中 → 开始拖动
+            if (cur.length === 1 && cur[0].shape === clickedShape.shape) {
+              pushUndo();
+              shapeDragOffset = paperLayer.startShapeDrag(clickedShape, pt.x - clickedShape.paper.x, pt.y - clickedShape.paper.y);
+              drawing = 'shape-drag';
+              return;
+            }
+            newSel = [clickedShape];
+          }
+          paperLayer.setShapeSelection(newSel);
+          updateSubToolbar();
+        };
+        strokeCanvas.addEventListener('pointerup', onUp);
+        strokeCanvas.addEventListener('pointercancel', onUp);
+        return;
+      }
+
+      // 没点中形状，走原来的绘制逻辑
+      pushUndo();
+      const hitPaperShape = paperLayer.hitTest(pt.x, pt.y);
+      if (!shapeOnPaper || !hitPaperShape) {
+        drawing = shapeType;
+        startPt = pt;
+        strokeCanvas.setPointerCapture(e.pointerId);
+        return;
+      }
+      if (hitPaperShape && !hitPaperShape.locked) {
+        drawing = 'paper-shape';
+        startPt = pt;
+        window.__paperShapeTarget = hitPaperShape;
+        window.__paperShapeType = shapeType;
+        window.__paperShapeBorderColor = window.__shapeBorderColor || currentColor;
+        window.__paperShapeFillColor = window.__shapeFillColor || 'transparent';
+        window.__paperShapeWidth = currentWidth;
+        window.__paperShapeWave = waveAmplitude;
+      } else {
+        drawing = shapeType;
+        startPt = pt;
+      }
+      strokeCanvas.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    // ============ 纸张（拖拽） ============
     if (currentTool === 'paper') {
-      paperLayer.handlePointerDown(pt.x, pt.y);
-      // 纸张内画胶带
-      if (currentTool === 'tape') {
-        // 不在这里处理，胶带分支在前面已经处理了
+      const hit = paperLayer.hitTest(pt.x, pt.y);
+      if (hit) {
+        paperLayer.select(hit);
+        paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, paper: hit, _lastX: hit.x, _lastY: hit.y };
+        drawing = 'paper-drag';
+        updateSubToolbar();
+      } else {
+        paperLayer.select(null);
+        drawing = false;
+        updateSubToolbar();
       }
-      const sel = paperLayer.getSelected();
-      if (sel) {
-        // 双击检测：两次点击在 350ms 内且位置接近
-        const now = Date.now();
-        const lastClick = window.__paperLastClick || { id: null, time: 0, x: 0, y: 0 };
-        if (lastClick.id === sel.id && now - lastClick.time < 350 &&
-          Math.hypot(pt.x - lastClick.x, pt.y - lastClick.y) < 20) {
-          window.__paperLastClick = { id: null, time: 0, x: 0, y: 0 };
-          if (window.__openPaperTextEditor) window.__openPaperTextEditor(sel);
-          return;
-        }
-        window.__paperLastClick = { id: sel.id, time: now, x: pt.x, y: pt.y };
-
-        const handles = paperLayer.getHandles();
-        const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 18);
-        if (hitHandle) {
-          paperDragOffset = paperLayer.startResize(hitHandle.id, pt.x, pt.y);
-          drawing = 'paper-resize';
-          strokeCanvas.setPointerCapture(e.pointerId);
-          return;
-        }
-        const cx = sel.x + sel.w / 2;
-        const cy = sel.y + sel.h / 2;
-        const rad = (sel.rotation || 0) * Math.PI / 180;
-        const hx = cx + Math.sin(rad) * (sel.h / 2 + 20);
-        const hy = cy - Math.cos(rad) * (sel.h / 2 + 20);
-        if (Math.hypot(pt.x - hx, pt.y - hy) < 14) {
-          paperDragOffset = paperLayer.startRotate(pt.x, pt.y);
-          drawing = 'paper-rotate';
-          strokeCanvas.setPointerCapture(e.pointerId);
-          return;
-        }
-        if (sel.x <= pt.x && pt.x <= sel.x + sel.w && sel.y <= pt.y && pt.y <= sel.y + sel.h) {
-          if (sel.locked) { toastError('已锁定'); return; }
-          paperDragOffset = { dx: pt.x - sel.x, dy: pt.y - sel.y, paper: sel };
-          drawing = 'paper-drag';
-          strokeCanvas.setPointerCapture(e.pointerId);
-          return;
-        }
-      }
-      paperLayer.redraw();
       return;
     }
+
   });
 
-  strokeCanvas.addEventListener('pointermove', (e) => {
+  canvasWrap.addEventListener('pointermove', (e) => {
+    // ============ 纸张拖动（极速联动版 + 辅助线） ============
+    if (drawing === 'paper-drag' && paperDragOffset) {
+      const p = paperDragOffset.paper;
+      const pt = canvasToImage(e.clientX, e.clientY); // 👈 必须加上这一行！计算鼠标当前坐标
+
+      // 1. 更新纸张的实时位置
+      p.x = pt.x - paperDragOffset.dx;
+      p.y = pt.y - paperDragOffset.dy;
+
+      // 2. 计算这一帧的差值
+      const dx = p.x - (paperDragOffset._lastX || p.x);
+      const dy = p.y - (paperDragOffset._lastY || p.y);
+      paperDragOffset._lastX = p.x;
+      paperDragOffset._lastY = p.y;
+
+      // 3. 将差值应用到绑定的胶带上
+      let tapesChanged = false;
+      tapeLayer.getTapes().forEach(t => {
+        if (t._boundPaperId === p.id) {
+          t.points.forEach(pt2 => { pt2.x += dx; pt2.y += dy; });
+          tapesChanged = true;
+        }
+      });
+
+      // 4. 计算辅助线
+      const guides = drawGuideLines(p);
+      snapToGuide(p, guides);
+
+      // 5. 重绘
+      paperLayer.redraw();
+      if (tapesChanged) tapeLayer.redraw();
+
+      dirty = true;
+      return;
+    }
     if (pointers.has(e.pointerId)) pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
     // 画笔合并事件
@@ -2144,6 +3013,11 @@ export async function renderAnnotator({ params, query }) {
     const pt = canvasToImage(e.clientX, e.clientY);
 
     if (drawing === 'pan') {
+      // 绝对防线：只有抓手工具才允许平移
+      if (currentTool !== 'hand') {
+        drawing = false;
+        return;
+      }
       offsetX = e.clientX - startPt.x;
       offsetY = e.clientY - startPt.y;
       if (!window.__panRaf) {
@@ -2152,92 +3026,110 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // 橡皮：连续擦除，路径无缝
-    if (drawing === 'eraser') {
-      const eraserRadius = currentWidth * 2 / Math.sqrt(W / 800);
-      const lastPt = points.length > 0 ? points[points.length - 1] : pt;
-      points.push(pt);
+    // ============ 画笔 / 橡皮 ============
+    if (drawing === 'pen' || drawing === 'eraser') {
+      const pressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+      points.push({ ...pt, pressure });
 
-      // 笔迹层用线段插值擦除
-      const dx = pt.x - lastPt.x;
-      const dy = pt.y - lastPt.y;
-      const dist = Math.hypot(dx, dy);
-      const steps = Math.max(1, Math.ceil(dist / (eraserRadius * 0.3)));
+      // --- 橡皮逻辑 ---
+      if (drawing === 'eraser') {
+        const eraserRadius = currentWidth * 2 / Math.sqrt(W / 800);
+        const lastPt = points.length > 1 ? points[points.length - 2] : pt;
 
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const px = lastPt.x + dx * t;
-        const py = lastPt.y + dy * t;
-        if (eraserShape === 'square') {
-          eraseSquare(ctx, px, py, eraserRadius);
-          eraseSquare(paperStrokeCtx, px, py, eraserRadius);
+        // 1. 擦除全局画布
+        const dx = pt.x - lastPt.x;
+        const dy = pt.y - lastPt.y;
+        const dist = Math.hypot(dx, dy);
+        const steps = Math.max(1, Math.ceil(dist / (eraserRadius * 0.3)));
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const px = lastPt.x + dx * t;
+          const py = lastPt.y + dy * t;
+          if (eraserShape === 'square') {
+            eraseSquare(ctx, px, py, eraserRadius);
+            eraseSquare(paperStrokeCtx, px, py, eraserRadius);
+          } else {
+            eraseCircle(ctx, px, py, eraserRadius);
+            eraseCircle(paperStrokeCtx, px, py, eraserRadius);
+          }
+        }
+
+        // 2. 擦除胶带
+        tapeLayer.eraseSegment(lastPt.x, lastPt.y, pt.x, pt.y, eraserRadius);
+
+        // 3. 擦除纸张笔迹
+        paperLayer.getPapers().forEach(p => {
+          if (!p.strokes || p.locked) return;
+          let changed = false;
+          const newStrokes = [];
+          const eraserLeft = pt.x - p.x - eraserRadius;
+          const eraserRight = pt.x - p.x + eraserRadius;
+          const eraserTop = pt.y - p.y - eraserRadius;
+          const eraserBottom = pt.y - p.y + eraserRadius;
+
+          p.strokes.forEach(s => {
+            if (!s.points || s.points.length < 2) { newStrokes.push(s); return; }
+            const segments = [];
+            let current = [];
+            s.points.forEach(sp => {
+              const hit = sp.x >= eraserLeft && sp.x <= eraserRight && sp.y >= eraserTop && sp.y <= eraserBottom;
+              if (hit) {
+                if (current.length >= 2) segments.push(current);
+                current = [];
+              } else {
+                current.push(sp);
+              }
+            });
+            if (current.length >= 2) segments.push(current);
+            if (segments.length === 0) { changed = true; return; }
+            if (segments.length === 1 && segments[0].length === s.points.length) { newStrokes.push(s); return; }
+            changed = true;
+            newStrokes.push({ ...s, points: segments[0] });
+            for (let i = 1; i < segments.length; i++) newStrokes.push({ ...s, points: segments[i] });
+          });
+          p.strokes = newStrokes;
+          if (changed) { paperLayer.save(); paperLayer.redraw(); }
+        });
+
+        // 4. 预览圆圈
+        clearPreview();
+        previewCtx.save();
+        previewCtx.strokeStyle = '#3B82F6';
+        previewCtx.lineWidth = 2;
+        if (eraserShape === 'square') previewCtx.strokeRect(pt.x - eraserRadius, pt.y - eraserRadius, eraserRadius * 2, eraserRadius * 2);
+        else { previewCtx.beginPath(); previewCtx.arc(pt.x, pt.y, eraserRadius, 0, Math.PI * 2); previewCtx.stroke(); }
+        previewCtx.restore();
+      }
+
+      // --- 画笔逻辑 ---
+      else if (drawing === 'pen') {
+        // 判断是否在纸上
+        let hitPaper = null;
+        const paperList = paperLayer.getPapers();
+        for (let i = paperList.length - 1; i >= 0; i--) {
+          if (paperLayer.hitTest(pt.x, pt.y) === paperList[i]) { hitPaper = paperList[i]; break; }
+        }
+
+        if (hitPaper && !hitPaper.locked) {
+          // 画在纸上
+          if (!hitPaper._currentStroke) hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
+          hitPaper._currentStroke.points.push({ x: pt.x - hitPaper.x, y: pt.y - hitPaper.y, pressure });
+
+          if (!window.__paperPenRaf) {
+            window.__paperPenRaf = requestAnimationFrame(() => {
+              paperLayer.redraw();
+              window.__paperPenRaf = null;
+            });
+          }
         } else {
-          eraseCircle(ctx, px, py, eraserRadius);
-          eraseCircle(paperStrokeCtx, px, py, eraserRadius);
+          // 画在全局
+          const recent = points.slice(-12);
+          const scaleFactor = Math.sqrt(W / 800);
+          if (e.pointerType === 'pen') drawPressurePath(ctx, recent, currentColor, currentWidth, scaleFactor);
+          else drawSmoothCurve(ctx, recent, currentColor, currentWidth, scaleFactor);
         }
       }
 
-      // 胶带层用线段擦除，一次调用无残留
-      tapeLayer.eraseSegment(lastPt.x, lastPt.y, pt.x, pt.y, eraserRadius);
-      // 擦除纸张上的胶带
-      paperLayer.getPapers().forEach(p => {
-        if (!p.tapes || p.locked) return;
-        p.tapes.forEach(t => {
-          if (!t.erasedPath) t.erasedPath = [];
-          const relX1 = lastPt.x - p.x;
-          const relY1 = lastPt.y - p.y;
-          const relX2 = pt.x - p.x;
-          const relY2 = pt.y - p.y;
-          const dist = Math.hypot(relX2 - relX1, relY2 - relY1);
-          const step = Math.max(1, eraserRadius * 0.3);
-          const n = Math.max(1, Math.ceil(dist / step));
-          for (let i = 0; i <= n; i++) {
-            const ratio = i / n;
-            const px = relX1 + (relX2 - relX1) * ratio;
-            const py = relY1 + (relY2 - relY1) * ratio;
-            if (tapeLayer.hitTape(t, px, py, eraserRadius)) {
-              t.erasedPath.push({ x: px, y: py, r: eraserRadius });
-            }
-          }
-        });
-      });
-      paperLayer.save();
-      paperLayer.redraw();
-
-      // 预览
-      clearPreview();
-      previewCtx.save();
-      previewCtx.strokeStyle = '#3B82F6';
-      previewCtx.lineWidth = 2;
-      if (eraserShape === 'square') {
-        previewCtx.strokeRect(pt.x - eraserRadius, pt.y - eraserRadius, eraserRadius * 2, eraserRadius * 2);
-      } else {
-        previewCtx.beginPath();
-        previewCtx.arc(pt.x, pt.y, eraserRadius, 0, Math.PI * 2);
-        previewCtx.stroke();
-      }
-      previewCtx.restore();
-      dirty = true;
-      return;
-    }
-
-    // 画笔
-    if (drawing === true) {
-      const pressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
-      points.push({ ...pt, pressure });
-      const hitPaper = paperLayer.hitTest(pt.x, pt.y);
-      if (hitPaper && !hitPaper.locked) {
-        const relX = pt.x - hitPaper.x;
-        const relY = pt.y - hitPaper.y;
-        if (!hitPaper._currentStroke) hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
-        hitPaper._currentStroke.points.push({ x: relX, y: relY, pressure });
-        paperLayer.redraw();
-      } else {
-        const recent = points.slice(-12);
-        const scaleFactor = Math.sqrt(W / 800);
-        if (e.pointerType === 'pen') drawPressurePath(ctx, recent, currentColor, currentWidth, scaleFactor);
-        else drawSmoothCurve(ctx, recent, currentColor, currentWidth, scaleFactor);
-      }
       dirty = true;
       return;
     }
@@ -2270,6 +3162,78 @@ export async function renderAnnotator({ params, query }) {
         previewCtx.stroke();
       }
       previewCtx.restore();
+      return;
+    }
+
+    // ============ 形状拖动 / 缩放 ============
+    if (drawing === 'shape-drag' && shapeDragOffset) {
+      shapeDragOffset.move(pt.x - paperLayer.getSelectedShapes()[0].paper.x, pt.y - paperLayer.getSelectedShapes()[0].paper.y);
+      return;
+    }
+    if (drawing === 'shape-resize' && shapeDragOffset) {
+      shapeDragOffset.move(pt.x - paperLayer.getSelectedShapes()[0].paper.x, pt.y - paperLayer.getSelectedShapes()[0].paper.y);
+      return;
+    }
+
+    // 纸张上的形状预览
+    if (drawing === 'paper-shape') {
+      clearPreview();
+      previewCtx.save();
+      const p = window.__paperShapeTarget;
+      const relX1 = startPt.x - p.x;
+      const relY1 = startPt.y - p.y;
+      const relX2 = pt.x - p.x;
+      const relY2 = pt.y - p.y;
+      const bc = window.__paperShapeBorderColor;
+      const fc = window.__paperShapeFillColor;
+      const lw = window.__paperShapeWidth / Math.sqrt(W / 800);
+      const st = window.__paperShapeType;
+      // 预览时把坐标加回纸张偏移，画在预览层
+      if (st === 'arrow') drawArrow(previewCtx, startPt.x, startPt.y, pt.x, pt.y, bc, lw);
+      else if (st === 'rect') {
+        if (fc !== 'transparent' && fc !== 'none') {
+          previewCtx.fillStyle = fc;
+          previewCtx.fillRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+        }
+        previewCtx.strokeStyle = bc;
+        previewCtx.lineWidth = lw;
+        previewCtx.strokeRect(Math.min(startPt.x, pt.x), Math.min(startPt.y, pt.y), Math.abs(pt.x - startPt.x), Math.abs(pt.y - startPt.y));
+      }
+      else if (st === 'line') {
+        previewCtx.strokeStyle = bc; previewCtx.lineWidth = lw;
+        previewCtx.beginPath(); previewCtx.moveTo(startPt.x, startPt.y); previewCtx.lineTo(pt.x, pt.y); previewCtx.stroke();
+      }
+      else if (st === 'wave') drawWave(previewCtx, startPt.x, startPt.y, pt.x, pt.y, bc, lw, window.__paperShapeWave);
+      else drawPresetShape(previewCtx, st, startPt.x, startPt.y, pt.x, pt.y, bc, fc, lw);
+      previewCtx.restore();
+      return;
+    }
+    if (window.__paperShapeOpacity !== undefined) {
+      previewCtx.globalAlpha = window.__paperShapeOpacity;
+    }
+
+    // 纸张形状拖动
+    if (drawing === 'paper-shape-drag' && window.__paperShapeDrag) {
+      const d = window.__paperShapeDrag;
+      const p = d.paper;
+      const s = d.shape;
+      const relX = pt.x - p.x;
+      const relY = pt.y - p.y;
+      const newX1 = relX - d.dx;
+      const newY1 = relY - d.dy;
+      const dx = newX1 - d.origX1;
+      const dy = newY1 - d.origY1;
+      s.x1 = d.origX1 + dx;
+      s.y1 = d.origY1 + dy;
+      s.x2 = d.origX2 + dx;
+      s.y2 = d.origY2 + dy;
+      if (!window.__paperShapeDragRaf) {
+        window.__paperShapeDragRaf = requestAnimationFrame(() => {
+          paperLayer.redraw();
+          window.__paperShapeDragRaf = null;
+        });
+      }
+      dirty = true;
       return;
     }
 
@@ -2320,6 +3284,25 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
+
+
+    if (drawing === 'paper-tape-select') {
+      clearPreview();
+      previewCtx.save();
+      previewCtx.strokeStyle = '#3B82F6';
+      previewCtx.lineWidth = 2;
+      previewCtx.setLineDash([6, 4]);
+      previewCtx.fillStyle = 'rgba(59,130,246,.1)';
+      const x = Math.min(startPt.x, pt.x);
+      const y = Math.min(startPt.y, pt.y);
+      const w = Math.abs(pt.x - startPt.x);
+      const h = Math.abs(pt.y - startPt.y);
+      previewCtx.fillRect(x, y, w, h);
+      previewCtx.strokeRect(x, y, w, h);
+      previewCtx.restore();
+      return;
+    }
+
     // 纸张上画胶带
     if (drawing === 'paper-tape') {
       const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
@@ -2332,8 +3315,8 @@ export async function renderAnnotator({ params, query }) {
           paperLayer.redraw();
         }
       }
+      // 预览线
       points.push(pt);
-      // 预览
       clearPreview();
       previewCtx.save();
       previewCtx.strokeStyle = tapeLayer.getColor();
@@ -2361,43 +3344,6 @@ export async function renderAnnotator({ params, query }) {
         points.push(pt);
       }
       tapeLayer.previewTape(points, currentColor, tapeLayer.getWidth());
-      return;
-    }
-
-    if (drawing === 'paper-drag' && paperDragOffset) {
-      const p = paperDragOffset.paper;
-      p.x = pt.x - paperDragOffset.dx;
-      p.y = pt.y - paperDragOffset.dy;
-      const guides = drawGuideLines(p);
-      snapToGuide(p, guides);
-      if (!paperDragOffset._raf) paperDragOffset._raf = requestAnimationFrame(() => { paperLayer.redraw(); paperDragOffset._raf = null; });
-      dirty = true;
-      return;
-    }
-
-    // 纸张缩放
-    if (drawing === 'paper-resize' && paperDragOffset) {
-      paperDragOffset.move(pt.x, pt.y);
-      if (!paperDragOffset._raf) {
-        paperDragOffset._raf = requestAnimationFrame(() => {
-          paperLayer.redraw();
-          paperDragOffset._raf = null;
-        });
-      }
-      dirty = true;
-      return;
-    }
-
-    // 纸张旋转
-    if (drawing === 'paper-rotate' && paperDragOffset) {
-      paperDragOffset.move(pt.x, pt.y);
-      if (!paperDragOffset._raf) {
-        paperDragOffset._raf = requestAnimationFrame(() => {
-          paperLayer.redraw();
-          paperDragOffset._raf = null;
-        });
-      }
-      dirty = true;
       return;
     }
 
@@ -2448,16 +3394,29 @@ export async function renderAnnotator({ params, query }) {
     return inside;
   }
 
-  strokeCanvas.addEventListener('pointerup', (e) => {
+  canvasWrap.addEventListener('pointerup', (e) => {
     pointers.delete(e.pointerId);
-    if (window.__eraserRaf) { cancelAnimationFrame(window.__eraserRaf); window.__eraserRaf = null; }
+    if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
 
+    // 👇 这里不要提前把 drawing 设为 false，必须保留状态，让下面的分支去清空
     if (drawing === 'pinch') { if (pointers.size < 2) drawing = false; return; }
-    if (drawing === 'pan') { if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; } drawing = false; return; }
+    if (drawing === 'pan') { drawing = false; return; }
 
     const pt = canvasToImage(e.clientX, e.clientY);
 
-    if (drawing === 'eraser' || drawing === true) {
+    // ============ 形状拖动 / 缩放结束 ============
+    if (drawing === 'shape-drag' || drawing === 'shape-resize') {
+      if (shapeDragOffset && shapeDragOffset.end) shapeDragOffset.end();
+      shapeDragOffset = null;
+      drawing = false;
+      updateSubToolbar();
+      return;
+    }
+
+
+    // ============ 画笔 / 橡皮 结束 ============
+    if (drawing === 'pen' || drawing === 'eraser') {
+      // 1. 保存纸张上的笔迹
       paperLayer.getPapers().forEach(p => {
         if (p._currentStroke) {
           if (!p.strokes) p.strokes = [];
@@ -2467,39 +3426,31 @@ export async function renderAnnotator({ params, query }) {
       });
       paperLayer.save();
       paperLayer.redraw();
-      drawing = false;
+      tapeLayer.redraw();
+
+      drawing = false; // 在这里清空
       clearPreview();
+
+      if (dirty) {
+        if (typeof setSaveStatus === 'function') setSaveStatus('saving');
+        saveAll(false).then(() => {
+          if (typeof setSaveStatus === 'function') setSaveStatus('saved');
+        }).catch(() => { });
+      }
       return;
     }
 
+    // ... 下面保留你原来的圈擦、形状、胶带等结束逻辑 ...
+
+    // ============ 圈擦 结束 ============
     if (drawing === 'circle-erase') {
       if (eraseShape === 'rect') {
         eraseRect(ctx, startPt.x, startPt.y, pt.x, pt.y);
         eraseRect(paperStrokeCtx, startPt.x, startPt.y, pt.x, pt.y);
-        // 胶带：矩形区域内逐点擦
-        const minX = Math.min(startPt.x, pt.x);
-        const maxX = Math.max(startPt.x, pt.x);
-        const minY = Math.min(startPt.y, pt.y);
-        const maxY = Math.max(startPt.y, pt.y);
-        const step = 10;
-        for (let x = minX; x <= maxX; x += step) {
-          for (let y = minY; y <= maxY; y += step) {
-            tapeLayer.eraseAt(x, y, 15);
-          }
-        }
       } else if (eraseShape === 'circle') {
         const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
         eraseCircle(ctx, startPt.x, startPt.y, r);
         eraseCircle(paperStrokeCtx, startPt.x, startPt.y, r);
-        // 胶带：圆形区域内逐点擦
-        const step = 10;
-        for (let x = startPt.x - r; x <= startPt.x + r; x += step) {
-          for (let y = startPt.y - r; y <= startPt.y + r; y += step) {
-            if (Math.hypot(x - startPt.x, y - startPt.y) <= r) {
-              tapeLayer.eraseAt(x, y, 15);
-            }
-          }
-        }
       } else if (eraseShape === 'free' && eraseFreePath && eraseFreePath.length > 2) {
         const doFreeErase = (targetCtx) => {
           targetCtx.save();
@@ -2513,28 +3464,134 @@ export async function renderAnnotator({ params, query }) {
         };
         doFreeErase(ctx);
         doFreeErase(paperStrokeCtx);
-        // 胶带：自由形状区域内逐点擦
+      }
+
+      if (eraseShape === 'rect') {
+        const minX = Math.min(startPt.x, pt.x);
+        const maxX = Math.max(startPt.x, pt.x);
+        const minY = Math.min(startPt.y, pt.y);
+        const maxY = Math.max(startPt.y, pt.y);
+        for (let x = minX; x <= maxX; x += 10) {
+          for (let y = minY; y <= maxY; y += 10) {
+            tapeLayer.eraseAt(x, y, 15);
+          }
+        }
+      } else if (eraseShape === 'circle') {
+        const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
+        for (let x = startPt.x - r; x <= startPt.x + r; x += 10) {
+          for (let y = startPt.y - r; y <= startPt.y + r; y += 10) {
+            if (Math.hypot(x - startPt.x, y - startPt.y) <= r) tapeLayer.eraseAt(x, y, 15);
+          }
+        }
+      } else if (eraseShape === 'free' && eraseFreePath && eraseFreePath.length > 2) {
         let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
         eraseFreePath.forEach(p => {
           minX = Math.min(minX, p.x); maxX = Math.max(maxX, p.x);
           minY = Math.min(minY, p.y); maxY = Math.max(maxY, p.y);
         });
-        const step = 10;
-        for (let x = minX; x <= maxX; x += step) {
-          for (let y = minY; y <= maxY; y += step) {
-            // 点在多边形内判断
-            if (isPointInPolygon(x, y, eraseFreePath)) {
-              tapeLayer.eraseAt(x, y, 15);
-            }
+        for (let x = minX; x <= maxX; x += 10) {
+          for (let y = minY; y <= maxY; y += 10) {
+            if (isPointInPolygon(x, y, eraseFreePath)) tapeLayer.eraseAt(x, y, 15);
           }
         }
-        eraseFreePath = null;
       }
+
+      paperLayer.getPapers().forEach(p => {
+        if (!p.strokes || p.locked) return;
+        let changed = false;
+        const newStrokes = [];
+        p.strokes.forEach(s => {
+          if (!s.points || s.points.length < 2) { newStrokes.push(s); return; }
+          const segments = [];
+          let current = [];
+          for (let i = 0; i < s.points.length - 1; i++) {
+            const a = s.points[i];
+            const b = s.points[i + 1];
+            const segLen = Math.hypot(b.x - a.x, b.y - a.y);
+            const steps = Math.max(1, Math.ceil(segLen / 2));
+            for (let j = 0; j <= steps; j++) {
+              const t = j / steps;
+              const sp = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+              const sx = sp.x + p.x;
+              const sy = sp.y + p.y;
+              let hit = false;
+              if (eraseShape === 'rect') {
+                const minX = Math.min(startPt.x, pt.x);
+                const maxX = Math.max(startPt.x, pt.x);
+                const minY = Math.min(startPt.y, pt.y);
+                const maxY = Math.max(startPt.y, pt.y);
+                hit = sx >= minX && sx <= maxX && sy >= minY && sy <= maxY;
+              } else if (eraseShape === 'circle') {
+                const r = Math.hypot(pt.x - startPt.x, pt.y - startPt.y);
+                hit = Math.hypot(sx - startPt.x, sy - startPt.y) <= r;
+              } else if (eraseShape === 'free' && eraseFreePath && eraseFreePath.length > 2) {
+                hit = isPointInPolygon(sx, sy, eraseFreePath);
+              }
+              if (hit) {
+                if (current.length >= 2) segments.push(current);
+                current = [];
+              } else {
+                current.push(sp);
+              }
+            }
+          }
+          if (current.length >= 2) segments.push(current);
+          if (segments.length === 0) { changed = true; return; }
+          if (segments.length === 1 && segments[0].length === s.points.length) { newStrokes.push(s); return; }
+          changed = true;
+          newStrokes.push({ ...s, points: segments[0] });
+          for (let i = 1; i < segments.length; i++) newStrokes.push({ ...s, points: segments[i] });
+        });
+        p.strokes = newStrokes;
+        if (changed) { paperLayer.save(); paperLayer.redraw(); }
+      });
+      eraseFreePath = null;
       clearPreview();
       drawing = false;
       return;
     }
 
+    // ============ 纸张形状拖动结束 ============
+    if (drawing === 'paper-shape-drag') {
+      if (window.__paperShapeDragRaf) { cancelAnimationFrame(window.__paperShapeDragRaf); window.__paperShapeDragRaf = null; }
+      if (window.__paperShapeDrag) {
+        window.__paperShapeDrag.paper && paperLayer.save();
+        window.__paperShapeDrag = null;
+      }
+      drawing = false;
+      return;
+    }
+
+    // ============ 纸张上的形状保存 ============
+    if (drawing === 'paper-shape') {
+      clearPreview();
+      const p = window.__paperShapeTarget;
+      if (p) {
+        const relX1 = startPt.x - p.x;
+        const relY1 = startPt.y - p.y;
+        const relX2 = pt.x - p.x;
+        const relY2 = pt.y - p.y;
+        if (!p.shapes) p.shapes = [];
+        p.shapes.push({
+          id: crypto.randomUUID(),
+          type: window.__paperShapeType,
+          x1: relX1, y1: relY1, x2: relX2, y2: relY2,
+          borderColor: window.__paperShapeBorderColor,
+          fillColor: window.__paperShapeFillColor,
+          width: window.__paperShapeWidth,
+          waveAmplitude: window.__paperShapeWave,
+          visible: true,
+          locked: false,
+        });
+        paperLayer.save();
+        paperLayer.redraw();
+      }
+      drawing = false;
+      dirty = true;
+      return;
+    }
+
+    // ============ 全局图形保存 ============
     if (['arrow', 'rect', 'line', 'wave', 'circle', 'triangle', 'star', 'dialog', 'flag', 'check', 'cross', 'ban', 'custom-image'].includes(drawing)) {
       const bc = window.__shapeBorderColor || currentColor;
       const fc = window.__shapeFillColor || 'transparent';
@@ -2564,8 +3621,15 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    if (drawing === 'tape-drag' || drawing === 'tape-rotate') { if (tapeDragOffset && tapeDragOffset.end) tapeDragOffset.end(); drawing = false; tapeDragOffset = null; return; }
+    // ============ 全局胶带拖动结束 ============
+    if (drawing === 'tape-drag' || drawing === 'tape-rotate') {
+      if (tapeDragOffset && tapeDragOffset.end) tapeDragOffset.end();
+      drawing = false;
+      tapeDragOffset = null;
+      return;
+    }
 
+    // ============ 全局胶带框选结束 ============
     if (drawing === 'tape-select') {
       clearPreview();
       const pt2 = canvasToImage(e.clientX, e.clientY);
@@ -2574,11 +3638,8 @@ export async function renderAnnotator({ params, query }) {
       if (w > 10 && h > 10) {
         tapeLayer.selectInRect(startPt.x, startPt.y, pt2.x, pt2.y);
         const count = tapeLayer.getSelectedIds().length;
-        if (count > 0) {
-          toastSuccess(`已选中 ${count} 条胶带`);
-        }
+        if (count > 0) toastSuccess(`已选中 ${count} 条胶带`);
       }
-      // 框选完自动退出框选模式
       tapeSelectMode = false;
       drawing = false;
       startPt = null;
@@ -2587,44 +3648,93 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    if (drawing === 'paper-tape') {
+    // ============ 纸张胶带框选结束 ============
+    if (drawing === 'paper-tape-select') {
       clearPreview();
-      const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
-      if (hitPaper) {
-        if (hitPaper._currentTape.points.length >= 2) {
-          if (!hitPaper.tapes) hitPaper.tapes = [];
-          hitPaper.tapes.push({
-            ...hitPaper._currentTape,
-            id: crypto.randomUUID(),
+      const pt2 = canvasToImage(e.clientX, e.clientY);
+      const x1 = Math.min(startPt.x, pt2.x);
+      const x2 = Math.max(startPt.x, pt2.x);
+      const y1 = Math.min(startPt.y, pt2.y);
+      const y2 = Math.max(startPt.y, pt2.y);
+      const w = x2 - x1;
+      const h = y2 - y1;
+
+      if (w > 10 && h > 10) {
+        paperLayer.getPapers().forEach(p => {
+          if (!p.tapes || p.visible === false) return;
+          p.tapes.forEach(t => {
+            if (t.visible === false) return;
+            if (!t.points || t.points.length < 2) return;
+            let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+            t.points.forEach(pt3 => {
+              minX = Math.min(minX, pt3.x + p.x);
+              maxX = Math.max(maxX, pt3.x + p.x);
+              minY = Math.min(minY, pt3.y + p.y);
+              maxY = Math.max(maxY, pt3.y + p.y);
+            });
+            if (maxX >= x1 && minX <= x2 && maxY >= y1 && minY <= y2) {
+              if (!paperTapeSelectedList.find(item => item.tape.id === t.id)) {
+                paperTapeSelectedList.push({ paper: p, tape: t });
+              }
+            }
           });
-          paperLayer.save();
-          paperLayer.redraw();
+        });
+        window.__paperTapeSelectedList = paperTapeSelectedList;
+        if (paperTapeSelectedList.length > 0) {
+          paperTapeSelected = paperTapeSelectedList[0];
+          toastSuccess(`已选中 ${paperTapeSelectedList.length} 条纸张胶带`);
+        } else {
+          toastError('没有选中任何胶带');
         }
-        delete hitPaper._currentTape;
+        paperLayer.redraw();
       }
+
+      paperTapeSelectMode = false;
       drawing = false;
+      startPt = null;
       points = [];
+      updateSubToolbar();
       return;
     }
 
-    // 纸张上画胶带结束
+    // ============ 纸张上画胶带结束 ============
     if (drawing === 'paper-tape') {
       clearPreview();
       const hitPaper = paperLayer.getPapers().find(p => p._currentTape);
-      if (hitPaper) {
-        if (hitPaper._currentTape.points.length >= 2) {
-          if (!hitPaper.tapes) hitPaper.tapes = [];
-          hitPaper.tapes.push(hitPaper._currentTape);
-          paperLayer.save();
-          paperLayer.redraw();
-        }
-        delete hitPaper._currentTape;
+      if (hitPaper && hitPaper._currentTape.points.length >= 2) {
+        const p = hitPaper;
+        const globalPoints = p._currentTape.points.map(pt => {
+          let x = pt.x + p.x;
+          let y = pt.y + p.y;
+          if (p.rotation) {
+            const rad = p.rotation * Math.PI / 180;
+            const cx = p.x + p.w / 2;
+            const cy = p.y + p.h / 2;
+            const dx = x - cx; const dy = y - cy;
+            x = cx + dx * Math.cos(rad) - dy * Math.sin(rad);
+            y = cy + dx * Math.sin(rad) + dy * Math.cos(rad);
+          }
+          return { x, y };
+        });
+
+        tapeLayer.getTapes().push({
+          ...p._currentTape,
+          id: crypto.randomUUID(),
+          points: globalPoints,
+          _boundPaperId: p.id,
+          visible: true,
+        });
+
+        store.saveTape(imageId, tapeLayer.getTapes());
+        tapeLayer.redrawAsync();
       }
+      if (hitPaper) delete hitPaper._currentTape;
       drawing = false;
       points = [];
       return;
     }
 
+    // ============ 全局胶带画完结束 ============
     if (drawing === 'tape') {
       tapeLayer.previewTape([], '', 0);
       if (points.length >= 2) {
@@ -2636,16 +3746,7 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    if (drawing === 'paper-drag' || drawing === 'paper-resize' || drawing === 'paper-rotate') {
-      clearPreview();
-      if (paperDragOffset && paperDragOffset._raf) { cancelAnimationFrame(paperDragOffset._raf); paperDragOffset._raf = null; }
-      if (paperDragOffset && paperDragOffset.end) paperDragOffset.end();
-      if (paperDragOffset && paperDragOffset.paper) paperLayer.save();
-      drawing = false;
-      paperDragOffset = null;
-      return;
-    }
-
+    // ============ 文字缩放/旋转结束 ============
     if (drawing === 'text-resize' || drawing === 'text-rotate') {
       if (textDragOffset && textDragOffset._raf) { cancelAnimationFrame(textDragOffset._raf); textDragOffset._raf = null; }
       if (textDragOffset && textDragOffset.end) textDragOffset.end();
@@ -2655,17 +3756,45 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
+    // ============ 文字拖动结束 ============
     if (drawing === 'text-drag') {
       clearPreview();
       if (textDragOffset && textDragOffset._raf) { cancelAnimationFrame(textDragOffset._raf); textDragOffset._raf = null; }
       textLayer.save();
       drawing = false;
       textDragOffset = null;
+    }
+
+    // ============ 纸张拖动结束 ============
+    if (drawing === 'paper-drag') {
+      clearPreview(); // 清除辅助线
+      if (paperDragOffset && paperDragOffset._raf) {
+        cancelAnimationFrame(paperDragOffset._raf);
+        paperDragOffset._raf = null;
+      }
+      if (paperDragOffset && paperDragOffset.paper) {
+        paperLayer.save(); // 保存纸张坐标
+      }
+      store.saveTape(imageId, tapeLayer.getTapes());
+
+      drawing = false; // 核心：结束拖动状态
+      paperDragOffset = null;
+      updateSubToolbar();
       return;
+    }
+
+    // ============ 每次操作结束，自动保存 ============
+    if (dirty) {
+      if (typeof setSaveStatus === 'function') setSaveStatus('saving');
+      saveAll(false).then(() => {
+        if (typeof setSaveStatus === 'function') setSaveStatus('saved');
+      }).catch(() => {
+        if (typeof setSaveStatus === 'function') setSaveStatus('error');
+      });
     }
   });
 
-  strokeCanvas.addEventListener('pointercancel', (e) => {
+  canvasWrap.addEventListener('pointercancel', (e) => {
     pointers.delete(e.pointerId);
     drawing = false;
     clearPreview();
@@ -2676,21 +3805,33 @@ export async function renderAnnotator({ params, query }) {
     paperDragOffset = null;
     textDragOffset = null;
     tapeDragOffset = null;
+    paperDragOffset = null;
+    textDragOffset = null;
+    tapeDragOffset = null;
+    shapeDragOffset = null;
+    if (shapeSelectTimer) { clearTimeout(shapeSelectTimer); shapeSelectTimer = null; }
   });
 
-  strokeCanvas.addEventListener('wheel', (e) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const rect = strokeCanvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      const delta = -e.deltaY * 0.002;
-      const newScale = Math.max(0.3, Math.min(10, scale * (1 + delta)));
-      offsetX -= mx * (newScale / scale - 1);
-      offsetY -= my * (newScale / scale - 1);
-      scale = newScale;
-      updateTransform();
-    }
+  // ============ 鼠标滚轮缩放（绑定到最外层容器） ============
+  canvasWrap.addEventListener('wheel', (e) => {
+    // 阻止页面滚动
+    e.preventDefault();
+
+    // 使用 Ctrl + 滚轮，或者直接滚轮都可以缩放（如果你想直接滚轮缩放，去掉 e.ctrlKey 的判断即可）
+    const rect = strokeCanvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left;
+    const my = e.clientY - rect.top;
+
+    // 计算缩放比例
+    const delta = -e.deltaY * 0.002;
+    const newScale = Math.max(0.3, Math.min(10, scale * (1 + delta)));
+
+    // 以鼠标位置为中心进行缩放
+    offsetX -= mx * (newScale / scale - 1);
+    offsetY -= my * (newScale / scale - 1);
+
+    scale = newScale;
+    updateTransform();
   }, { passive: false });
 
   // ============ 初始化 ============

@@ -438,7 +438,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     }
     renderList();
 
-    const mask = el('div', { class: 'confirm-mask' }, [
+    const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } }, [
       el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
         el('h3', { text: '文字列表' }),
         el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [

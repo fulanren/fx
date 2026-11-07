@@ -517,14 +517,9 @@ body {
 
 /* ============ 确认框 ============ */
 .confirm-mask {
-  position: fixed;
-  inset: 0;
-  z-index: 400;
-  background: rgba(0, 0, 0, .4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  position: fixed; inset: 0; z-index: 99999; 
+  background: rgba(0,0,0,.4);
+  display: flex; align-items: center; justify-content: center; padding: 20px;
 }
 
 .confirm-box {
@@ -803,20 +798,18 @@ body {
   bottom: 0;
   left: 0;
   right: 0;
-  z-index: 200;
-  /* ← 必须比 canvas 高 */
+  z-index: 9999; /* 提高到 9999，绝对不被画布挡住 */
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 6px;
   padding: 8px 8px calc(8px + var(--safe-b));
-  pointer-events: none;
-  /* ← 容器不拦截，子元素才拦截 */
+  pointer-events: none; /* 容器不拦截，让下面的事件穿透 */
 }
 
-.annotator-bottom-bar>* {
+/* 容器内的所有子元素（工具栏、面板）必须允许点击 */
+.annotator-bottom-bar > * {
   pointer-events: auto;
-  /* ← 子元素恢复点击 */
 }
 
 .tool-btn {
@@ -1266,21 +1259,6 @@ body {
    标注页新增样式（追加，不覆盖旧样式）
    ============================================================ */
 
-/* 底部工具容器：垂直堆叠，防止重叠 */
-.annotator-bottom-bar {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 200;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 6px;
-  padding: 8px 8px calc(8px + var(--safe-b));
-  pointer-events: none;
-}
-
 .annotator-bottom-bar>* {
   pointer-events: auto;
 }
@@ -1596,4 +1574,9 @@ body {
   position: relative;
   z-index: 1;
   transition: transform .15s, box-shadow .15s;
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
 }
