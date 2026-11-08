@@ -1,5 +1,5 @@
 ﻿const DB_NAME = 'kaogong_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 let dbPromise = null;
 
 export function openDB() {
@@ -11,6 +11,9 @@ export function openDB() {
       ['images', 'patterns', 'audios', 'audio_chunks', 'ocr_cache', 'backups', 'attachments', 'versions'].forEach(name => {
         if (!db.objectStoreNames.contains(name)) db.createObjectStore(name, { keyPath: 'id' });
       });
+      if (!db.objectStoreNames.contains('pdfs')) {
+        db.createObjectStore('pdfs', { keyPath: 'id' });
+      }
     };
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);

@@ -7,7 +7,7 @@ import { confirmBox } from '../ui/confirm.js';
 import { mergeModal } from '../ui/mergeModal.js';
 import { makeSortable } from '../ui/sortable.js';
 import { getImageCached } from '../db.js';
-import { globalImportDocModal, globalBatchImportModal } from './importDoc.js';
+import { globalImportDocModal } from './importDoc.js';
 
 // ============ 导出格式选择菜单 ============
 function showExportMenu(scope, id) {
@@ -189,7 +189,7 @@ function chapterCard(c, taskId) {
     ]),
     !chMulti ? el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
-      // 👇 新增：缩小版的上下移按钮
+      // 缩小版的上下移按钮
       el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
       // 👇 删除按钮
@@ -336,6 +336,14 @@ export function renderChapterDetail({ params }) {
       class: 'fab', text: '+', 'aria-label': '新建知识点',
       onClick: () => navigate(`#/edit-point/new?chapterId=${chapter.id}`),
     }));
+  }
+
+  const savedScroll = sessionStorage.getItem('scroll_y_chapter');
+  if (savedScroll) {
+    setTimeout(() => {
+      window.scrollTo(0, parseInt(savedScroll));
+      sessionStorage.removeItem('scroll_y_chapter'); // 恢复完就清掉
+    }, 50);
   }
 }
 
@@ -507,7 +515,14 @@ function pointCard(p, chapterId) {
       })(),
     ]) : null,
     el('div', { class: 'card-actions' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-point/${p.id}`); } }),
+      el('button', { 
+  class: 'btn btn-sm btn-ghost', text: '编辑', 
+  onClick: (e) => { 
+    e.stopPropagation(); 
+    sessionStorage.setItem('scroll_y_chapter', window.scrollY); // 👈 加这一行
+    navigate(`#/edit-point/${p.id}`); 
+  } 
+}),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: p.isErrorProne ? '取消易错' : '标记易错',
         onClick: (e) => { e.stopPropagation(); store.updatePoint(p.id, { isErrorProne: !p.isErrorProne }); renderChapterDetail({ params: { id: chapterId } }); },

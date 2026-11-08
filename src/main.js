@@ -3,7 +3,6 @@ import { storageSelfCheck } from './db.js';
 import { register, startRouter, navigate } from './router.js';
 import { flushAll } from './store.js';
 import * as store from './store.js';
-import { toastError } from './ui/toast.js';
 import { initTheme } from './ui/theme.js';
 import { initShortcuts } from './ui/shortcuts.js';
 import { el } from './utils/dom.js';
@@ -23,13 +22,17 @@ import { renderHelp } from './views/help.js';
 import { renderTemplate } from './views/template.js';
 import { renderCountdownPage } from './views/countdownPage.js';
 import { renderErrorBook } from './views/errorBook.js';
+import { toastError, toastSuccess } from './ui/toast.js';
+import { renderPdfViewer } from './views/pdfViewer.js';
+import { renderUploadPdf } from './views/uploadPdf.js';
 
 async function boot() {
   migrate();
+  await migrateImageNames();
 
   const check = await storageSelfCheck();
   if (!check.ok) { showStorageError(); return; }
-  
+
   // 申请持久化存储，防止浏览器自动清理数据（只写一次就够了）
   if (navigator.storage?.persist) {
     try {
@@ -45,7 +48,7 @@ async function boot() {
 
   initTheme();
   // ============ 新增：暗黑模式切换按钮 ============
-    const btnMore = document.getElementById('btn-more');
+  const btnMore = document.getElementById('btn-more');
   if (btnMore) {
     // 1. 生成暗黑模式切换按钮并插入
     const themeBtn = el('button', {
@@ -67,6 +70,23 @@ async function boot() {
     });
     btnMore.parentNode.insertBefore(themeBtn, btnMore);
 
+    const quickNoteBtn = el('button', {
+      class: 'btn btn-sm btn-ghost',
+      style: { fontSize: '18px', marginLeft: '8px' },
+      text: '⚡️',
+      title: '速记',
+      onClick: () => {
+        const text = prompt('⚡️ 速记：随手记下灵感或错题');
+        if (text && text.trim()) {
+          store.addInbox(text.trim());
+          toastSuccess('已存入速记收件箱');
+        }
+      }
+    });
+    btnMore.parentNode.insertBefore(quickNoteBtn, btnMore);
+
+    attachLongPressTooltip(themeBtn, '切换暗黑/浅色模式');
+
     // 2. 绑定右上角 ⋮ 按钮的点击事件（你之前漏掉的）
     btnMore.onclick = (e) => {
       e.stopPropagation();
@@ -74,7 +94,7 @@ async function boot() {
     };
   }
 
-    // ============ 新增：全局快捷键 ============
+  // ============ 新增：全局快捷键 ============
   window.addEventListener('keydown', (e) => {
     // 如果正在输入框里打字，则不触发快捷键
     if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
@@ -84,6 +104,7 @@ async function boot() {
       e.preventDefault();
       navigate('#/search');
       return;
+
     }
 
     // 新建知识点：N 键
@@ -112,6 +133,12 @@ async function boot() {
       if (window.doReviewRating) {
         window.doReviewRating(rating);
       }
+    }
+
+    if (location.hash.startsWith('#/review') && window.__reviewRate) {
+      if (e.key === '1') { e.preventDefault(); window.__reviewRate('forgot'); }
+      if (e.key === '2') { e.preventDefault(); window.__reviewRate('vague'); }
+      if (e.key === '3') { e.preventDefault(); window.__reviewRate('remember'); }
     }
   });
 
@@ -145,12 +172,15 @@ async function boot() {
   register('/search', renderSearch);
   register('/inbox', renderInbox);
   register('/annotate/:id', renderAnnotator);
-  register('/compose', renderComposer);
+  register('/composer', renderComposer);
   register('/settings', renderSettings);
   register('/help', renderHelp);
   register('/template', renderTemplate);
   register('/countdown', renderCountdownPage);
   register('/error-book', renderErrorBook);
+  register('/pdf-viewer/:id', renderPdfViewer);
+  register('/upload-pdf/:id', renderUploadPdf);
+  
 
   startRouter();
 
@@ -185,6 +215,14 @@ async function boot() {
       const dyn = document.getElementById('topbar-dynamic');
       if (dyn) dyn.innerHTML = '';
     }
+
+    // 切换页面时，自动隐藏或显示速记按钮
+    const fab = document.getElementById('fab-quick-note');
+    if (fab) {
+      const hidePages = ['#/annotate/', '#/edit-point/', '#/edit-chapter/', '#/edit-task/'];
+      const shouldHide = hidePages.some(page => location.hash.startsWith(page));
+      fab.style.display = shouldHide ? 'none' : 'flex';
+    }
   });
 
   initShortcuts();
@@ -205,17 +243,17 @@ function openMoreMenu() {
   const existing = document.getElementById('more-menu');
   if (existing) { existing.remove(); return; }
 
-    const items = [
+  const items = [
     { icon: '📚', label: '背诵', href: '#/' },
     { icon: '🎯', label: '复习', href: '#/review' },
     { icon: '🔍', label: '搜索', href: '#/search' },
     { icon: '📥', label: '速记', href: '#/inbox' },
-    
+
     // 👇 以下 3 个是录入相关的
     { icon: '📑', label: '资料模板', href: '#/template' },
     { icon: '📄', label: '导入文件（支持自动分章）', action: 'importDoc' },
     { icon: '📋', label: '批量粘贴文本', action: 'batchImport' },
-    
+
     { icon: '⏰', label: '考试倒计时', href: '#/countdown' },
     { icon: '🗑', label: '回收站', href: '#/trash' },
     { icon: '❓', label: '帮助', href: '#/help' },
@@ -396,6 +434,80 @@ function showStorageError() {
       </div>
     </div>
   `;
+}
+
+// ============ 全局长按提示 ============
+function attachLongPressTooltip(btn, text) {
+  let timer = null;
+  let tooltipEl = null;
+
+  const show = () => {
+    if (tooltipEl) return;
+    const rect = btn.getBoundingClientRect();
+    tooltipEl = document.createElement('div');
+    tooltipEl.style.cssText = `
+      position: fixed;
+      left: ${rect.left + rect.width / 2}px;
+      top: ${rect.bottom + 8}px;
+      transform: translateX(-50%);
+      background: rgba(43,45,66,.95);
+      color: #fff;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      white-space: nowrap;
+      pointer-events: none;
+      z-index: 9999;
+    `;
+    tooltipEl.textContent = text;
+    document.body.appendChild(tooltipEl);
+  };
+
+  const hide = () => {
+    if (tooltipEl) {
+      tooltipEl.remove();
+      tooltipEl = null;
+    }
+  };
+
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    timer = setTimeout(show, 500); // 长按 0.5 秒显示
+  });
+
+  btn.addEventListener('pointerup', () => {
+    clearTimeout(timer);
+    setTimeout(hide, 1000); // 松手后 1 秒消失
+  });
+
+  btn.addEventListener('pointerleave', () => {
+    clearTimeout(timer);
+    hide();
+  });
+}
+
+// ============ 一次性迁移：给旧图片补 name 字段 ============
+async function migrateImageNames() {
+  if (localStorage.getItem('kg_migrated_imgname') === '1') return;
+  try {
+    const { dbAll, dbPut } = await import('./db.js');
+    const all = await dbAll('images');
+    let count = 0;
+    for (const r of all) {
+      if (r.type === 'pdf_placeholder') continue;
+      if (!r.name) {
+        r.name = `图片_${r.id.slice(0, 6)}`;
+        await dbPut('images', r);
+        count++;
+      }
+    }
+    if (count > 0) {
+      console.log(`[迁移] 已为 ${count} 张旧图片补 name 字段`);
+    }
+    localStorage.setItem('kg_migrated_imgname', '1');
+  } catch (e) {
+    console.warn('[迁移] 图片 name 补全失败:', e);
+  }
 }
 
 boot().catch(e => {

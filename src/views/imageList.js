@@ -2,456 +2,494 @@ import { el } from '../utils/dom.js';
 import * as store from '../store.js';
 import { dbGet, dbPut, dbDelete } from '../db.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
+import { uuid } from '../utils/id.js';
 
-// 全局状态，防止刷新时丢失
-let globalMultiMode = false;
-let globalSelectedIds = new Set();
-let globalExpanded = false; // 控制是否展开所有图片
+// 全局状态记忆
+let activeTab = 'images'; // 'images' | 'pdfs'
+let viewMode = 'both'; // 'both' | 'thumb' | 'name'
+let isMulti = false;
+let selected = new Set();
 
 export function renderImageList(point, onRefresh) {
   const wrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } });
-  
   const latestPoint = store.getPoint(point.id) || point;
   const allIds = [...(latestPoint.imageIds || []), ...(latestPoint.compositeImageIds || [])];
-  
-  if (allIds.length === 0) {
-    globalMultiMode = false;
-    globalSelectedIds.clear();
-    globalExpanded = false;
-    wrap.appendChild(createUploadBox(latestPoint, onRefresh, true));
-    return wrap;
+
+  // ============ 1. 顶部 Tab 切换 ============
+  const tabsWrap = el('div', { style: { display: 'flex', gap: '8px', borderBottom: '1px solid rgba(0,0,0,.06)', paddingBottom: '8px' } }, [
+    el('button', {
+      class: 'btn btn-sm ' + (activeTab === 'images' ? 'btn-primary' : 'btn-ghost'),
+      text: `🖼 图片`,
+      onClick: () => { activeTab = 'images'; onRefresh(); }
+    }),
+    el('button', {
+      class: 'btn btn-sm ' + (activeTab === 'pdfs' ? 'btn-primary' : 'btn-ghost'),
+      text: `📄 PDF 文档`,
+      onClick: () => { activeTab = 'pdfs'; onRefresh(); }
+    })
+  ]);
+  wrap.appendChild(tabsWrap);
+
+  // ============ 2. 顶部操作栏 ============
+  // 👇 工具函数：收集当前知识点下所有已存在的文件名
+  async function collectExistingNames(pt) {
+    const names = new Set();
+    for (const id of [...(pt.imageIds || []), ...(pt.compositeImageIds || [])]) {
+      const r = await dbGet('images', id);
+      if (!r) continue;
+      if (r.type === 'pdf_placeholder') { if (r.pdfName) names.add(r.pdfName); }
+      else if (r.name) { names.add(r.name); }
+    }
+    return names;
   }
 
-  // 计算要展示的 ID 列表
-  const displayIds = globalExpanded ? allIds : allIds.slice(0, 3);
-  const hasMore = allIds.length > 3;
-
-  // ============ 头部工具栏 ============
-  const header = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '8px' } });
-  
-  const titleRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-      el('span', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `共 ${allIds.length} 张图片` }),
-      hasMore ? el('button', {
-        class: 'btn btn-sm btn-ghost', text: globalExpanded ? '收起' : '展开全部',
-        style: { padding: '2px 8px', fontSize: '12px', minHeight: '24px' },
-        onClick: () => { globalExpanded = !globalExpanded; onRefresh(); }
-      }) : null
-    ]),
+  const topBar = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } }, [
+    // 左侧：加文件按钮
     el('div', { style: { display: 'flex', gap: '8px' } }, [
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: globalMultiMode ? '取消多选' : '☑ 多选',
+      activeTab === 'images' ? el('button', {
+        class: 'btn btn-sm btn-primary', text: '+ 加图片',
         onClick: () => {
-          globalMultiMode = !globalMultiMode;
-          globalSelectedIds.clear();
-          onRefresh();
+          const input = document.createElement('input');
+          input.type = 'file'; input.accept = 'image/*'; input.multiple = true;
+          input.onchange = async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            const pt = store.getPoint(point.id); if (!pt.imageIds) pt.imageIds = [];
+            // 👇 收集已有名字
+            const existingNames = await collectExistingNames(pt);
+            let added = 0, skipped = 0;
+            for (const f of files) {
+              // 👇 重名拦截
+              if (existingNames.has(f.name)) {
+                toastError(`"${f.name}" 已存在，跳过`);
+                skipped++;
+                continue;
+              }
+              const img = new Image(); const url = URL.createObjectURL(f);
+              await new Promise(r => { img.onload = r; img.src = url; });
+              const id = uuid();
+              await dbPut('images', {
+                id, name: f.name,  // 👈 关键：给图片记录加上 name 字段
+                originalBlob: f, annotatedBlob: f,
+                width: img.width, height: img.height, dpr: 1,
+                source: 'upload', createdAt: new Date().toISOString()
+              });
+              URL.revokeObjectURL(url);
+              pt.imageIds.push(id);
+              existingNames.add(f.name);
+              added++;
+            }
+            store.updatePoint(pt.id, { imageIds: pt.imageIds });
+            if (added > 0) toastSuccess(`已添加 ${added} 张图片${skipped ? `，跳过 ${skipped} 个重名` : ''}`);
+            onRefresh();
+          };
+          input.click();
+        }
+      }) : null,
+
+      activeTab === 'pdfs' ? el('button', {
+        class: 'btn btn-sm btn-primary', text: '+ 加 PDF', style: { background: 'var(--accent)' },
+        onClick: () => {
+          const input = document.createElement('input');
+          input.type = 'file'; input.accept = 'application/pdf'; input.multiple = true;
+          input.onchange = async (e) => {
+            const files = Array.from(e.target.files || []);
+            if (files.length === 0) return;
+            const pt = store.getPoint(point.id);
+            // 👇 收集已有名字
+            const existingNames = await collectExistingNames(pt);
+            let added = 0, skipped = 0;
+            toastSuccess(`正在导入…`);
+            for (const file of files) {
+              // 👇 重名拦截
+              if (existingNames.has(file.name)) {
+                toastError(`PDF "${file.name}" 已存在，跳过`);
+                skipped++;
+                continue;
+              }
+              const pdfId = uuid();
+              await dbPut('pdfs', { id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString() });
+              const fakeImgId = uuid();
+              await dbPut('images', {
+                id: fakeImgId, type: 'pdf_placeholder',
+                originalBlob: new Blob([], { type: 'text/plain' }),
+                annotatedBlob: new Blob([], { type: 'text/plain' }),
+                width: 0, height: 0, dpr: 1,
+                pdfId: pdfId, pdfName: file.name, pdfPages: '?',
+                createdAt: new Date().toISOString()
+              });
+              store.addImageToPoint(point.id, fakeImgId);
+              existingNames.add(file.name);
+              added++;
+            }
+            toastSuccess(`已导入 ${added} 个 PDF${skipped ? `，跳过 ${skipped} 个重名` : ''}`);
+            setTimeout(() => onRefresh(), 300);
+          };
+          input.click();
+        }
+      }) : null,
+    ]),
+
+    // 右侧：功能图标
+        // 右侧：功能图标
+    el('div', { style: { display: 'flex', gap: '4px', background: 'var(--bg)', padding: '4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)', flexWrap: 'wrap', alignItems: 'center' } }, [
+      // 分组 1：视图模式
+      el('div', { style: { display: 'flex', gap: '2px', padding: '2px', background: 'rgba(0,0,0,.02)', borderRadius: '6px' } }, [
+        el('button', { class: 'btn btn-sm ' + (viewMode === 'both' ? 'btn-primary' : 'btn-ghost'), text: '🖼', title: '图文模式', style: { padding: '4px 8px', minHeight: '28px' }, onClick: () => { viewMode = 'both'; onRefresh(); } }),
+        el('button', { class: 'btn btn-sm ' + (viewMode === 'thumb' ? 'btn-primary' : 'btn-ghost'), text: '▦', title: '纯缩略图', style: { padding: '4px 8px', minHeight: '28px' }, onClick: () => { viewMode = 'thumb'; onRefresh(); } }),
+        el('button', { class: 'btn btn-sm ' + (viewMode === 'name' ? 'btn-primary' : 'btn-ghost'), text: '📄', title: '列表模式', style: { padding: '4px 8px', minHeight: '28px' }, onClick: () => { viewMode = 'name'; onRefresh(); } }),
+      ]),
+
+      el('div', { style: { width: '1px', height: '20px', background: 'rgba(0,0,0,.1)', margin: '0 2px' } }),
+
+      // 分组 2：合并
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '🔗 合并', title: '合并图片与文档',
+        style: { padding: '4px 8px', minHeight: '28px' },
+        onClick: () => {
+          const pt = store.getPoint(point.id);
+          const total = (pt.imageIds || []).length + (pt.compositeImageIds || []).length;
+          if (total < 2) { toastError('至少需要 2 个文件才能合并'); return; }
+          window.location.hash = `#/composer?pointId=${point.id}`;
         }
       }),
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '🗜 压缩',
-        onClick: async () => {
-          if (!confirm(`确定压缩这 ${allIds.length} 张图片吗？`)) return;
-          toastSuccess('开始压缩，请稍候…');
-          for (const id of allIds) {
-            const rec = await dbGet('images', id);
-            if (!rec || !rec.originalBlob) continue;
-            const targetBlob = rec.annotatedBlob || rec.originalBlob;
-            const url = URL.createObjectURL(targetBlob);
-            const img = new Image();
-            await new Promise(r => { img.onload = r; img.src = url; });
-            URL.revokeObjectURL(url);
-            const MAX_W = 1000;
-            if (img.width <= MAX_W) continue;
 
-            const canvas = document.createElement('canvas');
-            canvas.width = MAX_W;
-            canvas.height = img.height * (MAX_W / img.width);
-            canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-            const compressedBlob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
-            
-            await dbPut('images', {
-              ...rec,
-              originalBlob: compressedBlob,
-              annotatedBlob: compressedBlob,
-              width: canvas.width,
-              height: canvas.height,
-              updatedAt: new Date().toISOString(),
-            });
+      el('div', { style: { width: '1px', height: '20px', background: 'rgba(0,0,0,.1)', margin: '0 2px' } }),
+
+      // 分组 3：多选与批量操作
+      el('div', { style: { display: 'flex', gap: '2px', padding: '2px', background: isMulti ? 'rgba(239,71,111,.08)' : 'rgba(0,0,0,.02)', borderRadius: '6px' } }, [
+        el('button', { class: 'btn btn-sm ' + (isMulti ? 'btn-danger' : 'btn-ghost'), text: isMulti ? '✕' : '☑', title: isMulti ? '退出多选' : '多选', style: { padding: '4px 8px', minHeight: '28px' }, onClick: () => { isMulti = !isMulti; selected.clear(); onRefresh(); } }),
+        
+        // 压缩（多选时显示）
+        isMulti ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '🗜', title: '压缩选中', style: { padding: '4px 8px', minHeight: '28px' },
+          onClick: async () => {
+            if (selected.size === 0) { toastError('请先勾选'); return; }
+            toastSuccess('正在压缩...');
+            for (const id of selected) {
+              const rec = await dbGet('images', id);
+              if (!rec || rec.type === 'pdf_placeholder' || rec.width <= 1000) continue;
+              const img = new Image();
+              const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
+              await new Promise(r => { img.onload = r; img.src = url; });
+              const canvas = document.createElement('canvas');
+              canvas.width = 1000;
+              canvas.height = img.height * (1000 / img.width);
+              canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+              const blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.8));
+              URL.revokeObjectURL(url);
+              await dbPut('images', { ...rec, originalBlob: blob, annotatedBlob: blob, width: canvas.width, height: canvas.height });
+            }
+            toastSuccess('压缩完成');
+            isMulti = false; selected.clear(); onRefresh();
           }
-          toastSuccess('压缩完成');
-          onRefresh();
-        }
-      })
-    ])
-  ]);
-  header.appendChild(titleRow);
+        }) : null,
 
-  // 多选模式下的操作条
-  if (globalMultiMode) {
-    const countEl = el('span', { style: { fontSize: '13px', fontWeight: '600', color: 'var(--primary-dark)' }, text: `已选 ${globalSelectedIds.size} 张` });
-    const actionRow = el('div', { style: { display: 'flex', gap: '8px', padding: '8px', background: 'rgba(142, 202, 230, 0.15)', borderRadius: '8px', alignItems: 'center', flexWrap: 'wrap' } }, [
-      countEl,
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { allIds.forEach(id => globalSelectedIds.add(id)); onRefresh(); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { globalSelectedIds.clear(); onRefresh(); } }),
-      el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除选中', onClick: async () => {
-        if (globalSelectedIds.size === 0) { toastError('请先勾选'); return; }
-        if (!confirm(`确定删除选中的 ${globalSelectedIds.size} 张图片吗？`)) return;
-        
-        for (const id of globalSelectedIds) {
-          await dbDelete('images', id);
-          const { deleteImageAssets } = await import('../store.js');
-          deleteImageAssets(id);
-        }
-        
-        latestPoint.imageIds = (latestPoint.imageIds || []).filter(id => !globalSelectedIds.has(id));
-        latestPoint.compositeImageIds = (latestPoint.compositeImageIds || []).filter(id => !globalSelectedIds.has(id));
-        store.updatePoint(latestPoint.id, { imageIds: latestPoint.imageIds, compositeImageIds: latestPoint.compositeImageIds });
-        
-        globalSelectedIds.clear();
-        globalMultiMode = false;
-        toastSuccess('已删除');
-        onRefresh();
-      }}),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { globalMultiMode = false; globalSelectedIds.clear(); onRefresh(); } })
-    ]);
-    header.appendChild(actionRow);
-  }
-  
-  wrap.appendChild(header);
+        // 删除（多选时显示）
+        isMulti ? el('button', {
+          class: 'btn btn-sm btn-danger', text: '🗑', title: '删除选中', style: { padding: '4px 8px', minHeight: '28px' },
+          onClick: async () => {
+            if (selected.size === 0) { toastError('请先勾选'); return; }
+            if (!confirm(`确定删除选中的 ${selected.size} 个文件吗？`)) return;
+            for (const id of selected) {
+              const r = await dbGet('images', id);
+              if (r && r.type === 'pdf_placeholder' && r.pdfId) await dbDelete('pdfs', r.pdfId);
+              await dbDelete('images', id);
+            }
+            const latestP = store.getPoint(point.id);
+            latestP.imageIds = (latestP.imageIds || []).filter(id => !selected.has(id));
+            latestP.compositeImageIds = (latestP.compositeImageIds || []).filter(id => !selected.has(id));
+            store.updatePoint(latestP.id, {
+              imageIds: latestP.imageIds,
+              compositeImageIds: latestP.compositeImageIds,
+            });
+            isMulti = false; selected.clear(); onRefresh();
+          }
+        }) : null,
+      ]),
 
-  // ============ 网格容器（弹性排列） ============
-  const grid = el('div', { 
-    style: { display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'flex-start' } 
-  });
+      el('div', { style: { width: '1px', height: '20px', background: 'rgba(0,0,0,.1)', margin: '0 2px' } }),
 
-  displayIds.forEach((imageId, idx) => {
-    const isComposite = (latestPoint.compositeImageIds || []).includes(imageId);
-    
-    // 容器，固定高度，宽度自适应，保留原图长宽比
-    const thumbWrap = el('div', {
-      'data-id': imageId,
-      style: {
-        position: 'relative', height: '80px', minWidth: '60px', borderRadius: '6px', overflow: 'hidden',
-        background: '#f0f0f0', border: '1px solid rgba(0,0,0,.08)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', userSelect: 'none', WebkitUserSelect: 'none',
-        transition: 'border-color 0.2s'
-      }
-    });
-
-    if (globalMultiMode && globalSelectedIds.has(imageId)) {
-      thumbWrap.style.border = '3px solid var(--primary)';
-      thumbWrap.style.opacity = '0.7';
-    }
-
-    thumbWrap.addEventListener('contextmenu', (e) => e.preventDefault());
-
-    // 骨架屏（宽度不定，先用最小值）
-    const placeholder = el('div', {
-      style: {
-        position: 'absolute', inset: 0, background: 'linear-gradient(90deg, #eee 25%, #f5f5f5 50%, #eee 75%)',
-        backgroundSize: '200% 100%', animation: 'shimmer 1.5s infinite linear',
-      }
-    });
-    thumbWrap.appendChild(placeholder);
-
-    // 加载图片
-    dbGet('images', imageId).then(rec => {
-      if (!rec) return;
-      const blob = rec.annotatedBlob || rec.originalBlob;
-      if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const img = el('img', { 
-        src: url, 
-        style: { height: '100%', width: 'auto', display: 'block', pointerEvents: 'none' },
-        onLoad: (e) => { 
-          URL.revokeObjectURL(url); 
-          placeholder.remove();
-          // 动态设置宽度，保证排版紧凑
-          thumbWrap.style.width = e.target.width * (80 / e.target.height) + 'px';
-        }
-      });
-      thumbWrap.appendChild(img);
-    });
-
-    // 序号/类型标签
-    thumbWrap.appendChild(el('div', {
-      style: {
-        position: 'absolute', bottom: '4px', left: '4px', background: 'rgba(0,0,0,.6)', color: '#fff',
-        fontSize: '10px', padding: '1px 4px', borderRadius: '4px', pointerEvents: 'none'
-      },
-      text: isComposite ? '合成' : String(idx + 1)
-    }));
-
-    // ============ 悬浮操作按钮（非多选模式下可见） ============
-    if (!globalMultiMode) {
-      const actions = el('div', {
-        style: {
-          position: 'absolute', top: 0, right: 0, display: 'flex',
-          background: 'rgba(0,0,0,0.5)', borderBottomLeftRadius: '6px',
-          opacity: '0', transition: 'opacity 0.2s'
-        },
-        class: 'thumb-actions'
-      }, [
+      // 分组 4：复制粘贴
+      el('div', { style: { display: 'flex', gap: '2px', padding: '2px', background: 'rgba(0,0,0,.02)', borderRadius: '6px' } }, [
         el('button', {
-          style: { background: 'transparent', border: 'none', color: '#fff', padding: '2px 4px', cursor: 'pointer', fontSize: '12px' },
-          text: '🎨',
-          title: '去标注',
-          onClick: (e) => {
-            e.stopPropagation();
-            window.location.hash = `#/annotate/${imageId}?pointId=${latestPoint.id}`;
+          class: 'btn btn-sm btn-ghost', text: '📋', title: '复制选中', style: { padding: '4px 8px', minHeight: '28px' },
+          onClick: () => {
+            if (selected.size === 0) { toastError('请先多选要复制的文件'); return; }
+            sessionStorage.setItem('kg_clipboard_files', JSON.stringify(Array.from(selected)));
+            toastSuccess(`已复制 ${selected.size} 个文件`);
           }
         }),
         el('button', {
-          style: { background: 'transparent', border: 'none', color: 'var(--danger)', padding: '2px 4px', cursor: 'pointer', fontSize: '12px' },
-          text: '✕',
-          title: '删除',
-          onClick: async (e) => {
-            e.stopPropagation();
-            if (!confirm('确定删除这张图片吗？')) return;
-            const { deleteImageAssets } = await import('../store.js');
-            await dbDelete('images', imageId);
-            deleteImageAssets(imageId);
-            latestPoint.imageIds = (latestPoint.imageIds || []).filter(id => id !== imageId);
-            latestPoint.compositeImageIds = (latestPoint.compositeImageIds || []).filter(id => id !== imageId);
-            store.updatePoint(latestPoint.id, { imageIds: latestPoint.imageIds, compositeImageIds: latestPoint.compositeImageIds });
-            toastSuccess('已删除');
-            onRefresh();
+          class: 'btn btn-sm btn-ghost', text: '📥', title: '粘贴到当前知识点', style: { padding: '4px 8px', minHeight: '28px' },
+          onClick: async () => {
+            const data = sessionStorage.getItem('kg_clipboard_files');
+            if (!data) { toastError('剪贴板为空'); return; }
+            const clipIds = JSON.parse(data);
+            if (clipIds.length === 0) return;
+
+            toastSuccess('正在粘贴...');
+            const pt = store.getPoint(point.id);
+            if (!pt.imageIds) pt.imageIds = [];
+            if (!pt.compositeImageIds) pt.compositeImageIds = [];
+
+            for (const oldId of clipIds) {
+              const rec = await dbGet('images', oldId);
+              if (!rec) continue;
+
+              if (rec.type === 'pdf_placeholder') {
+                const pdfRec = await dbGet('pdfs', rec.pdfId);
+                if (pdfRec) {
+                  const newPdfId = uuid();
+                  await dbPut('pdfs', { ...pdfRec, id: newPdfId, createdAt: new Date().toISOString() });
+                  const newFakeId = uuid();
+                  await dbPut('images', { ...rec, id: newFakeId, pdfId: newPdfId, createdAt: new Date().toISOString() });
+                  pt.imageIds.push(newFakeId);
+                }
+              } else if (rec.type === 'composite') {
+                const newCompId = uuid();
+                await dbPut('images', { ...rec, id: newCompId, createdAt: new Date().toISOString() });
+                pt.compositeImageIds.push(newCompId);
+              } else {
+                const newImgId = uuid();
+                await dbPut('images', { ...rec, id: newImgId, createdAt: new Date().toISOString() });
+                pt.imageIds.push(newImgId);
+              }
+            }
+            store.updatePoint(pt.id, { imageIds: pt.imageIds, compositeImageIds: pt.compositeImageIds });
+            toastSuccess('粘贴成功');
+            isMulti = false; selected.clear(); onRefresh();
           }
-        })
-      ]);
-      thumbWrap.appendChild(actions);
-      
-      // 桌面端 hover 显示，移动端常驻
-      thumbWrap.addEventListener('pointerenter', () => actions.style.opacity = '1');
-      thumbWrap.addEventListener('pointerleave', () => actions.style.opacity = '0');
-      if (window.matchMedia('(pointer: coarse)').matches) actions.style.opacity = '1';
+        }),
+      ]),
+    ])
+  ]);
+  wrap.appendChild(topBar);
+
+  // ============ 3. 内容区 ============
+  const contentWrap = el('div', { style: { marginTop: '8px' } });
+  wrap.appendChild(contentWrap);
+
+  const loadAndRender = async () => {
+    const finalImages = [];
+    const finalPdfs = [];
+
+    // 读取数据库，分离图片和 PDF
+    for (const id of allIds) {
+      const rec = await dbGet('images', id);
+      if (!rec) continue;
+      if (rec.type === 'pdf_placeholder') finalPdfs.push(rec);
+      else finalImages.push(rec);
     }
 
-    // 点击事件
-    thumbWrap.addEventListener('click', () => {
-      if (globalMultiMode) {
-        if (globalSelectedIds.has(imageId)) {
-          globalSelectedIds.delete(imageId);
-          thumbWrap.style.border = '1px solid rgba(0,0,0,.08)';
-          thumbWrap.style.opacity = '1';
-        } else {
-          globalSelectedIds.add(imageId);
-          thumbWrap.style.border = '3px solid var(--primary)';
-          thumbWrap.style.opacity = '0.7';
-        }
-        const countEl = header.querySelector('span[style*="已选"]');
-        if (countEl) countEl.textContent = `已选 ${globalSelectedIds.size} 张`;
-      } else {
-        openLightbox(imageId, latestPoint, onRefresh);
+    const currentList = activeTab === 'images' ? finalImages : finalPdfs;
+
+    if (currentList.length === 0) {
+      contentWrap.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '20px' }, text: activeTab === 'images' ? '暂无图片' : '暂无 PDF 文档' }));
+      return;
+    }
+
+    // 多选操作栏
+    if (isMulti) {
+      contentWrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', padding: '8px', background: 'rgba(142, 202, 230, 0.15)', borderRadius: '8px', marginBottom: '12px', alignItems: 'center' } }, [
+        el('span', { style: { fontSize: '13px', fontWeight: '600', flex: '1' }, text: `已选 ${selected.size} 项` }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { currentList.forEach(r => selected.add(r.id)); onRefresh(); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selected.clear(); onRefresh(); } }),
+        el('button', {
+          class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async () => {
+            if (!confirm(`确定删除选中的 ${selected.size} 个文件吗？`)) return;
+            for (const id of selected) {
+              const r = await dbGet('images', id);
+              if (r && r.type === 'pdf_placeholder' && r.pdfId) await dbDelete('pdfs', r.pdfId);
+              await dbDelete('images', id);
+            }
+            const latestP = store.getPoint(point.id);
+            latestP.imageIds = (latestP.imageIds || []).filter(id => !selected.has(id));
+            latestP.compositeImageIds = (latestP.compositeImageIds || []).filter(id => !selected.has(id));
+            store.updatePoint(latestP.id, {
+              imageIds: latestP.imageIds,
+              compositeImageIds: latestP.compositeImageIds,
+            });
+            isMulti = false; selected.clear(); onRefresh();
+          }
+        })
+      ]));
+    }
+
+    // 网格布局或列表布局
+    const grid = el('div', { style: { display: viewMode !== 'name' && activeTab === 'images' ? 'grid' : 'flex', flexDirection: 'column', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px' } });
+
+    currentList.forEach((rec, idx) => {
+      let card;
+      const detailBtn = el('button', {
+        style: { background: 'rgba(0,0,0,0.5)', color: '#fff', border: 'none', borderRadius: '4px', padding: '2px 6px', fontSize: '12px', cursor: 'pointer', zIndex: 10 },
+        text: 'ℹ️',
+        onClick: (e) => { e.stopPropagation(); showFileDetails(rec); }
+      });
+
+      // ============ PDF 分支 ============
+      if (activeTab === 'pdfs') {
+        card = el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#FFF0F0', borderRadius: '8px', border: '1px solid rgba(0,0,0,.08)', cursor: 'pointer' },
+          onClick: () => handleClick(rec, latestPoint, onRefresh)
+        }, [
+          el('div', { style: { fontSize: '28px' }, text: '📄' }),
+          el('div', { style: { flex: '1', overflow: 'hidden' } }, [
+            el('div', { style: { fontWeight: '600', fontSize: '14px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }, text: rec.pdfName }),
+          ]),
+          detailBtn
+        ]);
       }
+      // ============ 图片分支 ============
+      else {
+        const rawBlob = rec.annotatedBlob || rec.originalBlob;
+        const hasValidBlob = rawBlob instanceof Blob && rawBlob.size > 0;
+
+        if (viewMode === 'name') {
+          // 列表模式（左侧带缩略图）
+          const thumbIcon = el('div', { style: { width: '40px', height: '40px', borderRadius: '4px', background: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', overflow: 'hidden', flexShrink: '0' } });
+
+          if (hasValidBlob) {
+            const url = URL.createObjectURL(rawBlob);
+            thumbIcon.appendChild(el('img', {
+              src: url,
+              style: { width: '100%', height: '100%', objectFit: 'cover' },
+              onLoad: () => URL.revokeObjectURL(url),
+            }));
+          } else {
+            thumbIcon.appendChild(el('span', { style: { fontSize: '20px' }, text: '🖼' }));
+          }
+
+          card = el('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 12px', background: '#fff', borderRadius: '8px', border: '1px solid rgba(0,0,0,.08)', cursor: 'pointer' },
+            onClick: () => handleClick(rec, latestPoint, onRefresh)
+          }, [thumbIcon, el('div', { style: { flex: '1', fontSize: '14px', fontWeight: '600' }, text: `图片 ${idx + 1}` }), detailBtn]);
+        } else {
+          // 缩略图/图文模式
+          card = el('div', {
+            style: { position: 'relative', borderRadius: '8px', overflow: 'hidden', background: '#f0f0f0', border: '1px solid rgba(0,0,0,.08)', cursor: 'pointer', display: 'flex', flexDirection: 'column' },
+            onClick: () => handleClick(rec, latestPoint, onRefresh)
+          });
+
+          if (hasValidBlob) {
+            const url = URL.createObjectURL(rawBlob);
+            card.appendChild(el('img', {
+              src: url,
+              style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', objectFit: 'cover' },
+              onLoad: () => URL.revokeObjectURL(url),
+            }));
+          } else {
+            card.appendChild(el('div', {
+              style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', color: '#999' },
+              text: '🖼',
+            }));
+          }
+
+          if (viewMode === 'both') card.appendChild(el('div', { style: { padding: '6px', fontSize: '12px', textAlign: 'center', background: '#fff' }, text: `图片 ${idx + 1}` }));
+          card.appendChild(el('div', { style: { position: 'absolute', top: '4px', right: '4px' } }, [detailBtn]));
+        }
+      }
+
+      if (isMulti && selected.has(rec.id)) { card.style.border = '2px solid var(--primary)'; card.style.opacity = '0.8'; }
+      grid.appendChild(card);
     });
+    contentWrap.appendChild(grid);
+  };
 
-    grid.appendChild(thumbWrap);
-  });
-
-  // ============ 末尾追加「添加图片」虚线框 ============
-  if (!globalMultiMode) {
-    grid.appendChild(createUploadBox(latestPoint, onRefresh, false));
-  }
-
-  wrap.appendChild(grid);
+  loadAndRender();
   return wrap;
 }
 
-// 辅助：创建上传框
-function createUploadBox(point, onRefresh, isFullWidth) {
-  const box = el('div', {
-    style: {
-      height: '80px', width: isFullWidth ? '100%' : '80px',
-      borderRadius: '6px', border: '2px dashed rgba(142, 202, 230, 0.6)',
-      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
-      cursor: 'pointer', background: 'rgba(142, 202, 230, 0.05)', color: 'var(--primary-dark)',
-      fontSize: '12px', gap: '4px'
-    },
-    onClick: () => uploadImages(point.id, onRefresh),
-    onDragover: (e) => { e.preventDefault(); box.style.background = 'rgba(142, 202, 230, 0.15)'; },
-    onDragleave: (e) => { e.preventDefault(); box.style.background = 'rgba(142, 202, 230, 0.05)'; },
-    onDrop: async (e) => {
-      e.preventDefault();
-      box.style.background = 'rgba(142, 202, 230, 0.05)';
-      const files = Array.from(e.dataTransfer.files || []).filter(f => f.type.startsWith('image/'));
-      if (files.length > 0) await processFiles(files, point.id, onRefresh);
-    }
-  }, [
-    el('span', { style: { fontSize: '20px', pointerEvents: 'none' }, text: '+' }),
-    el('span', { style: { pointerEvents: 'none' }, text: '添加图片' })
-  ]);
-  return box;
-}
-
-// 辅助：处理上传
-async function uploadImages(pointId, onRefresh) {
-  const fileInput = document.createElement('input');
-  fileInput.type = 'file';
-  fileInput.accept = 'image/*';
-  fileInput.multiple = true;
-  fileInput.onchange = async (e) => {
-    const files = Array.from(e.target.files || []);
-    if (files.length > 0) await processFiles(files, pointId, onRefresh);
-  };
-  fileInput.click();
-}
-
-// 辅助：写入数据库
-async function processFiles(files, pointId, onRefresh) {
-  const pt = store.getPoint(pointId);
-  if (!pt) { toastError('知识点未找到'); return; }
-  const { dbPut } = await import('../db.js');
-  if (!pt.imageIds) pt.imageIds = [];
-  
-  for (const f of files) {
-    const img = new Image();
-    const url = URL.createObjectURL(f);
-    await new Promise(r => { img.onload = r; img.src = url; });
-    const id = crypto.randomUUID();
-    await dbPut('images', {
-      id, originalBlob: f, annotatedBlob: f, width: img.width, height: img.height,
-      dpr: window.devicePixelRatio || 1, source: 'upload', createdAt: new Date().toISOString(),
-    });
-    URL.revokeObjectURL(url);
-    pt.imageIds.push(id);
+// ============ 点击处理 ============
+function handleClick(rec, point, onRefresh) {
+  if (isMulti) {
+    if (selected.has(rec.id)) selected.delete(rec.id);
+    else selected.add(rec.id);
+    onRefresh();
+    return;
   }
-  store.updatePoint(pt.id, { imageIds: pt.imageIds });
-  toastSuccess(`已添加 ${files.length} 张图片`);
-  onRefresh();
+  if (rec.type === 'pdf_placeholder') {
+    window.location.hash = `#/pdf-viewer/${rec.pdfId}?pointId=${point.id}`;
+  } else {
+    openLightbox(rec.id, point, onRefresh);
+  }
 }
 
-// 大图预览（保留你之前的代码，无需变动）
+// ============ 文件详情弹窗 ============
+async function showFileDetails(rec) {
+  let sizeText = '未知', typeText = '图片', dimensionText = `${rec.width || 0} × ${rec.height || 0} px`;
+  if (rec.type === 'pdf_placeholder') {
+    typeText = 'PDF 文档'; dimensionText = 'PDF 格式';
+    try {
+      const pdfRec = await dbGet('pdfs', rec.pdfId);
+      if (pdfRec && pdfRec.blob) {
+        const bytes = pdfRec.blob.size;
+        sizeText = bytes > 1048576 ? (bytes / 1048576).toFixed(2) + ' MB' : (bytes / 1024).toFixed(1) + ' KB';
+      }
+    } catch { sizeText = '获取失败'; }
+  } else if (rec.originalBlob) {
+    const bytes = rec.originalBlob.size;
+    sizeText = bytes > 1048576 ? (bytes / 1048576).toFixed(2) + ' MB' : (bytes / 1024).toFixed(1) + ' KB';
+  }
+
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 }, onClick: (e) => { if (e.target === mask) mask.remove(); } }, [
+    el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+      el('h3', { text: '📄 文件详情' }),
+      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', margin: '16px 0' } }, [
+        el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '类型' }), el('span', { style: { fontWeight: '600' }, text: typeText })]),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '大小' }), el('span', { text: sizeText })]),
+        el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: rec.type === 'pdf_placeholder' ? '格式' : '尺寸' }), el('span', { text: dimensionText })]),
+        rec.pdfName ? el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '文件名' }), el('span', { text: rec.pdfName, maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' })]) : null,
+        el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '创建时间' }), el('span', { text: new Date(rec.createdAt).toLocaleString() })]),
+      ]),
+      el('div', { class: 'confirm-actions' }, [el('button', { class: 'btn btn-primary', text: '关闭', onClick: () => mask.remove() })])
+    ])
+  ]);
+  document.body.appendChild(mask);
+}
+
+// ============ 图片预览 ============
 async function openLightbox(imageId, point, onRefresh) {
   if (!point) { toastError('图片数据丢失'); return; }
   const latestPoint = store.getPoint(point.id) || point;
 
   const rec = await dbGet('images', imageId);
   if (!rec) { toastError('图片文件丢失'); return; }
-  
+
   const blob = rec.annotatedBlob || rec.originalBlob;
   const url = URL.createObjectURL(blob);
-
-  // 新增一个状态：是否处于沉浸模式
   let isImmersive = false;
 
-  const mask = el('div', { 
-    class: 'confirm-mask', 
-    style: { zIndex: 99999, background: 'rgba(0,0,0,0.92)', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' }
-  });
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.92)', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', transition: 'all 0.2s' } });
 
-  // 图片容器
-  const imgWrap = el('div', {
-    style: { flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', cursor: 'zoom-in' }
-  }, [
-    el('img', { 
-      src: url, 
-      style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', transition: 'transform 0.2s' } 
-    })
+  const imgWrap = el('div', { style: { flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', cursor: 'zoom-in' } }, [
+    el('img', { src: url, style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', transition: 'transform 0.2s' } })
   ]);
 
-  // 底部工具栏
-  const toolbar = el('div', { 
-    style: { display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', width: '100%', maxWidth: '600px', marginTop: '20px', transition: 'opacity 0.2s' } 
-  }, [
+  const toolbar = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', width: '100%', maxWidth: '600px', marginTop: '20px', transition: 'opacity 0.2s' } }, [
+    el('button', { class: 'btn btn-primary', text: '🎨 去标注', onClick: () => { mask.remove(); window.location.hash = `#/annotate/${imageId}?pointId=${latestPoint.id}`; } }),
     el('button', {
-      class: 'btn btn-ghost', text: '⬅️ 前移', style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },
-      onClick: () => {
-        const ids = [...(latestPoint.imageIds || []), ...(latestPoint.compositeImageIds || [])];
-        const idx = ids.indexOf(imageId);
-        if (idx > 0) {
-          [ids[idx - 1], ids[idx]] = [ids[idx], ids[idx - 1]];
-          const finalIds = ids.filter(id => !(latestPoint.compositeImageIds || []).includes(id));
-          const finalCompositeIds = ids.filter(id => (latestPoint.compositeImageIds || []).includes(id));
-          store.updatePoint(latestPoint.id, { imageIds: finalIds, compositeImageIds: finalCompositeIds });
-          toastSuccess('已前移');
-          mask.remove();
-          URL.revokeObjectURL(url);
-          onRefresh();
-        } else {
-          toastError('已经是第一张了');
-        }
-      }
-    }),
-    el('button', {
-      class: 'btn btn-ghost', text: '➡️ 后移', style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },
-      onClick: () => {
-        const ids = [...(latestPoint.imageIds || []), ...(latestPoint.compositeImageIds || [])];
-        const idx = ids.indexOf(imageId);
-        if (idx < ids.length - 1) {
-          [ids[idx + 1], ids[idx]] = [ids[idx], ids[idx + 1]];
-          const finalIds = ids.filter(id => !(latestPoint.compositeImageIds || []).includes(id));
-          const finalCompositeIds = ids.filter(id => (latestPoint.compositeImageIds || []).includes(id));
-          store.updatePoint(latestPoint.id, { imageIds: finalIds, compositeImageIds: finalCompositeIds });
-          toastSuccess('已后移');
-          mask.remove();
-          URL.revokeObjectURL(url);
-          onRefresh();
-        } else {
-          toastError('已经是最后一张了');
-        }
-      }
-    }),
-    el('button', {
-      class: 'btn btn-primary', text: '🎨 去标注',
-      onClick: () => {
-        mask.remove();
-        URL.revokeObjectURL(url);
-        window.location.hash = `#/annotate/${imageId}?pointId=${latestPoint.id}`;
-      }
-    }),
-    el('button', {
-      class: 'btn btn-danger', text: '🗑 删除',
-      onClick: async () => {
-        if (!confirm('确定删除这张图片吗？')) return;
-        const { deleteImageAssets } = await import('../store.js');
+      class: 'btn btn-danger', text: '🗑 删除', onClick: async () => {
         await dbDelete('images', imageId);
-        deleteImageAssets(imageId);
-        
         latestPoint.imageIds = (latestPoint.imageIds || []).filter(id => id !== imageId);
-        latestPoint.compositeImageIds = (latestPoint.compositeImageIds || []).filter(id => id !== imageId);
-        store.updatePoint(latestPoint.id, { imageIds: latestPoint.imageIds, compositeImageIds: latestPoint.compositeImageIds });
-        
-        mask.remove();
-        URL.revokeObjectURL(url);
-        toastSuccess('已删除');
-        onRefresh();
+        store.updatePoint(latestPoint.id, { imageIds: latestPoint.imageIds });
+        mask.remove(); URL.revokeObjectURL(url); toastSuccess('已删除'); onRefresh();
       }
     }),
-    el('button', {
-      class: 'btn btn-ghost', text: '关闭', style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },
-      onClick: () => { mask.remove(); URL.revokeObjectURL(url); }
-    })
+    el('button', { class: 'btn btn-ghost', text: '关闭', style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' }, onClick: () => { mask.remove(); URL.revokeObjectURL(url); } })
   ]);
 
   mask.appendChild(imgWrap);
   mask.appendChild(toolbar);
 
-  // 👇 新增：点击图片切换沉浸模式
   imgWrap.addEventListener('click', () => {
     isImmersive = !isImmersive;
     if (isImmersive) {
-      // 隐藏工具栏，背景变纯黑，鼠标变放大镜
-      toolbar.style.opacity = '0';
-      toolbar.style.pointerEvents = 'none';
-      mask.style.background = 'rgba(0,0,0,1)';
-      mask.style.padding = '0';
-      imgWrap.style.cursor = 'zoom-out';
+      toolbar.style.opacity = '0'; toolbar.style.pointerEvents = 'none';
+      mask.style.background = 'rgba(0,0,0,1)'; mask.style.padding = '0'; imgWrap.style.cursor = 'zoom-out';
     } else {
-      // 恢复
-      toolbar.style.opacity = '1';
-      toolbar.style.pointerEvents = 'auto';
-      mask.style.background = 'rgba(0,0,0,0.92)';
-      mask.style.padding = '20px';
-      imgWrap.style.cursor = 'zoom-in';
-    }
-  });
-
-  mask.addEventListener('click', (e) => {
-    if (e.target === mask && !isImmersive) {
-      mask.remove();
-      URL.revokeObjectURL(url);
+      toolbar.style.opacity = '1'; toolbar.style.pointerEvents = 'auto';
+      mask.style.background = 'rgba(0,0,0,0.92)'; mask.style.padding = '20px'; imgWrap.style.cursor = 'zoom-in';
     }
   });
 

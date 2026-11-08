@@ -1,25 +1,24 @@
 import { el } from '../utils/dom.js';
 import * as store from '../store.js';
-import { navigate } from '../router.js';
-import { putImageCached } from '../db.js';
+import { dbPut, putImageCached } from '../db.js';
 import { uuid } from '../utils/id.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 
-export function pdfImportModal(pointId) {
+export function pdfImportModal(pointId, presetFile = null) {
     return new Promise(resolve => {
+        // 👇 如果有文件传进来（通过 label 选的），直接处理，绝不再弹窗
+        if (presetFile) {
+            handleFile(presetFile, pointId, resolve);
+            return;
+        }
+        
+        // 如果没传文件（比如是其他旧代码调用的），保留兜底
         const fileInput = el('input', {
-            type: 'file',
-            accept: 'application/pdf',
-            style: { display: 'none' },
-            onChange: async (e) => {
+            type: 'file', accept: 'application/pdf', style: { display: 'none' },
+            onChange: (e) => {
                 const file = e.target.files[0];
                 if (!file) { resolve(false); return; }
-                try {
-                    await processPdf(file, pointId, resolve);
-                } catch (err) {
-                    toastError('PDF 解析失败：' + err.message);
-                    resolve(false);
-                }
+                handleFile(file, pointId, resolve);
             },
         });
         document.body.appendChild(fileInput);
@@ -28,15 +27,45 @@ export function pdfImportModal(pointId) {
     });
 }
 
-async function processPdf(file, pointId, resolve) {
-    if (!window.pdfjsLib) {
-        toastError('PDF.js 未加载，请检查网络');
+async function handleFile(file, pointId, resolve) {
+    if (!window.pdfjsLib) { toastError('PDF.js 未加载'); resolve(false); return; }
+
+    try {
+        // 1. 存下整个 PDF 文件
+        const pdfId = uuid();
+        await dbPut('pdfs', {
+            id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString()
+        });
+
+        // 2. 解析 PDF
+        const buf = await file.arrayBuffer();
+        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+
+        // 3. 保存为附件占位图（让列表里能看到它）
+        const fakeImageId = uuid();
+        await putImageCached({
+            id: fakeImageId,
+            type: 'pdf_placeholder',
+            originalBlob: new Blob([], { type: 'text/plain' }),
+            annotatedBlob: new Blob([], { type: 'text/plain' }),
+            width: 0, height: 0, dpr: 1,
+            pdfId: pdfId,
+            pdfName: file.name,
+            pdfPages: pdf.numPages,
+            createdAt: new Date().toISOString()
+        });
+
+        // 4. 写入知识点
+        store.addImageToPoint(pointId, fakeImageId);
+        
+        // 5. 弹出选页框！
+        showPagePicker(pdf, pointId, resolve);
+        
+    } catch (err) {
+        console.error(err);
+        toastError('PDF 解析失败');
         resolve(false);
-        return;
     }
-    const buf = await file.arrayBuffer();
-    const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-    showPagePicker(pdf, pointId, resolve);
 }
 
 function showPagePicker(pdf, pointId, resolve) {
@@ -75,25 +104,24 @@ function showPagePicker(pdf, pointId, resolve) {
                         if (selected.size === 0) { alert('请至少选择一页'); return; }
                         const pageNums = [...selected].sort((a, b) => a - b);
                         mask.remove();
-                        let lastImageId = null;
+
                         let successCount = 0;
                         for (const n of pageNums) {
                             try {
                                 const page = await pdf.getPage(n);
-                                const imgId = await renderPageToImage(page, n, pointId);
-                                if (imgId) { lastImageId = imgId; successCount++; }
+                                await renderPageToImage(page, n, pointId);
+                                successCount++;
                             } catch (err) {
                                 console.error(`第 ${n} 页导入失败`, err);
-                                toastError(`第 ${n} 页导入失败`);
                             }
                         }
                         if (successCount > 0) {
                             toastSuccess(`已导入 ${successCount} 页`);
-                            // 导入完跳回原章节页，不跳标注页
-                            const p = store.getPoint(pointId);
-                            if (p) navigate(`#/chapter/${p.chapterId}`);
-                          } else toastError('没有成功导入任何页');
-                        resolve(true);
+                            resolve(true);
+                        } else {
+                            toastError('没有成功导入任何页');
+                            resolve(false);
+                        }
                     },
                 }),
             ]),
@@ -125,12 +153,6 @@ function showPagePicker(pdf, pointId, resolve) {
             } catch (err) {
                 console.warn(`第 ${i} 页缩略图生成失败`, err);
             }
-        }
-        if (pdf.numPages > maxPreview) {
-            pages.appendChild(el('div', {
-                style: { gridColumn: '1 / -1', textAlign: 'center', fontSize: '12px', color: 'var(--text-2)', padding: '8px' },
-                text: `仅显示前 ${maxPreview} 页（共 ${pdf.numPages} 页）`,
-            }));
         }
     })();
 }

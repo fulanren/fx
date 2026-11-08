@@ -209,8 +209,9 @@ export function renderEditPoint({ params, query }) {
   // ============ 图片 + PDF + 合成 ============
   {
     const imgBody = el('div', { class: 'section-body' });
+    // 👇 必须要保留 const imgSection = ...
     const imgSection = el('div', { class: 'section' }, [
-      el('div', { class: 'section-head' }, [el('span', { text: '解释图片' })]),
+      el('div', { class: 'section-head' }, [el('span', { text: '图文附件' })]), // 这里改名字
       imgBody,
     ]);
     view.appendChild(imgSection);
@@ -232,9 +233,20 @@ export function renderEditPoint({ params, query }) {
         if (refreshed) imgBody.appendChild(renderImageList(refreshed, refresh));
 
         // 图片列表下方的操作按钮组
-        imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+        imgBody.appendChild(el('div', { style: { marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' } }, [
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📄 导入 PDF',
+            class: 'btn btn-sm btn-ghost',
+            text: '📷 添加图片',
+            style: { fontSize: '12px', padding: '4px 10px' },
+            onClick: () => {
+              const input = document.getElementById('hidden-image-input');
+              if (input) input.click();
+            },
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '📄 挑选 PDF',
+            style: { fontSize: '12px', padding: '4px 10px' },
             onClick: async () => {
               const { pdfImportModal } = await import('../views/pdfImport.js');
               await pdfImportModal(params.id);
@@ -242,108 +254,14 @@ export function renderEditPoint({ params, query }) {
             },
           }),
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📷 添加图片',
-            onClick: () => {
-              const fileInput = document.createElement('input');
-              fileInput.type = 'file';
-              fileInput.accept = 'image/*';
-              fileInput.multiple = true;
-
-              fileInput.onchange = async (e) => {
-                const files = Array.from(e.target.files || []);
-                if (files.length === 0) return;
-
-                const pt = store.getPoint(params.id);
-                if (!pt) { toastError('知识点未找到'); return; }
-
-                const { dbPut } = await import('../db.js');
-                if (!pt.imageIds) pt.imageIds = [];
-
-                for (const f of files) {
-                  const img = new Image();
-                  const url = URL.createObjectURL(f);
-                  await new Promise(r => { img.onload = r; img.src = url; });
-
-                  const id = crypto.randomUUID();
-                  await dbPut('images', {
-                    id,
-                    originalBlob: f,
-                    annotatedBlob: f,
-                    width: img.width,
-                    height: img.height,
-                    dpr: window.devicePixelRatio || 1,
-                    source: 'upload',
-                    createdAt: new Date().toISOString(),
-                  });
-                  URL.revokeObjectURL(url);
-                  pt.imageIds.push(id);
-                }
-
-                store.updatePoint(pt.id, { imageIds: pt.imageIds });
-                toastSuccess(`已添加 ${files.length} 张图片`);
-
-                refresh();
-              };
-
-              fileInput.click();
-            },
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '🖼 合成图片',
+            class: 'btn btn-sm btn-ghost',
+            text: '🔗 合并',
+            style: { fontSize: '12px', padding: '4px 10px' },
             onClick: () => {
               const pt = store.getPoint(params.id);
-              const count = ((pt && pt.imageIds) ? pt.imageIds.length : 0);
-              if (count < 2) { alert('至少需要 2 张图片才能合成，当前有 ' + count + ' 张'); return; }
-              navigate(`#/compose?pointId=${params.id}`);
-            },
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📄 合成 PDF',
-            onClick: async () => {
-              const pt = store.getPoint(params.id);
-              const ids = (pt && pt.imageIds) ? pt.imageIds : [];
-              if (ids.length === 0) { alert('当前没有图片，无法合成'); return; }
-
-              toastSuccess('正在生成 PDF 预览，请稍候…');
-              const { dbGet } = await import('../db.js');
-
-              let html = '<html><head><style>';
-              html += 'body { margin: 0; padding: 0; display: flex; flex-direction: column; align-items: center; background: #fff; }';
-              html += 'img { max-width: 100%; max-height: 100vh; object-fit: contain; page-break-after: always; margin-bottom: 20px; }';
-              html += '@media print { body { background: none; } img { margin: 0; max-height: 100vh; } }';
-              html += '</style></head><body>';
-
-              for (const id of ids) {
-                const rec = await dbGet('images', id);
-                if (!rec || !rec.annotatedBlob) continue;
-
-                const url = URL.createObjectURL(rec.annotatedBlob);
-                const img = new Image();
-                await new Promise(r => { img.onload = r; img.src = url; });
-
-                const canvas = document.createElement('canvas');
-                const MAX_W = 1200;
-                const scale = Math.min(1, MAX_W / img.width);
-                canvas.width = img.width * scale;
-                canvas.height = img.height * scale;
-                canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-
-                const base64 = canvas.toDataURL('image/jpeg', 0.85);
-                html += `<img src="${base64}" />`;
-                URL.revokeObjectURL(url);
-              }
-
-              html += '</body></html>';
-
-              const w = window.open('', '_blank');
-              if (!w) { alert('请允许浏览器弹出窗口'); return; }
-              w.document.write(html);
-              w.document.close();
-
-              setTimeout(() => {
-                w.focus();
-                w.print();
-              }, 800);
+              const total = (pt.imageIds || []).length + (pt.compositeImageIds || []).length;
+              if (total < 2) { alert('至少需要 2 个文件才能合并'); return; }
+              navigate(`#/composer?pointId=${params.id}`);
             },
           }),
         ]));

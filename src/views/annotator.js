@@ -237,53 +237,69 @@ export async function renderAnnotator({ params, query }) {
   canvasWrap.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;touch-action:none;z-index: 10;`;
   wrap.appendChild(canvasWrap);
 
-    // ============ 边缘切图按钮 ============
-  if (pointId) {
-    const pt = store.getPoint(pointId);
-    if (pt) {
-      const allImageIds = [...(pt.imageIds || []), ...(pt.compositeImageIds || [])];
-      const currentIndex = allImageIds.indexOf(imageId);
+  // ============ 边缘切图按钮 ============
+  try {
+    if (pointId) {
+      const pt = store.getPoint(pointId);
+      if (pt) {
+        const allImageIds = [...(pt.imageIds || []), ...(pt.compositeImageIds || [])];
+        const currentIndex = allImageIds.indexOf(imageId);
 
-      if (currentIndex > 0) {
-        const prevBtn = el('button', {
-          style: {
-            position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
-            width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
-            color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backdropFilter: 'blur(4px)'
-          },
-          text: '❮',
-          title: '上一张',
-          onClick: () => {
-            if (window.__saveAll) window.__saveAll(false).then(() => {
-              window.location.hash = `#/annotate/${allImageIds[currentIndex - 1]}?pointId=${pointId}`;
+        if (currentIndex > 0) {
+          const prevId = allImageIds[currentIndex - 1];
+          if (prevId) {
+            const prevBtn = el('button', {
+              style: {
+                position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
+                width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
+                color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
+              },
+              text: '❮',
+              title: '上一张',
+              onClick: () => {
+                if (typeof window.__saveAll === 'function') {
+                  window.__saveAll(false).then(() => {
+                    window.location.hash = `#/annotate/${prevId}?pointId=${pointId}`;
+                  });
+                } else {
+                  window.location.hash = `#/annotate/${prevId}?pointId=${pointId}`;
+                }
+              }
             });
+            if (prevBtn) wrap.appendChild(prevBtn);
           }
-        });
-        wrap.appendChild(prevBtn);
-      }
+        }
 
-      if (currentIndex >= 0 && currentIndex < allImageIds.length - 1) {
-        const nextBtn = el('button', {
-          style: {
-            position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
-            width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
-            color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            backdropFilter: 'blur(4px)'
-          },
-          text: '❯',
-          title: '下一张',
-          onClick: () => {
-            if (window.__saveAll) window.__saveAll(false).then(() => {
-              window.location.hash = `#/annotate/${allImageIds[currentIndex + 1]}?pointId=${pointId}`;
+        if (currentIndex >= 0 && currentIndex < allImageIds.length - 1) {
+          const nextId = allImageIds[currentIndex + 1];
+          if (nextId) {
+            const nextBtn = el('button', {
+              style: {
+                position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)',
+                width: '44px', height: '44px', borderRadius: '50%', background: 'rgba(0,0,0,0.4)',
+                color: '#fff', border: 'none', fontSize: '24px', zIndex: '200', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)'
+              },
+              text: '❯',
+              title: '下一张',
+              onClick: () => {
+                if (typeof window.__saveAll === 'function') {
+                  window.__saveAll(false).then(() => {
+                    window.location.hash = `#/annotate/${nextId}?pointId=${pointId}`;
+                  });
+                } else {
+                  window.location.hash = `#/annotate/${nextId}?pointId=${pointId}`;
+                }
+              }
             });
+            if (nextBtn) wrap.appendChild(nextBtn);
           }
-        });
-        wrap.appendChild(nextBtn);
+        }
       }
     }
+  } catch (err) {
+    console.warn('切图按钮渲染失败:', err);
   }
 
   // ============ 底图 ============
@@ -715,17 +731,21 @@ export async function renderAnnotator({ params, query }) {
     if (typeof setSaveStatus === 'function') setSaveStatus('saved');
   }
 
-    // ============ 返回 ============
+  // ============ 返回 ============
   async function goBack() {
     if (dirty) {
       const r = await confirmBox({ title: '未保存', message: '当前标注未保存，是否保存？', confirmText: '保存并返回', cancelText: '不保存' });
       if (r) await saveAll(true);
     }
-    if (pointId) {
-      // 加时间戳强制刷新
-      window.location.hash = `#/edit-point/${pointId}?t=${Date.now()}`;
-    } else {
+
+    // 优先让浏览器回退到上一步（可能是 PDF 阅读页，也可能是知识点编辑页）
+    if (history.length > 1) {
       history.back();
+    } else if (pointId) {
+      // 如果是直接复制链接进来的，没有历史记录，就保底回编辑页
+      window.location.hash = `#/edit-point/${pointId}`;
+    } else {
+      window.location.hash = '#/';
     }
   }
   document.getElementById('btn-back').onclick = goBack;
@@ -1233,10 +1253,6 @@ export async function renderAnnotator({ params, query }) {
             }
           }),
         ]));
-
-        // 透明度调节
-        //const sel = tapeLayer.getSelected();
-        //const firstPaper = paperTapeSelectedList[0] ? paperTapeSelectedList[0].tape : null;
 
       }
 
@@ -2141,7 +2157,7 @@ export async function renderAnnotator({ params, query }) {
       return b;
     };
 
-        // 👇 新增：切换上一张/下一张图片
+    //切换上一张/下一张图片
     if (pointId) {
       const pt = store.getPoint(pointId);
       if (pt) {
@@ -2165,8 +2181,6 @@ export async function renderAnnotator({ params, query }) {
     }
 
     // 原有的移动/缩放/撤销等按钮
-    dynBar.appendChild(mk('←', '左移', () => { offsetX += 40; updateTransform(); }));
-
     mk('←', '左移', () => { offsetX += 40; updateTransform(); });
     mk('→', '右移', () => { offsetX -= 40; updateTransform(); });
     mk('↑', '上移', () => { offsetY += 40; updateTransform(); });
@@ -2912,14 +2926,55 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // ============ 纸张（拖拽） ============
+    // ============ 纸张（拖拽 / 缩放 / 旋转） ============
     if (currentTool === 'paper') {
+      const sel = paperLayer.getSelected();
+
+      // 1. 优先判断：是否点中了缩放控制点
+      if (sel && !sel.locked) {
+        const handles = paperLayer.getHandles();
+        // 放大命中区域，手指更容易点中
+        const hitHandle = handles.find(h => Math.hypot(pt.x - h.x, pt.y - h.y) < 30);
+        if (hitHandle) {
+          pushUndo();
+          paperDragOffset = paperLayer.startResize(hitHandle.id, pt.x, pt.y);
+          drawing = 'paper-resize';
+          strokeCanvas.setPointerCapture(e.pointerId);
+          return;
+        }
+
+        // 旋转手柄判定
+        const cx = sel.x + sel.w / 2;
+        const cy = sel.y + sel.h / 2;
+        const rad = (sel.rotation || 0) * Math.PI / 180;
+        const hx = cx + Math.sin(rad) * (sel.h / 2 + 20);
+        const hy = cy - Math.cos(rad) * (sel.h / 2 + 20);
+        if (Math.hypot(pt.x - hx, pt.y - hy) < 30) {
+          pushUndo();
+          paperDragOffset = paperLayer.startRotate(pt.x, pt.y);
+          drawing = 'paper-rotate';
+          strokeCanvas.setPointerCapture(e.pointerId);
+          return;
+        }
+      }
+
+      // 2. 如果没有点中控制点，才进行纸张的命中测试
       const hit = paperLayer.hitTest(pt.x, pt.y);
       if (hit) {
-        paperLayer.select(hit);
-        paperDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, paper: hit, _lastX: hit.x, _lastY: hit.y };
-        drawing = 'paper-drag';
-        updateSubToolbar();
+        if (sel !== hit) {
+          paperLayer.select(hit);
+          updateSubToolbar();
+          return; // 只选中，不拖动
+        }
+        // 3. 拖动纸张内部
+        if (sel.x <= pt.x && pt.x <= sel.x + sel.w && sel.y <= pt.y && pt.y <= sel.y + sel.h) {
+          if (sel.locked) { toastError('已锁定'); return; }
+          pushUndo();
+          paperDragOffset = { dx: pt.x - sel.x, dy: pt.y - sel.y, paper: sel, _lastX: sel.x, _lastY: sel.y };
+          drawing = 'paper-drag';
+          strokeCanvas.setPointerCapture(e.pointerId);
+          return;
+        }
       } else {
         paperLayer.select(null);
         drawing = false;
@@ -2931,6 +2986,12 @@ export async function renderAnnotator({ params, query }) {
   });
 
   canvasWrap.addEventListener('pointermove', (e) => {
+    if (drawing === 'paper-resize' && paperDragOffset) {
+      const pt = canvasToImage(e.clientX, e.clientY);
+      paperDragOffset.move(pt.x, pt.y);
+      dirty = true;
+      return;
+    }
     // ============ 纸张拖动（极速联动版 + 辅助线） ============
     if (drawing === 'paper-drag' && paperDragOffset) {
       const p = paperDragOffset.paper;
@@ -3763,6 +3824,15 @@ export async function renderAnnotator({ params, query }) {
       textLayer.save();
       drawing = false;
       textDragOffset = null;
+    }
+
+    // ============ 纸张缩放/旋转结束 ============
+    if (drawing === 'paper-resize' || drawing === 'paper-rotate') {
+      if (paperDragOffset && paperDragOffset.end) paperDragOffset.end();
+      drawing = false;
+      paperDragOffset = null;
+      updateSubToolbar();
+      return;
     }
 
     // ============ 纸张拖动结束 ============

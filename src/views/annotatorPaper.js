@@ -121,24 +121,26 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
 
     // 样式线
     if (p.style === 'lined') {
+      const gapY = p.lineGap || 24;
       ctx.strokeStyle = 'rgba(0,0,0,.08)';
       ctx.lineWidth = 1;
-      for (let y = 24; y < p.h; y += 20) {
+      for (let y = gapY; y < p.h; y += gapY) {
         ctx.beginPath();
         ctx.moveTo(8, y);
         ctx.lineTo(p.w - 8, y);
         ctx.stroke();
       }
     } else if (p.style === 'grid') {
+      const gapXY = p.lineGap || 16; // 👈 动态读取间距，默认 16
       ctx.strokeStyle = 'rgba(0,0,0,.06)';
       ctx.lineWidth = 1;
-      for (let x = 16; x < p.w; x += 16) {
+      for (let x = gapXY; x < p.w; x += gapXY) {
         ctx.beginPath();
         ctx.moveTo(x, 8);
         ctx.lineTo(x, p.h - 8);
         ctx.stroke();
       }
-      for (let y = 16; y < p.h; y += 16) {
+      for (let y = gapXY; y < p.h; y += gapXY) {
         ctx.beginPath();
         ctx.moveTo(8, y);
         ctx.lineTo(p.w - 8, y);
@@ -736,138 +738,31 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
   function renderPaperToolbar() {
     const bar = el('div', { class: 'tape-toolbar' });
 
-    // ============ 新增：顶部操作栏（纸张列表） ============
     bar.appendChild(el('div', { class: 'tape-row' }, [
-      el('button', {
-        class: 'tape-chip', text: '📋 纸张列表',
-        onClick: () => openPaperListManager()
-      }),
+      el('button', { class: 'tape-chip', text: '📋 纸张列表', onClick: () => openPaperListManager() }),
       el('span', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: `共 ${papers.length} 张` })
     ]));
 
-    // ============ 添加纸张：前 4 个 + 更多下拉 ============
-    const addRow = el('div', { class: 'tape-row' }, [
-      el('span', { class: 'tape-label', text: '添加' }),
-    ]);
+    const addRow = el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '添加' })]);
     PAPER_STYLES.slice(0, 4).forEach(s => {
-      addRow.appendChild(el('button', {
-        class: 'tape-chip',
-        style: { padding: '3px 8px', fontSize: '11px', minHeight: '26px' },
-        text: s.label,
-        onClick: () => addPaper(s.id),
-      }));
+      addRow.appendChild(el('button', { class: 'tape-chip', style: { padding: '3px 8px', fontSize: '11px', minHeight: '26px' }, text: s.label, onClick: () => addPaper(s.id) }));
     });
-    const moreSelect = el('select', {
-      style: { padding: '3px 6px', fontSize: '11px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' },
-      onChange: (e) => {
-        const v = e.target.value;
-        if (!v) return;
-        if (v === '__pdf__') openPdfImport();
-        else if (v === '__image__') openImageImport();
-        else addPaper(v);
-        e.target.value = '';
-      },
-    }, [
-      el('option', { value: '', text: '更多…' }),
-      ...PAPER_STYLES.slice(4).map(s => el('option', { value: s.id, text: s.label })),
-      el('option', { value: '__pdf__', text: '📄 从 PDF 导入' }),
-      el('option', { value: '__image__', text: '🖼 从图片导入' }),
-    ]);
-    addRow.appendChild(moreSelect);
     bar.appendChild(addRow);
 
-    // ============ 选中纸张时的操作 ============
     const sel = getSelected();
     if (sel) {
       const smallBtn = { padding: '3px 8px', fontSize: '11px', minHeight: '26px' };
+
+      // 操作按钮
       bar.appendChild(el('div', { class: 'tape-row' }, [
-        el('span', { class: 'tape-label', text: '选中' }),
-        el('button', {
-          class: 'tape-chip',
-          text: '✏️ 编辑文字',
-          onClick: () => {
-            if (window.__openPaperTextEditor) {
-              window.__openPaperTextEditor(sel);
-              setTimeout(() => {
-                if (window.__updateSubToolbar) window.__updateSubToolbar();
-              }, 350);
-            } else {
-              const newText = prompt('输入文字', sel.text || '');
-              if (newText !== null) setText(newText);
-            }
-          },
-        }),
+        el('button', { class: 'tape-chip', text: '✏️ 文字', onClick: () => { if (window.__openPaperTextEditor) window.__openPaperTextEditor(sel); } }),
         el('button', { class: 'tape-chip', style: smallBtn, text: '📋 复制', onClick: () => { if (window.__copyPaper) window.__copyPaper(sel); } }),
-        el('button', { class: 'tape-chip', style: smallBtn, text: '📥 粘贴', onClick: () => { if (window.__pasteClipboard) window.__pasteClipboard(); } }),
-        el('button', { class: 'tape-chip' + (sel.locked ? ' active' : ''), style: smallBtn, text: sel.locked ? '🔒 已锁定' : '🔓 锁定', onClick: () => { sel.locked = !sel.locked; save(); redraw(); renderPaperToolbar(); } }),
+        el('button', { class: 'tape-chip' + (sel.locked ? ' active' : ''), style: smallBtn, text: sel.locked ? '🔒' : '🔓', onClick: () => { sel.locked = !sel.locked; save(); redraw(); renderPaperToolbar(); } }),
         el('button', { class: 'tape-chip', style: smallBtn, text: '⬆️ 置顶', onClick: () => { bringToFront(sel); renderPaperToolbar(); } }),
-        el('button', { class: 'tape-chip', style: smallBtn, text: '⬇️ 置底', onClick: () => { sendToBack(sel); renderPaperToolbar(); } }),
-        el('button', {
-          class: 'tape-chip', style: smallBtn, text: '🗑 删除', onClick: () => {
-            if (sel.locked) { alert('已锁定'); return; }
-            if (!confirm('确定删除？')) return;
-            removeSelected();
-          }
-        }),
+        el('button', { class: 'tape-chip', style: smallBtn, text: '🗑 删除', onClick: () => { if (confirm('删除？')) { removeSelected(); renderPaperToolbar(); } } }),
       ]));
 
-      // ============ 透明度：滑块 + 数值 ============
-      const opNum = el('input', {
-        type: 'number', min: '0.1', max: '1', step: '0.1',
-        value: String(sel.opacity !== undefined ? sel.opacity : 0.95),
-        style: { width: '48px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' },
-        onInput: (e) => {
-          sel.opacity = Math.max(0.1, Math.min(1, Number(e.target.value) || 1));
-          opRange.value = sel.opacity;
-          save(); redraw();
-        },
-      });
-      const opRange = el('input', {
-        type: 'range', min: '0.1', max: '1', step: '0.1',
-        value: String(sel.opacity !== undefined ? sel.opacity : 0.95),
-        style: { flex: '1', minWidth: '80px' },
-        onInput: (e) => { sel.opacity = Number(e.target.value); opNum.value = sel.opacity; save(); redraw(); },
-      });
-      bar.appendChild(el('div', { class: 'tape-row' }, [
-        el('span', { class: 'tape-label', text: '透明度' }),
-        opRange, opNum,
-      ]));
-
-      // ============ 旋转：滑块 + 数值 ============
-      const rotNum = el('input', {
-        type: 'number', min: '-180', max: '180', step: '15',
-        value: String(sel.rotation || 0),
-        style: { width: '56px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' },
-        onInput: (e) => {
-          sel.rotation = Number(e.target.value) || 0;
-          rotRange.value = sel.rotation;
-          save(); redraw();
-        },
-      });
-      const rotRange = el('input', {
-        type: 'range', min: '-180', max: '180', step: '15',
-        value: String(sel.rotation || 0),
-        style: { flex: '1', minWidth: '80px' },
-        onInput: (e) => { sel.rotation = Number(e.target.value); rotNum.value = sel.rotation; save(); redraw(); },
-      });
-      bar.appendChild(el('div', { class: 'tape-row' }, [
-        el('span', { class: 'tape-label', text: '旋转' }),
-        rotRange, rotNum,
-        el('span', { style: { fontSize: '11px', color: 'var(--text-2)' }, text: '°' }),
-      ]));
-
-      // ============ 背景色 ============
-      const bgColorWrap = el('div');
-      bgColorWrap.appendChild(renderColorPicker({
-        current: sel.bgColor || '#FFFFFF',
-        onChange: (c) => { sel.bgColor = c; save(); redraw(); },
-      }));
-      bar.appendChild(el('div', { class: 'tape-row' }, [
-        el('span', { class: 'tape-label', text: '背景色' }),
-        bgColorWrap,
-      ]));
-
-      // 样式切换（只在非 PDF/图片背景时显示）
+      // 样式切换
       if (!sel.pdfImage && !sel.bgImage) {
         bar.appendChild(el('div', { class: 'tape-row' }, [
           el('span', { class: 'tape-label', text: '样式' }),
@@ -875,14 +770,18 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
             { id: 'blank', label: '🧾 空白' },
             { id: 'lined', label: '📝 横线' },
             { id: 'grid', label: '🗒 方格' },
-            { id: 'note', label: '📄 便签' },
-            { id: 'sticky', label: '🟨 便利贴' },
           ].map(s => el('button', {
             class: 'tape-chip' + (sel.style === s.id ? ' active' : ''),
             style: { padding: '3px 8px', fontSize: '11px', minHeight: '26px' },
             text: s.label,
-            onClick: () => {
+            onClick: (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+
               sel.style = s.id;
+              if (s.id === 'lined') sel.lineGap = 24;
+              if (s.id === 'grid') sel.lineGap = 16;
+
               save();
               redraw();
               renderPaperToolbar();
@@ -890,6 +789,41 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
           })),
         ]));
       }
+
+      // 行距调节
+      if (sel.style === 'lined' || sel.style === 'grid') {
+        const defaultGap = sel.style === 'lined' ? 24 : 16;
+        const gapNum = el('input', { type: 'number', min: '8', max: '100', value: String(sel.lineGap || defaultGap), style: { width: '48px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' } });
+        const gapRange = el('input', { type: 'range', min: '8', max: '100', value: String(sel.lineGap || defaultGap), style: { flex: '1', minWidth: '80px' } });
+
+        gapRange.oninput = (e) => { sel.lineGap = Number(e.target.value); gapNum.value = sel.lineGap; save(); redraw(); };
+        gapNum.oninput = (e) => { sel.lineGap = Number(e.target.value); gapRange.value = sel.lineGap; save(); redraw(); };
+
+        bar.appendChild(el('div', { class: 'tape-row' }, [
+          el('span', { class: 'tape-label', text: sel.style === 'lined' ? '行距' : '格子' }),
+          gapRange, gapNum,
+        ]));
+      }
+
+      // 透明度
+      const opNum = el('input', { type: 'number', min: '0.1', max: '1', step: '0.1', value: String(sel.opacity !== undefined ? sel.opacity : 0.95), style: { width: '48px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' } });
+      const opRange = el('input', { type: 'range', min: '0.1', max: '1', step: '0.1', value: String(sel.opacity !== undefined ? sel.opacity : 0.95), style: { flex: '1' } });
+      opRange.oninput = (e) => { sel.opacity = Number(e.target.value); opNum.value = sel.opacity; save(); redraw(); };
+      opNum.oninput = (e) => { sel.opacity = Number(e.target.value); opRange.value = sel.opacity; save(); redraw(); };
+      bar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '透明' }), opRange, opNum]));
+
+      // 旋转
+      const rotNum = el('input', { type: 'number', min: '-180', max: '180', step: '15', value: String(sel.rotation || 0), style: { width: '56px', padding: '3px', fontSize: '12px', textAlign: 'center', borderRadius: '6px', border: '1px solid var(--border)' } });
+      const rotRange = el('input', { type: 'range', min: '-180', max: '180', step: '15', value: String(sel.rotation || 0), style: { flex: '1' } });
+      rotRange.oninput = (e) => { sel.rotation = Number(e.target.value); rotNum.value = sel.rotation; save(); redraw(); };
+      rotNum.oninput = (e) => { sel.rotation = Number(e.target.value); rotRange.value = sel.rotation; save(); redraw(); };
+      bar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '旋转' }), rotRange, rotNum, el('span', { text: '°' })]));
+    }
+
+    // 👇 终极修复：将生成的新工具栏替换掉页面上旧的
+    const oldBar = document.querySelector('.tape-toolbar');
+    if (oldBar && oldBar !== bar) {
+      oldBar.replaceWith(bar);
     }
 
     return bar;

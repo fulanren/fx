@@ -3,14 +3,44 @@ import * as store from '../store.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 import { dbPut } from '../db.js';
 
-// ... (保留上方的 globalImportDocModal 不变) ...
+// 选择导入方式
+export function globalImportDocModal() {
+  const mask = el('div', { class: 'confirm-mask' }, [
+    el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
+      el('h3', { text: '📄 文档导入' }),
+      el('p', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '请选择导入模式：' }),
+      el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+        el('button', {
+          class: 'btn btn-primary', text: '📑 智能解析大纲（自动生成结构）',
+          onClick: () => {
+            mask.remove();
+            uploadFile(true);
+          }
+        }),
+        el('div', { style: { fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.5' }, text: '文档格式要求：\n用 # 号代表任务，## 号代表章节，其余纯文本行代表知识点。' }),
+        
+        el('button', {
+          class: 'btn btn-ghost', text: '📄 全部作为纯知识点（导入现有章节）',
+          onClick: () => {
+            mask.remove();
+            chooseTargetChapter(false, (chapterId) => uploadFile(false, chapterId));
+          }
+        }),
+      ]),
+      el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
+        el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+      ])
+    ])
+  ]);
+  document.body.appendChild(mask);
+}
 
-// 👇 替换为增强版的大纲解析（支持提取 Word 图片）
+// 解析并生成大纲
 async function parseOutlineToDB(text, images = []) {
   let currentTask = null;
   let currentChapter = null;
   let countT = 0, countC = 0, countP = 0;
-  let imageIndex = 0; // 用于按顺序分配图片
+  let imageIndex = 0;
   
   const lines = text.split('\n');
   for (let line of lines) {
@@ -43,16 +73,12 @@ async function parseOutlineToDB(text, images = []) {
       }
       
       const content = line.replace(/^[-*]\s*/, '').replace(/^\d+\.\s*/, '');
-      
-      // 创建知识点
       const point = store.createPoint({ chapterId: currentChapter.id, content });
       countP++;
 
-      // 👇 如果这篇文档含有图片，按顺序绑定给当前知识点
+      // 绑定图片
       if (images.length > imageIndex) {
         const imgBlob = images[imageIndex];
-        
-        // 存入 IndexedDB
         const imgId = crypto.randomUUID();
         const imgObj = new Image();
         imgObj.src = URL.createObjectURL(imgBlob);
@@ -69,11 +95,9 @@ async function parseOutlineToDB(text, images = []) {
           createdAt: new Date().toISOString(),
         });
 
-        // 更新知识点关联
         if (!point.imageIds) point.imageIds = [];
         point.imageIds.push(imgId);
         store.updatePoint(point.id, { imageIds: point.imageIds });
-        
         imageIndex++;
       }
     }
@@ -81,69 +105,49 @@ async function parseOutlineToDB(text, images = []) {
   return { countT, countC, countP };
 }
 
-// 👇 替换文件读取逻辑（支持读取 Word 文件图片）
+// 读取文件
 function uploadFile(isOutline, targetChapterId = null) {
   const fileInput = document.createElement('input');
   fileInput.type = 'file';
-  fileInput.accept = '.txt,.md,.docx'; // 支持 Word
+  fileInput.accept = '.txt,.md,.docx';
   fileInput.onchange = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
     try {
       if (file.name.endsWith('.docx')) {
-        if (!window.mammoth) {
-          toastError('Word解析库(mammoth)未加载，请刷新页面');
-          return;
-        }
-        
+        if (!window.mammoth) { toastError('Word解析库未加载，请刷新页面'); return; }
         toastSuccess('正在解析 Word 文档…');
-        
-        // 将 Word 转成 HTML
         const arrayBuffer = await file.arrayBuffer();
         const result = await window.mammoth.convertToHtml({ arrayBuffer }, {
           convertImage: window.mammoth.images.imgElement(function(image) {
             return image.read("base64").then(function(imageBuffer) {
-              return {
-                src: "data:" + image.contentType + ";base64," + imageBuffer
-              };
+              return { src: "data:" + image.contentType + ";base64," + imageBuffer };
             });
           })
         });
         
         const html = result.value;
-        
-        // 提取出所有的 Base64 图片
         const images = [];
         const imgRegex = /<img[^>]+src="data:image\/[^;]+;base64,([^"]+)"/g;
         let match;
         while ((match = imgRegex.exec(html)) !== null) {
-          // 把 base64 转成 Blob
           const byteCharacters = atob(match[1]);
           const byteNumbers = new Array(byteCharacters.length);
           for (let i = 0; i < byteCharacters.length; i++) {
             byteNumbers[i] = byteCharacters.charCodeAt(i);
           }
-          const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: 'image/png' });
+          const blob = new Blob([new Uint8Array(byteNumbers)], { type: 'image/png' });
           images.push(blob);
         }
 
-        // 把 HTML 里的图片标签清空，并用换行符分割文本
-        let text = html.replace(/<img[^>]*>/g, '[此处有图片，已自动关联]');
-        
-        // 把 Word 的标题标签转为 # 号格式（如果是大纲导入）
+        let text = html.replace(/<img[^>]*>/g, '');
         if (isOutline) {
           text = text.replace(/<h1[^>]*>(.*?)<\/h1>/g, '\n# $1\n')
                      .replace(/<h2[^>]*>(.*?)<\/h2>/g, '\n## $1\n')
                      .replace(/<h3[^>]*>(.*?)<\/h3>/g, '\n### $1\n');
         }
-        
-        // 去除所有 HTML 标签
-        text = text.replace(/<[^>]+>/g, '');
-        
-        // 将连续的换行符合并，保证文本整齐
-        text = text.replace(/\n\s*\n/g, '\n');
+        text = text.replace(/<[^>]+>/g, '').replace(/\n\s*\n/g, '\n');
 
         if (isOutline) {
           const res = await parseOutlineToDB(text, images);
@@ -154,9 +158,7 @@ function uploadFile(isOutline, targetChapterId = null) {
           lines.forEach(content => store.createPoint({ chapterId: targetChapterId, content }));
           toastSuccess(`成功导入 ${lines.length} 个知识点`);
         }
-
       } else {
-        // 普通的 txt / md 处理
         const text = await file.text();
         if (isOutline) {
           const res = await parseOutlineToDB(text);
@@ -175,4 +177,33 @@ function uploadFile(isOutline, targetChapterId = null) {
     }
   };
   fileInput.click();
+}
+
+// 选章节弹窗
+function chooseTargetChapter(taskOnly, callback) {
+  const tasks = store.getTasks();
+  if (tasks.length === 0) { toastError('还没有任何任务，请先创建任务'); return; }
+
+  const mask = el('div', { class: 'confirm-mask' }, [
+    el('div', { class: 'confirm-box', style: { maxWidth: '400px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' } }, [
+      el('h3', { text: '选择导入到的章节' }),
+      el('div', { style: { maxHeight: '50vh', overflowY: 'auto', margin: '8px 0' } }, 
+        tasks.map(t => el('div', { style: { marginBottom: '10px' } }, [
+          el('div', { style: { fontWeight: '600', fontSize: '14px', color: 'var(--primary-dark)', marginBottom: '4px', padding: '4px 8px', background: 'rgba(142,202,230,.1)', borderRadius: '4px' }, text: t.name }),
+          (store.getChapters(t.id).length === 0 
+            ? [el('div', { style: { fontSize: '12px', color: 'var(--text-2)', padding: '4px 12px' }, text: '（无章节）' })]
+            : store.getChapters(t.id).map(c => el('div', {
+                style: { padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', marginBottom: '4px', fontSize: '13px', marginLeft: '8px' },
+                text: `📄 ${c.name}`,
+                onClick: () => { mask.remove(); callback(c.id); }
+              }))
+          )
+        ]))
+      ),
+      el('div', { class: 'confirm-actions' }, [
+        el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+      ])
+    ])
+  ]);
+  document.body.appendChild(mask);
 }
