@@ -95,7 +95,14 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
         else ctx.rect(0, 0, item.w, item.h);
         ctx.fill();
       }
+          // 绘制文字上的超链接图标
+    if (item.link && !window.__isSavingImage) {
+      ctx.save();
+      ctx.font = '16px sans-serif';
+      // 在文字的右上角画一个小链接图标
+      ctx.fillText('🔗', item.x + item.w - 18, item.y + 16);
       ctx.restore();
+    }
     }
 
     // 背景
@@ -139,15 +146,15 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     });
     ctx.restore();
 
-    // 选中框
-        if (selectedId === item.id) {
+        // 选中框（加了极其严苛的限制）
+    if (selectedId === item.id && !window.__isSavingImage && window.__showTextSelection !== false) {
       ctx.save();
       ctx.strokeStyle = '#3B82F6';
       ctx.lineWidth = 1.5;
       ctx.setLineDash([4, 4]);
       ctx.strokeRect(0, 0, item.w, item.h);
       ctx.setLineDash([]);
-      // 四角控制点加大到 12px
+      // 四角控制点
       [[0, 0], [item.w, 0], [item.w, item.h], [0, item.h]].forEach(([hx, hy]) => {
         ctx.fillStyle = '#fff';
         ctx.strokeStyle = '#3B82F6';
@@ -182,11 +189,19 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
   }
 
   // ============ 重绘 ============
-  function redraw() {
+    function redraw() {
     ctx.clearRect(0, 0, W, H);
     items.forEach(item => {
       if (item.visible === false) return;
-      drawItem(item);
+      // 👇 核心：如果此时正在保存图片，就偷偷把选中状态抹掉
+      if (window.__isSavingImage && selectedId === item.id) {
+        const oldId = selectedId;
+        selectedId = null;
+        drawItem(item);
+        selectedId = oldId; // 画完立刻恢复（虽然没必要了）
+      } else {
+        drawItem(item);
+      }
     });
   }
 
@@ -251,6 +266,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     const defaultH = data.h || Math.max(40, lines.length * fs * (data.lineHeight || 1.5) + 8);
 
     const item = {
+
       id: crypto.randomUUID(),
       x: data.x || 0,
       y: data.y || 0,
@@ -271,6 +287,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       rotation: data.rotation || 0,
       visible: true,
       locked: false,
+      link: null,
     };
     items.push(item);
     save();
@@ -288,13 +305,23 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     redraw();
   }
 
-  function removeText(item) {
+     function removeText(item) {
     const idx = items.indexOf(item);
     if (idx >= 0) {
       items.splice(idx, 1);
       if (selectedId === item.id) selectedId = null;
+      
+      // 👇 核心：关闭选中框显示，并强制重绘！
+      window.__showTextSelection = false;
       save();
       redraw();
+      
+      // 稍微延迟恢复（防止外层的点击事件把它又打开）
+      setTimeout(() => { window.__showTextSelection = true; }, 500);
+      
+      if (typeof window.__updateSubToolbar === 'function') {
+        window.__updateSubToolbar();
+      }
     }
   }
 

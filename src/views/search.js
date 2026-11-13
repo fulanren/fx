@@ -5,12 +5,12 @@ import { navigate } from '../router.js';
 export function renderSearch({ query }) {
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = '搜索';
+  document.getElementById('page-title').textContent = '🔍 搜索';
   document.getElementById('btn-back').classList.remove('hidden');
   document.getElementById('btn-back').onclick = () => history.back();
 
   const input = el('input', {
-    type: 'search', placeholder: '搜索任务、章节、知识点…',
+    type: 'search', placeholder: '搜索文件夹、卡片内容…',
     value: query.q || '',
     style: { width: '100%', padding: '12px', fontSize: '16px', border: '1px solid rgba(0,0,0,.1)', borderRadius: '10px', marginBottom: '16px' },
     onInput: debounce((e) => {
@@ -40,29 +40,35 @@ export function renderSearch({ query }) {
 
   view.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: `共 ${total} 条结果` }));
 
+  // 👇 任务（文件夹）
   if (result.tasks.length) {
-    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `任务（${result.tasks.length}）` }));
+    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `📁 文件夹（${result.tasks.length}）` }));
     result.tasks.forEach(t => view.appendChild(el('div', {
       class: 'card', onClick: () => navigate(`#/chapter-list/${t.id}`),
     }, [el('div', { class: 'card-title', text: t.name })])));
   }
 
+  // 👇 章节（子模块）- 虽然界面上不直接展示了，但如果是老数据还是能搜到
   if (result.chapters.length) {
-    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `章节（${result.chapters.length}）` }));
+    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `📂 子文件夹（${result.chapters.length}）` }));
     result.chapters.forEach(c => view.appendChild(el('div', {
       class: 'card', onClick: () => navigate(`#/chapter/${c.id}`),
     }, [el('div', { class: 'card-title', text: c.name })])));
   }
 
+  // 👇 知识点（卡片）
   if (result.points.length) {
-    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `知识点（${result.points.length}）` }));
+    view.appendChild(el('div', { style: { fontWeight: '600', margin: '12px 0 8px' }, text: `💡 卡片（${result.points.length}）` }));
     result.points.forEach(p => {
       const ch = store.getChapter(p.chapterId);
+      // 如果没章节了，说明是散落卡片
+      const subTitle = ch ? `📁 ${ch.name}` : '📄 散落卡片';
+      
       view.appendChild(el('div', {
-        class: 'card', onClick: () => navigate(`#/chapter/${p.chapterId}`),
+        class: 'card', onClick: () => navigate(`#/edit-point/${p.id}`), // 👈 修改：点击直接进卡片编辑页
       }, [
         el('div', { style: { fontWeight: '600' }, text: p.content.slice(0, 80) }),
-        ch ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }, text: ch.name }) : null,
+        el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }, text: subTitle }),
       ]));
     });
   }

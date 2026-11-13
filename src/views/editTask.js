@@ -11,7 +11,7 @@ export function renderEditTask({ params }) {
   if (!original) { navigate('#/'); return; }
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = isNew ? '新建任务' : '编辑任务';
+  document.getElementById('page-title').textContent = isNew ? '新建文件夹' : '编辑文件夹';
   document.getElementById('btn-back').classList.remove('hidden');
 
   const entityId = isNew ? 'new' : params.id;
@@ -28,15 +28,15 @@ export function renderEditTask({ params }) {
     }, 300);
   }
 
-  const nameInput = el('input', { type: 'text', value: form.name, placeholder: '如：行测常识', onInput: (e) => { form.name = e.target.value; queueSave(); } });
-  const noteInput = el('textarea', { placeholder: '备注（可选）', onInput: (e) => { form.note = e.target.value; queueSave(); } });
+  const nameInput = el('input', { type: 'text', value: form.name, placeholder: '如：行测常识、申论金句', onInput: (e) => { form.name = e.target.value; queueSave(); } });
+  const noteInput = el('textarea', { placeholder: '文件夹备注（可选）', onInput: (e) => { form.note = e.target.value; queueSave(); } });
   noteInput.value = form.note;
 
   const queueSave = debounce(() => { saveDraft('task', entityId, form); setStatus('已保存草稿'); }, 300);
 
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-body', style: { paddingTop: '16px' } }, [
-      el('div', { class: 'field' }, [el('label', { text: '任务名称' }), nameInput]),
+      el('div', { class: 'field' }, [el('label', { text: '文件夹名称' }), nameInput]),
       el('div', { class: 'field' }, [el('label', { text: '备注' }), noteInput]),
     ]),
   ]));
@@ -77,7 +77,7 @@ export function renderEditTask({ params }) {
     if (isNew) store.createTask({ name: form.name.trim(), note: form.note.trim() });
     else store.updateTask(params.id, { name: form.name.trim(), note: form.note.trim() });
     clearDraft('task', entityId);
-    toastSuccess('已保存');
+    toastSuccess('文件夹已保存');
     navigate('#/');
   }
 

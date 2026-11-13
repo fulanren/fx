@@ -65,29 +65,26 @@ export function renderTemplate() {
     ]),
   ]));
 
-  // 下载按钮
-  wrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
+    // 下载按钮组
+  wrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } }, [
     el('button', {
-      class: 'btn btn-primary', text: '📥 下载模板（.docx）',
-      onClick: async () => {
-        try {
-          const blob = new Blob([templateText()], { type: 'text/plain;charset=utf-8' });
-          const url = URL.createObjectURL(blob);
-          const a = document.createElement('a');
-          a.href = url;
-          a.download = '考公复习资料模板.txt';
-          a.click();
-          setTimeout(() => URL.revokeObjectURL(url), 1000);
-          toastSuccess('模板已下载，用 Word 打开另存为 .docx 即可');
-        } catch (e) { toastSuccess('下载失败'); }
-      },
+      class: 'btn btn-primary', text: '📥 下载 PDF 模板',
+      onClick: () => downloadTemplate('pdf')
+    }),
+    el('button', {
+      class: 'btn btn-ghost', text: '📥 下载 Word 模板',
+      onClick: () => downloadTemplate('doc')
+    }),
+    el('button', {
+      class: 'btn btn-ghost', text: '📥 下载 TXT 模板',
+      onClick: () => downloadTemplate('txt')
     }),
     el('button', {
       class: 'btn btn-ghost', text: '📋 复制模板',
       onClick: () => {
         navigator.clipboard.writeText(templateText()).then(() => toastSuccess('已复制'));
       },
-    }),
+    })
   ]));
 
   view.appendChild(wrap);
@@ -110,4 +107,60 @@ function templateText() {
 ### 知识点：行政处罚的种类
 解释：警告、罚款、没收违法所得、责令停产停业、暂扣或吊销许可证、行政拘留。
 `;
+}
+
+// ============ 强大的模板下载工具 ============
+async function downloadTemplate(format) {
+  const content = `# 第一章 资料分析\n## 第一节 基础概念\n1. 增长率 = (现期 - 基期) / 基期\n2. 比重 = 部分 / 整体\n\n# 第二章 申论\n## 第一节 归纳概括\n- 问题：材料中反映了哪些问题？\n- 对策：提出解决这些问题的建议。`;
+  
+  let blob, filename, mimeType, ext;
+
+  if (format === 'txt') {
+    blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' });
+    filename = '资料复习模板.txt'; ext = '.txt'; mimeType = 'text/plain';
+  } 
+  else if (format === 'doc') {
+    // 生成 Word 能识别的 HTML 格式，这样打开后就是有排版的 Word
+    const docHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>资料复习模板</title></head><body><pre style="font-family: sans-serif; white-space: pre-wrap;">${content}</pre></body></html>`;
+    blob = new Blob(['\uFEFF' + docHtml], { type: 'application/msword' });
+    filename = '资料复习模板.doc'; ext = '.doc'; mimeType = 'application/msword';
+  } 
+  else if (format === 'pdf') {
+    // 生成一个极其精简的 HTML，让浏览器去打印为 PDF
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body { font-family: sans-serif; line-height: 1.6; padding: 20px; } h1, h2 { page-break-after: avoid; }</style></head><body><h1>资料复习模板</h1><pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre></body></html>`;
+    const win = window.open('', '_blank');
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => { win.print(); }, 600);
+    toastSuccess('请在弹出的打印窗口中选择“另存为 PDF”');
+    return;
+  }
+
+  // 👇 核心：优先唤起系统“另存为”窗口，支持选择路径
+  if (window.showSaveFilePicker) {
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: filename,
+        types: [{ description: '模板文件', accept: { [mimeType]: [ext] } }],
+      });
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      toastSuccess('模板已保存到你选择的位置');
+      return;
+    } catch (err) {
+      if (err.name === 'AbortError') return; // 用户取消了
+      console.warn('原生另存为失败，降级为默认下载', err);
+    }
+  }
+
+  // 降级方案：直接下载到默认文件夹
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 2000);
+  toastSuccess('已开始下载（保存至默认下载目录）');
 }

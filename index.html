@@ -4,14 +4,16 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <meta name="theme-color" content="#FAFAFB" />
-  <title>考公复习</title>
+  <title>资料复习</title>
+  <!-- 消除 favicon.ico 的 404 报错 -->
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./assets/styles/main.css" />
 </head>
 <body>
   <div id="app">
     <aside id="sidebar" class="hidden">
       <div class="sidebar-head">
-        <span>考公复习</span>
+        <span>资料复习</span>
         <button id="sidebar-close" title="收起">✕</button>
       </div>
       <div id="sidebar-tree"></div>
@@ -32,23 +34,48 @@
   </div>
   <div id="toast-root"></div>
 
-  <script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+  <!-- ================= 核心依赖库引入 ================= -->
+  
+  <!-- 1. PDF.js (PDF 阅读核心) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
-    window.pdfjsLib = window['pdfjs-dist/build/pdf'];
     if (window.pdfjsLib) {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
     }
   </script>
 
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <!-- 2. pdf-lib (PDF 拆分、合并、插入) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+  <!-- 3. Tesseract.js (OCR 文字识别) -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+  <script>
+    // 👇 强制使用国内镜像下载中文语言包，防止卡死
+    if (window.Tesseract) {
+      window.Tesseract.workerOptions = {
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0', // 官方备用镜像
+      };
+    }
+  </script>
 
-  <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+  <!-- 4. JSZip (打包下载) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
+  <!-- 5. Mammoth (Word 文档解析) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+
+  <!-- 6. jsPDF (生成导出 PDF) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+    <!-- 7. html2canvas (网页截图转 PDF 核心) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- ================= 项目主程序入口 ================= -->
   <script type="module" src="./src/main.js"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
 
 </body>
 </html>

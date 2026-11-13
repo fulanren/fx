@@ -1,178 +1,107 @@
 import { el, clear } from '../utils/dom.js';
-import { navigate } from '../router.js';
 
 export function renderHelp() {
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = '使用帮助';
+  document.getElementById('page-title').textContent = '❓ 帮助中心';
   document.getElementById('btn-back').classList.remove('hidden');
-  document.getElementById('btn-back').onclick = () => navigate('#/');
+  document.getElementById('btn-back').onclick = () => history.back();
 
-  const wrap = el('div', { style: { maxWidth: '760px', margin: '0 auto' } });
+  view.style.padding = '16px';
+  view.style.display = 'block';
+  view.style.overflowY = 'auto';
 
-  wrap.appendChild(el('div', { class: 'card', style: { cursor: 'default' } }, [
-    el('div', { class: 'card-title', text: '📚 这是什么' }),
-    el('div', { style: { fontSize: '14px', color: 'var(--text-2)', lineHeight: '1.8', marginTop: '8px' } }, [
-      '复习系统是一个纯本地的背诵记录工具。所有数据保存在你当前浏览器的本地存储里，不上传服务器。',
-      el('br'),
-      '⚠️ 重要：清理浏览器缓存/网站数据会导致数据丢失，请定期在「设置 → 全量导出」备份。',
-    ]),
-  ]));
+  const container = el('div', { style: { width: '100%', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '10px' } });
+  view.appendChild(container);
 
-  const sections = [
-    {
-      title: '🗂 三层结构',
-      items: [
-        ['任务', '最外层，相当于一个文件夹，比如「行测常识」。点右下角 + 新建。'],
-        ['章节', '中间层，比如「法律常识」。点进任务后新建。'],
-        ['知识点', '最内层，每个知识点独立记录内容、解释、图片、录音、附件。'],
-      ],
-    },
-    {
-      title: '✏️ 新建与编辑',
-      items: [
-        ['新建', '每层右下角都有 + 按钮。'],
-        ['编辑', '卡片上的「编辑」按钮。'],
-        ['自动保存', '编辑时输入内容会自动存草稿，误关弹窗、刷新页面都不会丢。'],
-        ['合并', '点「☑ 批量」，勾选多个任务/章节/知识点，点「合并选中」。合并时可改名、选合并方式（内容拼接/关联链接）、选排序方式。源项进回收站，7 天内可撤销。'],
-        ['排序', '长按卡片 300ms 拖动，或用卡片下方的 ↑ ↓ 按钮。'],
-        ['批量导入', '章节详情页「📋 批量导入」，粘贴多行文本，每行一个知识点。'],
-        ['文档导入', '章节详情页「📄 导入文档」，支持 DOCX / TXT / PDF 文字版 / 扫描版 OCR。'],
-        ['模板导入', '任务页「📄 模板导入」，按「## 章节：」「### 知识点：」格式整理的文件，自动识别层级。'],
-      ],
-    },
-    {
-      title: '🎯 复习',
-      items: [
-        ['今日待复习', '首页顶部提示今天有多少知识点到期。'],
-        ['自测', '底部「复习」→ 看到知识点 → 点「👁 显示答案」→ 自评三档。'],
-        ['间隔算法', '忘了 → 明天再复习；模糊 → 间隔 ×1.5；记得 → 间隔 ×2.2。难度越高，间隔越短。'],
-        ['推迟/排除', '首页待复习横幅「管理」→ 勾选 → 今天跳过 / 3 天后 / 永久排除。'],
-        ['易错标记', '知识点展开后点「标记易错」。自评「忘了」时自动标记为易错。'],
-        ['错题统计', '易错知识点显示复习次数、忘了次数、错误率。'],
-        ['学习统计', '顶栏 ⋮ 菜单 → 📊 学习统计，查看掌握度、难度分布、最近 7 天复习、打卡天数。'],
-      ],
-    },
-    {
-      title: '⏰ 考试倒计时',
-      items: [
-        ['设置', '首页顶部「⏰ 设置考试倒计时」，填考试名称、日期、目标分数。'],
-        ['显示', '首页显示大数字倒计时「45 天后」。'],
-        ['修改', '点倒计时卡片，可修改或删除。'],
-      ],
-    },
-    {
-      title: '🔔 复习提醒',
-      items: [
-        ['设置', '设置 → 「⏰ 复习提醒」→ 勾选「每天固定时间提醒」→ 选时间 → 保存。'],
-        ['通知', '到时间如果有待复习知识点，浏览器弹通知。需要授权通知权限。'],
-        ['注意', '浏览器通知在关闭标签页后可能不弹，建议加到主屏幕或用 PWA。'],
-      ],
-    },
-    {
-      title: '🖼 图片标注',
-      items: [
-        ['添加图片', '编辑知识点 → 「解释图片」→ 「📷 添加图片」，或直接 Ctrl+V 粘贴截图。'],
-        ['进入标注', '点图片缩略图进入全屏标注页。'],
-        ['工具栏', '画笔、橡皮、圈擦、文字、箭头、矩形（边框+填充）、直线、波浪、胶带、纸张、抓手、仅触控笔。'],
-        ['粗细', '滑块 1-100 + 数字输入 + 加减按钮。画笔、橡皮、圈擦各自记住粗细。'],
-        ['颜色', '预设 8 色 + 自定义取色器。长按 600ms 或右键收藏颜色。收藏色单独一行，点「管理」可多选删除。'],
-        ['缩放', '双指缩放，单指绘制。抓手工具单指平移。'],
-        ['撤销', '最多 30 步。'],
-        ['清除', '可选清笔迹/纸张笔迹/文字/胶带/纸张。'],
-        ['保存', '笔迹单独存，下次还能撤销重画。原图始终保留。'],
-      ],
-    },
-    {
-      title: '🎗️ 胶带与纸张',
-      items: [
-        ['胶带', '适合盖住一行答案。形状：圆头线/方头线/矩形/圆形。花样：纯色/波点/自定义（上传图片裁剪）。宽度 4-300 可调。'],
-        ['胶带点击', '点击胶带切换显隐。工具栏「👁 全部显示 / 🙈 全部隐藏」。'],
-        ['纸张', '11 种样式：便签、便利贴、横线、方格、标签条、空白、A4、A5、正方形、宽矩形、高矩形。'],
-        ['纸张操作', '拖动内部移动，拖 8 个控制点调整大小，拖顶部旋转手柄旋转（吸附 15°），双击编辑文字。'],
-        ['纸张上画', '纸张上可以画笔迹和胶带，内容随纸张移动。'],
-        ['纸张文字', '支持换行、空格、字号加减、颜色收藏。'],
-      ],
-    },
-    {
-      title: '🖼 图片合成',
-      items: [
-        ['入口', '知识点有 ≥2 张图片时，展开后点「🖼 合成图片」。'],
-        ['样式', '纵向拼接、横向拼接、网格、A4 排版、拍立得墙、卡片列表。'],
-        ['预览', '调参数时实时预览，确认后点「生成并保存」。'],
-      ],
-    },
-    {
-      title: '🔤 OCR 与文档导入',
-      items: [
-        ['OCR', '知识点展开 → 「🔤 提取文字」。从原图识别，需联网。'],
-        ['PDF 取页', '知识点展开 → 「📄 导入 PDF」→ 选 PDF → 选页码 → 自动导入并进入标注。'],
-        ['文档导入', '章节详情页「📄 导入文档」→ 选 DOCX / TXT / PDF。PDF 自动判断文字版还是扫描版，扫描版走 OCR。'],
-        ['模板导入', '任务页「📄 模板导入」→ 按模板格式整理的文件，自动识别章节和知识点。'],
-      ],
-    },
-    {
-      title: '🎙 录音与语音',
-      items: [
-        ['录音', '编辑知识点 → 「🎙 口述背诵」→ 开始录音 → 停止并保存。可回放、删除。'],
-        ['语音转文字', '内容/解释输入框旁的 🎤 按钮。Chrome/Edge 可用（需联网），Safari 不支持。'],
-        ['计时器', '顶栏 ⏱ 番茄钟。正计时、倒计时、番茄钟三种模式。'],
-      ],
-    },
-    {
-      title: '📤 导出',
-      items: [
-        ['格式', 'PDF（文字版，可选中复制）、纯文本 .txt、Markdown .md、HTML、ZIP 完整归档、Anki 格式。'],
-        ['Anki', '导出为 Anki 兼容的 .txt，可在 Anki 里「导入 → 文本文件」导入。'],
-        ['粒度', '可导出单个知识点、整个章节、整个任务。'],
-        ['导入', '设置 → 导入备份，支持合并/覆盖，显示进度条。'],
-      ],
-    },
-    {
-      title: '💾 备份与恢复',
-      items: [
-        ['全量导出', '设置 → 「📦 全量导出」，下载完整 zip（含所有图片、录音、胶带、纸张、附件）。'],
-        ['导入', '设置 → 「📥 导入备份」，选 zip 恢复。支持合并或覆盖，显示进度条。'],
-        ['建议', '每 3~7 天备份一次，存到网盘或电脑。清浏览器缓存会导致数据丢失。'],
-        ['PDF 模板', '设置 → 「📄 下载 PDF 模板」，按模板整理资料，导入识别准确率更高。'],
-      ],
-    },
-    {
-      title: '⌨️ 快捷键',
-      items: [
-        ['Ctrl + K', '打开搜索'],
-        ['N', '首页按 N 新建任务'],
-        ['Ctrl + Z', '标注页撤销'],
-        ['Esc', '关闭弹窗'],
-      ],
-    },
-    {
-      title: '❓ 常见问题',
-      items: [
-        ['页面空白', '按 F12 看 Console 红色报错，通常是某个文件没加载。'],
-        ['录音没声音', '检查设备音量、静音键，或插耳机测试。'],
-        ['数据丢了', '如果没备份，无法恢复。这是纯本地存储的代价，务必定期备份。'],
-        ['换设备', '数据不跨设备同步。用「全量导出」→ 在新设备「导入备份」。'],
-        ['扫描版 PDF 慢', 'OCR 每页 3~8 秒，页数多时耐心等待，顶部有进度条。'],
-      ],
-    },
-  ];
+  container.appendChild(el('h2', { text: '📖 资料复习系统 - 详细操作手册', style: { textAlign: 'center', marginBottom: '4px', color: 'var(--primary-dark)', fontSize: '20px' } }));
 
-  sections.forEach(sec => {
-    const card = el('div', { class: 'card', style: { cursor: 'default' } }, [
-      el('div', { class: 'card-title', text: sec.title }),
-      el('div', { style: { marginTop: '8px' } }, sec.items.map(([k, v]) =>
-        el('div', { style: { fontSize: '14px', marginBottom: '8px', lineHeight: '1.7' } }, [
-          el('span', { style: { fontWeight: '600', color: 'var(--primary-dark)' }, text: k + '：' }),
-          el('span', { style: { color: 'var(--text-2)' }, text: v }),
-        ])
-      )),
+  // ================= 核心折叠面板生成器 =================
+  function createSection(title, htmlContent) {
+    let isOpen = false;
+    
+    // 👇 直接创建一个容器，内部用 innerHTML 塞进去
+    const contentDiv = document.createElement('div');
+    contentDiv.innerHTML = htmlContent; // 👈 用原生 DOM API
+    contentDiv.style.display = 'none';  // 默认隐藏
+    contentDiv.style.padding = '12px 16px';
+    contentDiv.style.fontSize = '14px';
+    contentDiv.style.lineHeight = '1.8';
+    contentDiv.style.color = 'var(--text-2)';
+    contentDiv.style.borderTop = '1px solid rgba(0,0,0,.05)';
+
+    const arrow = el('span', { text: '▸', style: { color: 'var(--text-2)', fontSize: '12px', transition: 'transform 0.2s' } });
+
+    const header = el('div', {
+      style: { padding: '12px 16px', fontSize: '15px', fontWeight: '600', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+      onClick: () => {
+        isOpen = !isOpen;
+        contentDiv.style.display = isOpen ? 'block' : 'none';
+        arrow.style.transform = isOpen ? 'rotate(90deg)' : 'rotate(0deg)';
+      }
+    }, [
+      el('span', { text: title }),
+      arrow
     ]);
-    wrap.appendChild(card);
-  });
 
-  wrap.appendChild(el('div', { style: { textAlign: 'center', fontSize: '12px', color: 'var(--text-2)', padding: '20px 0' } },
-    ['复习系统 · 纯本地存储 · 请定期备份']));
+    return el('div', { 
+      style: { background: 'var(--card)', borderRadius: '8px', boxShadow: 'var(--shadow)', overflow: 'hidden', marginBottom: '8px' } 
+    }, [header, contentDiv]);
+  }
 
-  view.appendChild(wrap);
+  // ================= 插入内容 =================
+
+  container.appendChild(createSection('📚 1. 背诵与知识库管理', `
+    <div style="margin-bottom: 8px;"><b>👉 如何新建任务/章节？</b><br>在首页点击右下角蓝色的 <code>+</code> 按钮，或者点击侧边栏顶部的 <code>+</code>。选好归属后，输入名称即可。</div>
+    <div style="margin-bottom: 8px;"><b>👉 如何录入知识点？</b><br>进入任意章节页面，点击底部的「+ 新建知识点」。可以直接打字，也可以点击输入框旁边的「📷」拍照提取文字。</div>
+    <div style="margin-bottom: 8px;"><b>👉 快捷操作：粘贴即存。</b><br>在电脑上按 <code>Ctrl+V</code> 粘贴任何文字，系统会自动弹窗，帮你存入收件箱。</div>
+    <div style="margin-bottom: 8px;"><b>👉 拖拽排序：</b><br>按住任何任务或章节卡片，可以随意拖拽调整上下顺序。</div>
+  `));
+
+  container.appendChild(createSection('🖼️ 2. 图文附件与文件管理', `
+    <div style="margin-bottom: 8px;"><b>👉 如何上传附件？</b><br>在知识点编辑页面，展开「🖼 图文附件」，点击「+ 加图片」或「+ 加 PDF」。</div>
+    <div style="margin-bottom: 8px;"><b>👉 视图切换：</b><br>进入附件区，顶部有三个按钮：<code>🖼</code> 图文（带缩略图）、<code>▦</code> 极简网格、<code>📄</code> 纯列表。</div>
+    <div style="margin-bottom: 8px;"><b>👉 批量操作（多选）：</b><br>点击顶部的「☑ 多选」，然后点击卡片即可勾选。勾选后，顶部会展开「移动、导出、重命名、删除」等按钮。</div>
+    <div style="margin-bottom: 8px;"><b>👉 文件夹功能：</b><br>你可以点击「📁+」新建文件夹，把几十张图片分类。单击文件夹名可折叠/展开。</div>
+    <div style="margin-bottom: 8px;"><b>👉 导出技巧：</b><br>在多选模式下点击「导出」，你可以选择打包成 <code>ZIP</code>，或者直接逐个下载原本的 PDF 和图片。</div>
+  `));
+
+  container.appendChild(createSection('❗ 3. 错题本与冲刺复习', `
+    <div style="margin-bottom: 8px;"><b>👉 如何把题目加入错题本？</b><br>在知识点卡片上点击「标记易错」，或者在编辑页面打开「复习设置」，在错因里选「知识盲区」或「粗心大意」。</div>
+    <div style="margin-bottom: 8px;"><b>👉 沉浸式重练：</b><br>点击侧边栏的「错题本」，点击顶部的「🎯 开始重练」。屏幕会全屏显示题目，你先回忆，然后点「显示解析」对答案。</div>
+    <div style="margin-bottom: 8px;"><b>👉 消灭错题：</b><br>如果这道题你彻底会了，点击「😎 记得并消除」，系统会自动把它移出错题本，很有成就感！</div>
+    <div style="margin-bottom: 8px;"><b>👉 错因筛选：</b><br>错题本顶部支持按「盲区 / 粗心」进行过滤，帮你找出自己最容易掉坑的地方。</div>
+  `));
+
+  container.appendChild(createSection('📄 4. PDF 高级阅读器', `
+    <div style="margin-bottom: 8px;"><b>👉 基础阅读：</b><br>支持双指缩放、鼠标滚轮缩放。单击页面可以选中，双击页面直接进入标注画板。</div>
+    <div style="margin-bottom: 8px;"><b>👉 插入新页面：</b><br>点击顶部的 <code>➕</code>，你可以插入空白纸、横线纸、甚至申论答题卡和错题纸。你可以把它插在当前页的前面或后面。</div>
+    <div style="margin-bottom: 8px;"><b>👉 划词提取文字：</b><br>点击顶部的 <code>🔤</code>，然后在 PDF 上按住鼠标拖拽一个框，系统会自动识别框里的文字，并可以存为新知识点。</div>
+    <div style="margin-bottom: 8px;"><b>👉 框选截图：</b><br>点击顶部的 <code>✂️</code>，框选题目区域，松手后可以保存为图片附件。</div>
+    <div style="margin-bottom: 8px;"><b>👉 大纲与书签：</b><br>顶部 <code>📋</code> 是大纲，<code>📑</code> 是书签。你可以创建层级大纲，并全选/批量删除，插入新页后大纲页码会自动顺延。</div>
+  `));
+
+  container.appendChild(createSection('🎨 5. 沉浸式标注画板', `
+    <div style="margin-bottom: 8px;"><b>👉 图层与工具：</b><br>底部工具栏从左到右依次是：画笔、橡皮、圈擦、文字、形状、胶带、纸张、抓手。</div>
+    <div style="margin-bottom: 8px;"><b>👉 隐藏笔迹：</b><br>如果画得太乱挡住了原题，点击顶部的 <code>🙈</code> 可以瞬间隐藏所有你画的线，只显示原图。</div>
+    <div style="margin-bottom: 8px;"><b>👉 纸张列表管理：</b><br>点击顶部 <code>➕</code>，在弹出的窗口中点击「🗂 管理已有画布」，可以一键定位并删除你误加的空白纸张。</div>
+    <div style="margin-bottom: 8px;"><b>👉 撤销操作：</b><br>顶部的 <code>↶</code> 最多支持撤销 30 步。在平板上，双指双击屏幕也能快速撤销。</div>
+  `));
+
+  container.appendChild(createSection('☁️ 6. 数据安全与云同步', `
+    <div style="margin-bottom: 8px;"><b>👉 手动备份：</b><br>去设置页点击「导出数据」，强烈建议定期存一份 <code>ZIP</code> 完整包到电脑上（包含了图片和笔迹）。</div>
+    <div style="margin-bottom: 8px;"><b>👉 WebDAV 同步：</b><br>在设置页最下方，填入坚果云的 WebDAV 地址、账号和应用密码。点击「⬆️ 上传」即可把纯文字数据传到云端。</div>
+    <div style="margin-bottom: 8px;"><b>👉 自动同步：</b><br>勾选「开启后台自动同步」，以后你关闭网页时，它会默默帮你把数据传上去。</div>
+    <div style="margin-bottom: 8px;"><b>👉 安全快照：</b><br>如果点了下载覆盖导致数据丢失，立刻点击旁边的「🛡️ 恢复安全快照」，可以一键还原！</div>
+  `));
+
+  container.appendChild(createSection('⌨️ 7. 键盘极客快捷键', `
+    <div style="margin-bottom: 8px;">在电脑端，你可以完全脱离鼠标复习：</div>
+    <div style="margin-bottom: 4px;"><code>Ctrl + K</code> / <code>/</code>：随时唤起全局搜索。</div>
+    <div style="margin-bottom: 4px;"><code>N</code>：在章节页一键新建知识点。</div>
+    <div style="margin-bottom: 4px;"><code>空格键</code>：在复习卡片中，按空格快速翻开答案。</div>
+    <div style="margin-bottom: 4px;"><code>1 / 2 / 3</code>：在复习或错题重练时，按键盘 1（忘了）、2（模糊）、3（记得），直接丝滑跳到下一题。</div>
+  `));
+
+  container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习系统 · 祝你早日上岸' }));
 }

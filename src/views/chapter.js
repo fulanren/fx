@@ -62,8 +62,8 @@ export function renderChapterList({ params }) {
   document.getElementById('page-title').textContent = chMulti ? '选择章节' : task.name;
   document.getElementById('btn-back').classList.remove('hidden');
   document.getElementById('btn-back').onclick = () => {
-    if (chMulti) { chMulti = false; chSelected.clear(); renderChapterList({ params }); }
-    else navigate('#/');
+    if (ptMulti) { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params, query }); }
+    else navigate(`#/`);
   };
 
   const chapters = store.getChapters(task.id);
@@ -123,10 +123,6 @@ export function renderChapterList({ params }) {
     ]));
   } else {
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📤 导出任务',
-        onClick: () => showExportMenu('task', task.id),
-      }),
       // 【按模板导入：自动识别章节和知识点】
       el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { chMulti = true; renderChapterList({ params }); } }),
     ]));
@@ -187,11 +183,25 @@ function chapterCard(c, taskId) {
       c.part ? el('span', { text: `📄 ${c.part}` }) : null,
       el('span', { text: `💡 ${points.length} 知识点` }),
     ]),
+    // 👇 章节专属附件提示区
+    (c.imageIds && c.imageIds.length > 0) || (c.pdfFiles && c.pdfFiles.length > 0)
+      ? el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } }, [
+        c.imageIds && c.imageIds.length > 0 ? el('div', {
+          class: 'btn btn-sm btn-ghost',
+          style: { padding: '2px 8px', fontSize: '12px', background: 'rgba(142,202,230,0.15)', color: 'var(--primary-dark)' },
+          text: `🖼 ${c.imageIds.length} 图`,
+          onClick: (e) => { e.stopPropagation(); navigate(`#/edit-chapter/${c.id}`); }
+        }) : null,
+        c.pdfFiles && c.pdfFiles.length > 0 ? el('div', {
+          class: 'btn btn-sm btn-ghost',
+          style: { padding: '2px 8px', fontSize: '12px', background: 'rgba(255,181,167,0.15)', color: 'var(--accent)' },
+          text: `📄 ${c.pdfFiles.length} PDF`,
+          onClick: (e) => { e.stopPropagation(); navigate(`#/edit-chapter/${c.id}`); }
+        }) : null
+      ])
+      : null,
     !chMulti ? el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
-      // 缩小版的上下移按钮
-      el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
       // 👇 删除按钮
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
@@ -203,6 +213,9 @@ function chapterCard(c, taskId) {
           }
         },
       }),
+      // 缩小版的上下移按钮
+      el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
     ]) : null,
   ]);
 }
@@ -211,26 +224,33 @@ function chapterCard(c, taskId) {
 let ptMulti = false;
 const ptSelected = new Set();
 
-export function renderChapterDetail({ params }) {
-  const chapter = store.getChapter(params.id);
+export function renderChapterDetail({ params, query }) {
+  const chapterId = params.id;
+  const chapter = store.getChapter(chapterId);
+  const safeQuery = query || {};
+
+  localStorage.setItem('kg_last_chapter_id', chapterId);
   if (!chapter) { navigate('#/'); return; }
+
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = ptMulti ? '选择知识点' : chapter.name;
+
+  // 👇 核心修复：直接通过当前章节找到它所属的文件夹（Task），用文件夹的名字！
+  const currentTask = store.getTask(chapter.taskId);
+  const displayTitle = currentTask ? currentTask.name : chapter.name;
+
+  document.getElementById('page-title').textContent = ptMulti ? '批量选择' : displayTitle;
+
   document.getElementById('btn-back').classList.remove('hidden');
   document.getElementById('btn-back').onclick = () => {
-    if (ptMulti) { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); }
-    else navigate(`#/chapter-list/${chapter.taskId}`);
+    if (ptMulti) { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params, query }); }
+    else navigate(`#/`);
   };
 
-  view.appendChild(el('div', { class: 'card', style: { cursor: 'default' } }, [
-    el('div', { class: 'card-title', text: chapter.name }),
-    el('div', { class: 'card-meta' }, [
-      chapter.book ? el('span', { text: `📚 ${chapter.book}` }) : null,
-      chapter.part ? el('span', { text: `📄 ${chapter.part}` }) : null,
-    ]),
-    chapter.note ? el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px' }, text: chapter.note }) : null,
-  ]));
+  view.appendChild(el('div', {
+    style: { fontSize: '18px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--primary-dark)' },
+    text: `📁 ${displayTitle}`
+  }));
 
   const points = store.getPoints(chapter.id);
 
@@ -307,17 +327,41 @@ export function renderChapterDetail({ params }) {
   } else {
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
       el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📤 导出本章',
-        onClick: () => showExportMenu('chapter', chapter.id),
+        class: 'btn btn-sm btn-primary', text: '🎯 开始复习',
+        onClick: () => {
+          // 👇 弹出模式选择
+          const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+          const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
+            el('h3', { text: '选择复习模式', style: { marginBottom: '16px' } }),
+            el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, [
+              el('button', {
+                class: 'btn btn-primary', text: '🖥️ 沉浸式模式 (全屏大字)', onClick: () => {
+                  mask.remove();
+                  startReviewMode(points, chapter.id);
+                }
+              }),
+              el('button', {
+                class: 'btn btn-ghost', text: '📋 专注列表模式 (在原列表操作)', onClick: () => {
+                  mask.remove();
+                  startFocusListMode(points, chapter.id);
+                }
+              }),
+              el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+            ])
+          ]);
+          mask.appendChild(box);
+          document.body.appendChild(mask);
+        }
       }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderChapterDetail({ params }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderChapterDetail({ params, query }); } }),
     ]));
   }
 
   if (points.length === 0) {
     view.appendChild(el('div', { class: 'empty' }, [
-      el('div', { class: 'empty-icon', text: '💡' }),
-      el('div', { text: '还没有知识点' }),
+      el('div', { class: 'empty-icon', text: '📄' }),
+      el('div', { text: '文件夹空空如也' }),
+      el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } })
     ]));
   } else {
     const list = el('div', { id: 'point-list' });
@@ -333,7 +377,7 @@ export function renderChapterDetail({ params }) {
 
   if (!ptMulti) {
     view.appendChild(el('button', {
-      class: 'fab', text: '+', 'aria-label': '新建知识点',
+      class: 'fab', text: '+', 'aria-label': '新建卡片',
       onClick: () => navigate(`#/edit-point/new?chapterId=${chapter.id}`),
     }));
   }
@@ -347,234 +391,666 @@ export function renderChapterDetail({ params }) {
   }
 }
 
+// ============ 极简卡片渲染 ============
 function pointCard(p, chapterId) {
-  let expanded = false;
+  let isExpanded = false;
   const isSelected = ptSelected.has(p.id);
 
-  // 图片缩略图
-  const imageRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginBottom: '8px' } });
-  const allImageIds = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
-  if (allImageIds.length > 0) {
-    allImageIds.forEach(imageId => {
-      const thumb = el('div', {
-        style: { width: '80px', height: '80px', borderRadius: '6px', overflow: 'hidden', background: '#f0f0f0', cursor: 'pointer', flexShrink: '0', position: 'relative' },
-        onClick: async (e) => {
-          e.stopPropagation();
-          const img = await getImageCached(imageId);
-          if (!img) return;
-
-          const mask = el('div', { class: 'confirm-mask' }, [
-            el('div', { class: 'confirm-box', style: { maxWidth: '300px' } }, [
-              el('h3', { text: '操作图片' }),
-              el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' } }, [
-                img.type === 'composite'
-                  ? el('button', {
-                    class: 'btn btn-ghost', text: '👁 预览',
-                    onClick: () => {
-                      mask.remove();
-                      const blob = img.annotatedBlob || img.blob;
-                      if (!blob) return;
-                      const url = URL.createObjectURL(blob);
-                      const preview = el('div', {
-                        class: 'confirm-mask',
-                        style: { zIndex: '500' },
-                        onClick: () => { preview.remove(); URL.revokeObjectURL(url); },
-                      }, [
-                        el('img', { src: url, style: { maxWidth: '95vw', maxHeight: '95vh', borderRadius: '8px', objectFit: 'contain' } }),
-                      ]);
-                      document.body.appendChild(preview);
-                    },
-                  })
-                  : el('button', {
-                    class: 'btn btn-ghost', text: '✏️ 标注',
-                    onClick: () => { mask.remove(); navigate(`#/annotate/${imageId}?pointId=${p.id}`); },
-                  }),
-                el('button', {
-                  class: 'btn btn-danger', text: '🗑 删除',
-                  onClick: async () => {
-                    mask.remove();
-                    if (!confirm('删除这张图片？')) return;
-                    const { dbDelete } = await import('../db.js');
-                    await dbDelete('images', imageId);
-                    store.removeImageFromPoint(p.id, imageId);
-                    toastSuccess('已删除');
-                    renderChapterDetail({ params: { id: chapterId } });
-                  },
-                }),
-              ]),
-              el('div', { class: 'confirm-actions', style: { marginTop: '12px' } }, [
-                el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-              ]),
-            ]),
-          ]);
-          document.body.appendChild(mask);
-        },
-      });
-      getImageCached(imageId).then(img => {
-        if (!img) return;
-        const blob = img.annotatedBlob || img.originalBlob;
-        if (!blob) return;
-        const url = URL.createObjectURL(blob);
-        thumb.appendChild(el('img', { src: url, style: { width: '100%', height: '100%', objectFit: 'cover' }, onLoad: () => URL.revokeObjectURL(url) }));
-        if (img.type === 'composite') {
-          thumb.appendChild(el('div', { style: { position: 'absolute', top: '2px', left: '2px', background: 'rgba(59,130,246,.9)', color: '#fff', fontSize: '10px', padding: '1px 4px', borderRadius: '3px' }, text: '合成' }));
-        }
-      }).catch(() => {
-        thumb.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', fontSize: '24px', color: '#ccc' }, text: '🖼' }));
-      });
-      imageRow.appendChild(thumb);
-    });
-  }
-
-  // 录音列表
-  const audioBlock = (p.audioIds && p.audioIds.length > 0)
-    ? el('div', { style: { marginBottom: '8px' } }, [
-      el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '🎙 录音' }),
-      ...p.audioIds.map(audioId => {
-        const item = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 8px', background: '#f9f9f9', borderRadius: '6px', marginBottom: '4px', fontSize: '13px' } });
-        item.appendChild(el('span', { text: '🎙' }));
-        item.appendChild(el('button', {
-          class: 'btn btn-sm btn-ghost', text: '▶ 播放',
-          onClick: async (e) => {
-            e.stopPropagation();
-            try {
-              const { dbGet } = await import('../db.js');
-              const audio = await dbGet('audios', audioId);
-              if (!audio || !audio.blob) {
-                toastError('音频文件缺失，请重新录音');
-                return;
-              }
-              const url = URL.createObjectURL(audio.blob);
-              const player = new Audio();
-              player.src = url;
-              player.volume = 1;
-              player.muted = true;
-              try { await player.play(); } catch { }
-              player.muted = false;
-              player.currentTime = 0;
-              await player.play().catch(err => toastError('播放失败：' + err.message));
-            } catch (err) {
-              toastError('播放出错：' + err.message);
-            }
-          },
-        }));
-        item.appendChild(el('button', {
-          class: 'btn btn-sm btn-danger', text: '删除',
-          onClick: async (e) => {
-            e.stopPropagation();
-            if (await confirmBox({ title: '删除录音', message: '删除后无法恢复', danger: true, confirmText: '删除' })) {
-              const { removeAudio } = await import('./audio.js');
-              removeAudio(audioId, p.id);
-              renderChapterDetail({ params: { id: chapterId } });
-            }
-          },
-        }));
-        return item;
-      }),
-    ])
-    : null;
-
-  const detail = el('div', { class: 'point-detail hidden', style: { marginTop: '12px', borderTop: '1px solid rgba(0,0,0,.06)', paddingTop: '12px' } }, [
-    p.explanation ? el('div', { style: { marginBottom: '8px' } }, [
-      el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '解释' }),
-      el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
-    ]) : null,
-    allImageIds.length > 0 ? imageRow : null,
-    (p.linkedPointIds && p.linkedPointIds.length > 0)
-      ? el('div', { style: { marginBottom: '8px' } }, [
-        el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '关联知识点' }),
-        ...p.linkedPointIds.map(id => {
-          const linked = store.getPoint(id);
-          if (!linked) return null;
-          return el('div', {
-            style: { fontSize: '13px', padding: '4px 8px', background: 'var(--bg)', borderRadius: '6px', marginBottom: '2px', cursor: 'pointer' },
-            text: linked.content.slice(0, 40),
-            onClick: (e) => { e.stopPropagation(); navigate(`#/chapter/${linked.chapterId}`); },
-          });
-        }),
-      ])
-      : null,
-    el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' } }, [
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📤 导出此知识点',
-        onClick: (e) => { e.stopPropagation(); showExportMenu('point', p.id); },
-      }),
-    ]),
-    audioBlock,
-    el('div', { class: 'card-meta', style: { marginBottom: '8px' } }, [
-      (p.manualReviewCount || p.reviewCount > 0) ? el('span', { text: `📚 已背 ${p.reviewCount} 遍` }) : null,
-      el('span', { text: `🔥 难记度 ${p.difficulty}` }),
-      (p.manualNextReviewAt || p.reviewCount > 0) ? el('span', { text: `📅 下次 ${fmtDate(p.nextReviewAt)}` }) : null,
-      p.isErrorProne ? el('span', { text: '❗ 易错', style: { color: 'var(--danger)' } }) : null,
-    ]),
-    // 【错题统计】
-    p.isErrorProne ? el('div', { style: { fontSize: '12px', color: 'var(--danger)', marginBottom: '8px' } }, [
-      (() => {
-        const s = store.getErrorStats(p);
-        return `❗ 易错 · 复习 ${s.totalCount} 次，忘了 ${s.forgotCount} 次`;
-      })(),
-    ]) : null,
-    el('div', { class: 'card-actions' }, [
-      el('button', { 
-  class: 'btn btn-sm btn-ghost', text: '编辑', 
-  onClick: (e) => { 
-    e.stopPropagation(); 
-    sessionStorage.setItem('scroll_y_chapter', window.scrollY); // 👈 加这一行
-    navigate(`#/edit-point/${p.id}`); 
-  } 
-}),
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: p.isErrorProne ? '取消易错' : '标记易错',
-        onClick: (e) => { e.stopPropagation(); store.updatePoint(p.id, { isErrorProne: !p.isErrorProne }); renderChapterDetail({ params: { id: chapterId } }); },
-      }),
-      el('button', {
-        class: 'btn btn-sm btn-danger', text: '删除',
-        onClick: async (e) => {
-          e.stopPropagation();
-          if (await confirmBox({ title: '删除知识点', message: '将进入回收站，30 天内可恢复', danger: true, confirmText: '删除' })) {
-            store.deletePoint(p.id);
-            toastSuccess('已移入回收站');
-            renderChapterDetail({ params: { id: chapterId } });
-          }
-        },
-      }),
-    ]),
-  ]);
-
-  const card = el('div', {
-    class: 'card' + (isSelected ? ' selected' : ''),
-    'data-id': p.id,
-  }, [
-    ptMulti ? el('div', { class: 'select-box' }, [
-      el('input', {
-        type: 'checkbox', checked: isSelected, onChange: (e) => {
-          if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
-          renderChapterDetail({ params: { id: chapterId } });
-        }
-      }),
-    ]) : null,
-    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' } }, [
-      el('div', { style: { flex: 1, fontWeight: '600', whiteSpace: 'pre-wrap' }, text: p.content }),
-      !ptMulti ? el('span', { style: { color: 'var(--text-2)', fontSize: '18px' }, text: '▾' }) : null,
-    ]),
-    (!ptMulti && allImageIds.length > 0) ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '4px' }, text: `🖼 ${allImageIds.length} 张图片` }) : null,
-    (!ptMulti && p.audioIds && p.audioIds.length > 0) ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '2px' }, text: `🎙 ${p.audioIds.length} 条录音` }) : null,
-    detail,
-    // 加在你原有的 编辑/删除 按钮旁边：
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } }),
-  ]);
-
-  card.addEventListener('click', (e) => {
-    if (e.target.closest('.card-actions') || e.target.closest('.point-detail') || e.target.closest('.move-btns') || e.target.closest('.select-box')) return;
-    if (ptMulti) {
-      if (ptSelected.has(p.id)) ptSelected.delete(p.id); else ptSelected.add(p.id);
-      renderChapterDetail({ params: { id: chapterId } });
-    } else {
-      expanded = !expanded;
-      detail.classList.toggle('hidden', !expanded);
-    }
+  // 展开的内容区（初始隐藏）
+  const contentBox = el('div', {
+    style: { display: 'none', marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed rgba(0,0,0,.1)' }
   });
 
+  // 卡片主体
+  const card = el('div', {
+    class: 'card' + (isSelected ? ' selected' : ''),
+    style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s' }
+  });
+
+  const header = el('div', {
+    onClick: (e) => {
+      // 如果点在多选框或按钮上，不触发折叠
+      if (e.target.closest('input') || e.target.closest('button')) return;
+
+      if (ptMulti) {
+        // 多选模式下点击卡片 = 勾选
+        if (isSelected) ptSelected.delete(p.id); else ptSelected.add(p.id);
+        renderChapterDetail({ params: { id: chapterId } });
+        return;
+      }
+
+      isExpanded = !isExpanded;
+      contentBox.style.display = isExpanded ? 'block' : 'none';
+    }
+  }, [
+    el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' } }, [
+
+      // 左侧：多选框 + 内容标题
+      el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', flex: '1' } }, [
+        ptMulti ? el('input', {
+          type: 'checkbox', checked: isSelected, style: { marginTop: '4px' },
+          onChange: (e) => {
+            if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
+            renderChapterDetail({ params: { id: chapterId } });
+          }
+        }) : null,
+        el('div', { style: { fontSize: '15px', fontWeight: '600', whiteSpace: 'pre-wrap', lineHeight: '1.5' }, text: p.content })
+      ]),
+
+      // 👇 右侧：直接挂上标签（不点开也能看到）
+      (() => {
+        // 1. 暴力读取最新数据
+        const allPts = JSON.parse(localStorage.getItem('kg_points') || '[]');
+        const freshP = allPts.find(x => x.id === p.id) || p;
+
+        // 2. 兼容真假值（有些时候存的是字符串 'false' 或 'true'）
+        const showDiff = freshP.showDifficultyBeforeExpand === true || freshP.showDifficultyBeforeExpand === 'true';
+        const showCount = freshP.showReviewCountBeforeExpand === true || freshP.showReviewCountBeforeExpand === 'true';
+
+        if (!showDiff && !showCount) return null;
+
+        const tagBox = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'nowrap', flexShrink: '0', alignItems: 'center' } });
+
+        if (showDiff) {
+          const diff = freshP.difficulty || 5;
+          tagBox.appendChild(el('span', {
+            style: { padding: '2px 8px', background: diff >= 8 ? 'var(--danger)' : diff >= 5 ? 'var(--warn)' : 'var(--green)', color: '#fff', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' },
+            text: `难:${diff}`
+          }));
+        }
+
+        if (showCount) {
+          tagBox.appendChild(el('span', {
+            style: { padding: '2px 8px', background: 'var(--primary)', color: '#fff', borderRadius: '12px', fontSize: '11px', fontWeight: 'bold' },
+            text: `背:${freshP.reviewCount || 0}`
+          }));
+        }
+
+        return tagBox;
+      })()
+    ])
+  ]);
+
+  // 展开后的解释
+  if (p.explanation) {
+    contentBox.appendChild(el('div', {
+      style: { fontSize: '14px', color: 'var(--text-2)', marginBottom: '12px', whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.02)', padding: '8px', borderRadius: '6px' },
+      text: p.explanation
+    }));
+  }
+
+  // 展开后的图文附件提示
+    // 👇 修改为：图文提示和操作按钮在同一行，紧凑排列
+  const footerRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap', gap: '8px' } });
+
+  // 左侧：图文附件提示
+  if (p.imageIds && p.imageIds.length > 0) {
+    footerRow.appendChild(el('div', { 
+      style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' }, 
+      text: `🖼 包含 ${p.imageIds.length} 张图文附件` 
+    }));
+  } else {
+    footerRow.appendChild(el('div')); // 占位，把按钮挤到右边
+  }
+
+  // 右侧：操作按钮组
+  const actions = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
+    el('button', { class: 'btn btn-sm btn-ghost', text: '✏️ 编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-point/${p.id}`); } }),
+    el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async (e) => {
+      e.stopPropagation();
+      if (await confirmBox({ title: '删除卡片', message: '确定删除这张卡片吗？', danger: true, confirmText: '删除' })) {
+        store.deletePoint(p.id);
+        toastSuccess('已移入回收站');
+        renderChapterDetail({ params: { id: chapterId } });
+      }
+    } }),
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } })
+  ]);
+  
+  footerRow.appendChild(actions);
+  contentBox.appendChild(footerRow);
+
+  card.appendChild(header);
+  card.appendChild(contentBox);
   return card;
+}
+
+// ============ 沉浸式极速复习模式 ============
+function startReviewMode(points, chapterId) {
+  if (!points || points.length === 0) {
+    alert('当前文件夹没有卡片，无法复习');
+    return;
+  }
+
+  let currentIndex = 0;
+  let isExpanded = false;
+
+  // 1. 创建全屏遮罩
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'var(--bg)', display: 'flex', flexDirection: 'column' } });
+
+  // 顶部进度条
+  const progressBar = el('div', { style: { height: '4px', background: 'rgba(0,0,0,0.05)', width: '100%' } });
+  const progressFill = el('div', { style: { height: '100%', width: '0%', background: 'var(--primary)', transition: 'width 0.3s' } });
+  progressBar.appendChild(progressFill);
+  mask.appendChild(progressBar);
+
+  // 顶部信息栏
+  const topBar = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 20px' } }, [
+    el('span', { style: { fontSize: '14px', color: 'var(--text-2)' }, text: `复习模式 - ${points.length} 张卡片` }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', text: '✕ 退出', onClick: () => {
+        mask.remove();
+        window.onkeydown = null;
+        document.body.style.overflow = ''; // 恢复滚动
+      }
+    })
+  ]);
+  mask.appendChild(topBar);
+
+  // 卡片展示区
+  const cardArea = el('div', { style: { flex: '1', display: 'flex', flexDirection: 'column', justifyContent: 'center', padding: '20px', maxWidth: '800px', margin: '0 auto', width: '100%' } });
+  mask.appendChild(cardArea);
+
+  // 底部悬浮触控栏（平板专属）
+  const touchBar = el('div', {
+    id: 'review-touch-bar',
+    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.85)', backdropFilter: 'blur(10px)', padding: '8px 16px', borderRadius: '30px', display: 'flex', gap: '12px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center' }
+  }, [
+    // 上一个
+    el('button', {
+      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬆️',
+      title: '快捷键: ↑',
+      onClick: () => { if (currentIndex > 0) { currentIndex--; isExpanded = false; renderCard(); } }
+    }),
+
+    // 翻开答案
+    el('button', {
+      class: 'btn btn-primary', style: { fontSize: '16px', padding: '8px 24px', borderRadius: '20px' }, text: '翻开答案 (空格)',
+      onClick: () => { isExpanded = !isExpanded; renderCard(); }
+    }),
+
+    // 图片
+    el('button', {
+      class: 'btn btn-ghost', style: { color: '#fff' }, text: '🖼 图片 (I)',
+      title: '快捷键: I',
+      onClick: () => {
+        const p = points[currentIndex];
+        if (p.imageIds && p.imageIds.length > 0) openQuickImages(p.imageIds);
+        else toastSuccess('当前卡片无图片');
+      }
+    }),
+
+    // PDF
+    el('button', {
+      class: 'btn btn-ghost', style: { color: '#fff' }, text: '📄 PDF (P)',
+      title: '快捷键: P',
+      onClick: () => {
+        const p = points[currentIndex];
+        const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
+        const realPoint = allPoints.find(x => x.id === p.id) || p;
+        const pdfId = findPdfId(realPoint);
+
+        if (pdfId) {
+          window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
+          mask.remove(); window.onkeydown = null; document.body.style.overflow = '';
+        } else {
+          toastSuccess('当前卡片无 PDF');
+        }
+      }
+    }),
+
+    // 下一个
+    el('button', {
+      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬇️',
+      title: '快捷键: ↓',
+      onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; isExpanded = false; renderCard(); } }
+    })
+  ]);
+  mask.appendChild(touchBar);
+
+  document.body.appendChild(mask);
+  document.body.style.overflow = 'hidden'; // 防止背景滚动
+
+  // ============ 渲染卡片逻辑 ============
+  function renderCard() {
+    const p = points[currentIndex];
+    progressFill.style.width = `${((currentIndex + 1) / points.length) * 100}%`;
+    cardArea.innerHTML = '';
+
+    // 主卡片
+    const card = el('div', {
+      class: 'card',
+      style: { padding: '32px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'pointer', position: 'relative' },
+      onClick: (e) => {
+        // 点击空白处也能翻转
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('.hidden')) return;
+        isExpanded = !isExpanded;
+        renderCard();
+      }
+    });
+
+    // 卡片内容
+    card.appendChild(el('div', { style: { fontSize: '22px', fontWeight: '600', textAlign: 'center', lineHeight: '1.6', whiteSpace: 'pre-wrap' }, text: p.content }));
+
+    // 👇 新增：判断是否显示提示
+    const freshP = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p;
+
+    const tagBox = el('div', { style: { display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'center' } });
+
+    if (freshP.showDifficultyBeforeExpand) {
+      const diff = freshP.difficulty || 5;
+      tagBox.appendChild(el('div', {
+        style: { padding: '4px 12px', background: diff >= 8 ? 'var(--danger)' : diff >= 5 ? 'var(--warn)' : 'var(--green)', color: '#fff', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold' },
+        text: `难记度: ${diff} / 10`
+      }));
+    }
+
+    if (freshP.showReviewCountBeforeExpand) {
+      tagBox.appendChild(el('div', {
+        style: { padding: '4px 12px', background: 'var(--primary)', color: '#fff', borderRadius: '20px', fontSize: '13px', fontWeight: 'bold' },
+        text: `已背: ${freshP.reviewCount || 0} 遍`
+      }));
+    }
+
+    // 如果标签框里有东西，才添加到卡片里
+    if (tagBox.children.length > 0) {
+      card.appendChild(tagBox);
+    }
+
+    // 展开后的内容
+    if (isExpanded) {
+      const expandBox = el('div', { style: { width: '100%', marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed rgba(0,0,0,0.1)' } });
+
+      if (p.explanation) {
+        expandBox.appendChild(el('div', { style: { fontSize: '16px', color: 'var(--text-2)', whiteSpace: 'pre-wrap', marginBottom: '16px', background: 'var(--bg)', padding: '12px', borderRadius: '8px' }, text: p.explanation }));
+      }
+
+      // 附件快捷入口
+      const btnRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'center', marginBottom: '16px' } });
+
+      // 1. 查看图片按钮
+      if (p.imageIds && p.imageIds.length > 0) {
+        btnRow.appendChild(el('button', {
+          class: 'btn btn-sm btn-ghost', text: '🖼 查看图片',
+          onClick: () => openQuickImages(p.imageIds)
+        }));
+      }
+
+      // 👇 2. 打开 PDF 按钮
+      if (p.pdfFiles && p.pdfFiles.length > 0) {
+        btnRow.appendChild(el('button', {
+          class: 'btn btn-sm btn-ghost', text: '📄 打开 PDF',
+          onClick: () => {
+            // 如果有多个 PDF，默认打开第一个
+            window.location.hash = `#/pdf-viewer/${p.pdfFiles[0].id}?pointId=${p.id}`;
+            mask.remove();
+            window.onkeydown = null;
+            document.body.style.overflow = ''; // 退出复习模式，进入 PDF 页面
+          }
+        }));
+      }
+
+      if (btnRow.children.length > 0) expandBox.appendChild(btnRow);
+
+      // 自评按钮（带次数统计）
+      const freshP = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p;
+      const history = freshP.reviewHistory || [];
+      const forgotC = history.filter(h => h.rating === 'forgot').length;
+      const vagueC = history.filter(h => h.rating === 'vague').length;
+      const rememberC = history.filter(h => h.rating === 'remember').length;
+
+      expandBox.appendChild(el('div', { style: { display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' } }, [
+        el('button', { class: 'btn btn-sm btn-danger', text: `1. 忘了 (${forgotC})`, onClick: () => ratePoint('forgot') }),
+        el('button', { class: 'btn btn-sm btn-warning', text: `2. 模糊 (${vagueC})`, onClick: () => ratePoint('vague') }),
+        el('button', { class: 'btn btn-sm btn-success', text: `3. 记得 (${rememberC})`, onClick: () => ratePoint('remember') }),
+      ]));
+
+      card.appendChild(expandBox);
+    }
+
+    cardArea.appendChild(card);
+  }
+
+  // 评分并切下一题
+  function ratePoint(rating) {
+    const p = points[currentIndex];
+    store.ratePoint(p.id, rating);
+    toastSuccess('已记录');
+    if (currentIndex < points.length - 1) {
+      currentIndex++;
+      isExpanded = false;
+      renderCard();
+    } else {
+      // 最后一张：把界面关掉并刷新列表
+      alert('太棒了，该文件夹已复习完毕！');
+      mask.remove(); // 沉浸式用这个
+      // touchBar.remove(); // 专注列表模式用这个
+      window.onkeydown = null;
+      renderChapterDetail({ params: { id: chapterId } });
+    }
+  }
+
+  // 图片预览弹窗
+  async function openQuickImages(imageIds) {
+    // 👇 暂停复习快捷键，防止按 ESC 时直接退出复习
+    const oldKeyDown = window.onkeydown;
+    window.onkeydown = null;
+
+    const imgMask = el('div', { class: 'confirm-mask', style: { zIndex: 999999, background: 'rgba(0,0,0,0.9)' } });
+    const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });
+    imgMask.appendChild(el('h3', { text: '附件预览', style: { color: '#fff', textAlign: 'center', marginTop: '20px' } }));
+    imgMask.appendChild(imgWrap);
+
+    const { dbGet } = await import('../db.js');
+    for (const id of imageIds) {
+      const rec = await dbGet('images', id);
+      if (rec && (rec.annotatedBlob || rec.originalBlob)) {
+        const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
+        imgWrap.appendChild(el('img', { src: url, style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px', objectFit: 'contain' }, onLoad: () => URL.revokeObjectURL(url) }));
+      }
+    }
+
+    const closeMask = () => {
+      imgMask.remove();
+      window.onkeydown = oldKeyDown; // 恢复复习快捷键
+    };
+
+    const closeBtn = el('button', { class: 'btn btn-primary', text: '关闭 (Esc)', style: { position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)' }, onClick: closeMask });
+    imgMask.appendChild(closeBtn);
+    document.body.appendChild(imgMask);
+
+    // 👇 加入 ESC 监听
+    window.onkeydown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMask();
+      }
+    };
+  }
+
+  // ============ 键盘快捷键拦截 ============
+  window.onkeydown = (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault(); isExpanded = !isExpanded; renderCard();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (!isExpanded) { ratePoint('forgot'); }
+      else { ratePoint('remember'); }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (currentIndex > 0) { currentIndex--; isExpanded = false; renderCard(); }
+    } else if (e.key === 'Escape') {
+      mask.remove(); window.onkeydown = null; document.body.style.overflow = '';
+    } else if (e.key === '1' && isExpanded) { ratePoint('forgot'); }
+    else if (e.key === '2' && isExpanded) { ratePoint('vague'); }
+    else if (e.key === '3' && isExpanded) { ratePoint('remember'); }
+    else if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault();
+      if (!isExpanded) { isExpanded = true; renderCard(); return; }
+      const p = points[currentIndex];
+      if (p.imageIds?.length) openQuickImages(p.imageIds);
+      else toastSuccess('无图片');
+    } else if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault();
+      if (!isExpanded) { isExpanded = true; renderCard(); return; }
+
+      // 智能读取 PDF
+      const p = points[currentIndex];
+      const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
+      const realPoint = allPoints.find(x => x.id === p.id) || p;
+      const pdfId = findPdfId(realPoint);
+
+      if (pdfId) {
+        window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
+        mask.remove(); window.onkeydown = null; document.body.style.overflow = '';
+      } else {
+        toastSuccess('无 PDF');
+      }
+    }
+  };
+
+  // 初始化渲染第一张
+  renderCard();
+}
+
+// ============ 专注列表复习模式 (Focus List) ============
+function startFocusListMode(points, chapterId) {
+  if (!points || points.length === 0) return;
+
+  let currentIndex = 0;
+  let isExpanded = false;
+
+  // 1. 获取当前页面所有的卡片 DOM
+  // 因为我们是基于列表模式，所以直接找页面上的 .card 元素
+  const cardElements = Array.from(document.querySelectorAll('#point-list .card'));
+
+  if (cardElements.length === 0) return;
+
+  // 2. 创建底部悬浮条
+  const touchBar = el('div', {
+    id: 'review-touch-bar',
+    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.95)', backdropFilter: 'blur(10px)', padding: '8px 16px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }
+  }, [
+    el('button', {
+      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出', onClick: () => {
+        cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
+        touchBar.remove(); window.onkeydown = null;
+      }
+    }),
+    el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬆️', title: '快捷键: ↑', onClick: () => {
+        if (currentIndex > 0) { currentIndex--; highlightCard(); }
+      }
+    }),
+    el('button', {
+      class: 'btn btn-sm btn-primary', style: { padding: '4px 16px' }, text: '翻转 (空格)', onClick: () => {
+        isExpanded = !isExpanded; highlightCard();
+      }
+    }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '🖼 图片 (I)', onClick: () => {
+        const p = points[currentIndex];
+        if (p.imageIds && p.imageIds.length > 0) openQuickImages(p.imageIds);
+        else toastSuccess('当前无图片');
+      }
+    }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '📄 PDF (P)',
+      onClick: () => {
+        const p = points[currentIndex];
+        const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
+        const realPoint = allPoints.find(x => x.id === p.id) || p;
+        const pdfId = findPdfId(realPoint);
+
+        if (pdfId) {
+          window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
+          touchBar.remove(); window.onkeydown = null;
+        } else {
+          toastSuccess('当前无 PDF');
+        }
+      }
+    }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬇️', title: '快捷键: ↓', onClick: () => {
+        if (currentIndex < points.length - 1) { currentIndex++; highlightCard(); }
+      }
+    }),
+    el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+    // 快速评分按钮
+    el('button', { class: 'btn btn-sm btn-danger', text: '1.忘了', onClick: () => rateCurrent('forgot') }),
+    el('button', { class: 'btn btn-sm btn-warning', text: '2.模糊', onClick: () => rateCurrent('vague') }),
+    el('button', { class: 'btn btn-sm btn-success', text: '3.记得', onClick: () => rateCurrent('remember') })
+  ]);
+
+  document.body.appendChild(touchBar);
+
+  // 3. 高亮并滚动到当前卡片
+  function highlightCard() {
+    cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)'); // 重置所有卡片边框
+
+    const el = cardElements[currentIndex];
+    if (el) {
+      el.style.border = '2px solid var(--primary)'; // 高亮当前卡片
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+      // 👇 核心修复：直接通过 DOM 找到解释框并控制它
+      // 因为解释框是卡片里的第二个子元素（header 是第一个）
+      const header = el.children[0];
+      const contentBox = el.children[1];
+
+      if (contentBox) {
+        if (isExpanded) {
+          contentBox.style.display = 'block'; // 强行展开
+        } else {
+          contentBox.style.display = 'none';  // 强行收起
+        }
+      }
+    }
+  }
+
+  // 4. 评分并切下一题
+  function rateCurrent(rating) {
+    const p = points[currentIndex];
+    store.ratePoint(p.id, rating);
+    if (rating === 'forgot') store.incrementErrorCount(p.id);
+    toastSuccess('已记录');
+
+    if (currentIndex < points.length - 1) {
+      currentIndex++;
+      isExpanded = false;
+      highlightCard();
+    } else {
+      toastSuccess('复习完毕！');
+      cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
+      touchBar.remove();
+      window.onkeydown = null;
+      renderChapterDetail({ params: { id: chapterId } });
+    }
+  }
+
+  // 5. 图片预览复用
+  async function openQuickImages(imageIds) {
+    // 👇 暂停复习快捷键
+    const oldKeyDown = window.onkeydown;
+    window.onkeydown = null;
+
+    const imgMask = el('div', { class: 'confirm-mask', style: { zIndex: 999999, background: 'rgba(0,0,0,0.9)' } });
+    const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });
+    imgMask.appendChild(el('h3', { text: '附件预览', style: { color: '#fff', textAlign: 'center', marginTop: '20px' } }));
+    imgMask.appendChild(imgWrap);
+
+    const { dbGet } = await import('../db.js');
+    for (const id of imageIds) {
+      const rec = await dbGet('images', id);
+      if (rec && (rec.annotatedBlob || rec.originalBlob)) {
+        const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
+        imgWrap.appendChild(el('img', { src: url, style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px', objectFit: 'contain' }, onLoad: () => URL.revokeObjectURL(url) }));
+      }
+    }
+
+    const closeMask = () => {
+      imgMask.remove();
+      window.onkeydown = oldKeyDown; // 恢复复习快捷键
+    };
+
+    const closeBtn = el('button', { class: 'btn btn-primary', text: '关闭 (Esc)', style: { position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)' }, onClick: closeMask });
+    imgMask.appendChild(closeBtn);
+    document.body.appendChild(imgMask);
+
+    // 👇 加入 ESC 监听
+    window.onkeydown = (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        closeMask();
+      }
+    };
+  }
+
+  // 6. 键盘快捷键拦截
+  window.onkeydown = (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault(); isExpanded = !isExpanded; highlightCard();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault(); rateCurrent(isExpanded ? 'remember' : 'forgot');
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault(); if (currentIndex > 0) { currentIndex--; isExpanded = false; highlightCard(); }
+    } else if (e.key === 'i' || e.key === 'I') {
+      e.preventDefault(); if (!isExpanded) { isExpanded = true; highlightCard(); return; }
+      const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('无图片');
+    } else if (e.key === 'p' || e.key === 'P') {
+      e.preventDefault();
+      if (!isExpanded) { isExpanded = true; highlightCard(); return; }
+
+      const p = points[currentIndex];
+      // 👇 核心修复：直接从 localStorage 抓取最新数据，不管内存里有没有
+      const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
+      const realPoint = allPoints.find(x => x.id === p.id) || p;
+
+      let pdfId = null;
+      // 兼容多种可能的存储字段名
+      if (realPoint.pdfFiles && realPoint.pdfFiles.length > 0) {
+        pdfId = realPoint.pdfFiles[0].id;
+      } else if (realPoint.pdfs && realPoint.pdfs.length > 0) {
+        pdfId = realPoint.pdfs[0].id;
+      } else if (realPoint.attachments) {
+        const pdfAttach = realPoint.attachments.find(a => a.type === 'pdf' || (a.name && a.name.endsWith('.pdf')));
+        if (pdfAttach) pdfId = pdfAttach.id || pdfAttach.pdfId;
+      }
+
+      if (pdfId) {
+        window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
+        touchBar.remove();
+        window.onkeydown = null;
+      } else {
+        toastSuccess('当前卡片无 PDF');
+      }
+    } else if (e.key === '1' && isExpanded) { rateCurrent('forgot'); }
+    else if (e.key === '2' && isExpanded) { rateCurrent('vague'); }
+    else if (e.key === '3' && isExpanded) { rateCurrent('remember'); }
+    else if (e.key === 'Escape') {
+      cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
+      touchBar.remove(); window.onkeydown = null;
+    }
+  };
+
+  // 初始化高亮第一张
+  highlightCard();
+}
+
+// ============ 万能 PDF 抓取 ============
+function findPdfId(point) {
+  if (!point) return null;
+
+  // 1. 查老字段 pdfFiles
+  if (point.pdfFiles && point.pdfFiles.length > 0) return point.pdfFiles[0].id;
+
+  // 2. 查 pdfs 字段
+  if (point.pdfs && point.pdfs.length > 0) return point.pdfs[0].id;
+
+  // 3. 查 attachments
+  if (point.attachments && point.attachments.length > 0) {
+    const found = point.attachments.find(a => {
+      const isPdfName = a.name && a.name.toLowerCase().endsWith('.pdf');
+      const isPdfType = a.type === 'pdf';
+      return isPdfName || isPdfType;
+    });
+    if (found) return found.id || found.pdfId;
+  }
+
+  // 4. 查 files（如果你的文件是存这里的）
+  if (point.files && point.files.length > 0) {
+    const found = point.files.find(a => {
+      const isPdfName = a.name && a.name.toLowerCase().endsWith('.pdf');
+      const isPdfType = a.type === 'pdf';
+      return isPdfName || isPdfType;
+    });
+    if (found) return found.id || found.pdfId;
+  }
+
+  return null;
 }

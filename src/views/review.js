@@ -2,12 +2,16 @@
 import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { fmtDate } from '../utils/date.js';
-import { toastSuccess } from '../ui/toast.js';
+import { toastSuccess, toastError } from '../ui/toast.js';
+import { dbGet } from '../db.js';
 
 export function renderReview({ query }) {
+  // 👇 进来先清掉可能残留的旧悬浮条
+  const oldBar = document.getElementById('review-touch-bar');
+  if (oldBar) oldBar.remove();
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = '复习';
+    document.getElementById('page-title').textContent = '待复习管理';
   document.getElementById('btn-back').classList.add('hidden');
 
   const filter = query.filter || 'due';
@@ -51,7 +55,122 @@ export function renderReview({ query }) {
     return;
   }
 
-  points.forEach(p => view.appendChild(reviewCard(p, filter)));
+  // 👇 全局键盘快捷键监听
+  let activeCard = null; // 记录当前高亮的卡片 DOM
+  let activeAnswer = null;
+  let activeShowBtn = null;
+  let activePoint = null;
+
+  const cards = [];
+  points.forEach((p, index) => {
+    const cardObj = reviewCard(p, filter, index);
+    view.appendChild(cardObj.el);
+    cards.push(cardObj);
+  });
+    // 👇 平板专属：底部悬浮触控板
+  const touchBar = el('div', {
+    id: 'review-touch-bar',
+    style: {
+      position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)',
+      background: 'rgba(43, 45, 66, 0.85)', backdropFilter: 'blur(10px)', padding: '8px 16px',
+      borderRadius: '30px', display: 'flex', gap: '12px', zIndex: 9999,
+      boxShadow: '0 4px 12px rgba(0,0,0,0.3)'
+    }
+  }, [
+    // 上一个
+    el('button', { 
+      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬆️',
+      onClick: () => {
+        const idx = cards.findIndex(c => c.el === activeCard);
+        if (idx > 0) setActiveCard(cards[idx - 1]);
+      }
+    }),
+    // 空格：展开答案
+    el('button', { 
+      class: 'btn btn-primary', style: { fontSize: '16px', padding: '8px 24px', borderRadius: '20px' }, text: '翻开答案',
+      onClick: () => { if (activeShowBtn) activeShowBtn.click(); }
+    }),
+    // 下一个
+    el('button', { 
+      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬇️',
+      onClick: () => {
+        const idx = cards.findIndex(c => c.el === activeCard);
+        if (idx >= 0 && idx < cards.length - 1) setActiveCard(cards[idx + 1]);
+      }
+    })
+  ]);
+  document.body.appendChild(touchBar);
+
+  // 在返回时清理悬浮条
+  const originalBackOnclick = document.getElementById('btn-back').onclick;
+  document.getElementById('btn-back').onclick = () => {
+    touchBar.remove();
+    window.onkeydown = null;
+    if (originalBackOnclick) originalBackOnclick();
+  };
+
+  // 设置第一张卡片为当前焦点
+  if (cards.length > 0) {
+    setActiveCard(cards[0]);
+  }
+
+  function setActiveCard(cardObj) {
+    // 移除之前的边框
+    if (activeCard) activeCard.style.border = '1px solid rgba(0,0,0,.05)';
+    
+    activeCard = cardObj.el;
+    activeAnswer = cardObj.answer;
+    activeShowBtn = cardObj.showBtn;
+    activePoint = cardObj.p;
+
+    // 加上高亮边框
+    activeCard.style.border = '2px solid var(--primary)';
+    activeCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // 绑定快捷键
+  window.onkeydown = (e) => {
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (!activeCard) return;
+
+    if (e.key === ' ' || e.code === 'Space') {
+      e.preventDefault();
+      // 模拟点击“显示答案”
+      if (activeShowBtn) activeShowBtn.click();
+    } else if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      // 找下一张卡片
+      const idx = cards.findIndex(c => c.el === activeCard);
+      if (idx >= 0 && idx < cards.length - 1) {
+        setActiveCard(cards[idx + 1]);
+      } else {
+        toastSuccess('已经是最后一张了');
+      }
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      const idx = cards.findIndex(c => c.el === activeCard);
+      if (idx > 0) {
+        setActiveCard(cards[idx - 1]);
+      }
+    } else if (e.key === '1' || e.key === '2' || e.key === '3') {
+      // 如果答案没显示，先不处理
+      if (activeAnswer && activeAnswer.classList.contains('hidden')) return;
+      
+      const btnText = e.key === '1' ? '忘了' : e.key === '2' ? '模糊' : '记得';
+      // 在当前卡片里找到对应的按钮并点击
+      const btn = Array.from(activeAnswer.querySelectorAll('button')).find(b => b.textContent.includes(btnText));
+      if (btn) btn.click();
+    } else if (e.key === 'Escape') {
+      window.onkeydown = null;
+      navigate('#/');
+    }
+  };
+
+  // 清理快捷键（离开页面时）
+  document.getElementById('btn-back').onclick = () => {
+    window.onkeydown = null;
+    navigate('#/');
+  };
 }
 
 function tabBtn(label, value, current) {
@@ -62,7 +181,7 @@ function tabBtn(label, value, current) {
   });
 }
 
-function reviewCard(p, filter) {
+function reviewCard(p, filter, index) {
   const chapter = store.getChapter(p.chapterId);
   const task = chapter ? store.getTask(chapter.taskId) : null;
 
@@ -71,6 +190,19 @@ function reviewCard(p, filter) {
       el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '解释' }),
       el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
     ]) : null,
+    
+    // 快捷查看附件
+    (p.imageIds && p.imageIds.length > 0) || (p.pdfFiles && p.pdfFiles.length > 0) ? el('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' } }, [
+      p.imageIds && p.imageIds.length > 0 ? el('button', {
+        class: 'btn btn-sm btn-ghost', text: `🖼 查看图片 (${p.imageIds.length})`,
+        onClick: () => showImages(p.imageIds)
+      }) : null,
+      p.pdfFiles && p.pdfFiles.length > 0 ? el('button', {
+        class: 'btn btn-sm btn-ghost', text: `📄 打开 PDF (${p.pdfFiles.length})`,
+        onClick: () => window.location.hash = `#/pdf-viewer/${p.pdfFiles[0].id}?pointId=${p.id}`
+      }) : null
+    ]) : null,
+
     // 错题统计
     p.isErrorProne ? el('div', { style: { fontSize: '13px', color: 'var(--danger)', marginBottom: '8px' } }, [
       (() => {
@@ -103,18 +235,34 @@ function reviewCard(p, filter) {
     ]) : null,
   ]);
 
-  return el('div', { class: 'card', style: { cursor: 'default' } }, [
+  const showBtn = el('button', {
+    class: 'btn btn-ghost btn-sm', text: '👁 显示答案 (空格)',
+    onClick: (e) => {
+      const hidden = answer.classList.toggle('hidden');
+      e.target.textContent = hidden ? '👁 显示答案 (空格)' : '🙈 收起';
+    },
+  });
+
+    const cardEl = el('div', { 
+    class: 'card', 
+    style: { cursor: 'pointer', border: '1px solid rgba(0,0,0,.05)', transition: 'border 0.2s' },
+    // 👇 平板体验核心：点击卡片任意位置，即可展开/收起解释
+    onClick: (e) => {
+      // 如果点到了里面的按钮，不触发卡片翻转
+      if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('.hidden')) return;
+      if (showBtn) showBtn.click();
+    }
+  }, [
     task ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: `${task.name} / ${chapter.name}` }) : null,
-    el('div', { style: { fontWeight: '600', marginBottom: '12px', whiteSpace: 'pre-wrap' }, text: p.content }),
-    el('button', {
-      class: 'btn btn-ghost btn-sm', text: '👁 显示答案',
-      onClick: (e) => {
-        const hidden = answer.classList.toggle('hidden');
-        e.target.textContent = hidden ? '👁 显示答案' : '🙈 收起';
-      },
-    }),
+    el('div', { style: { display: 'flex', gap: '8px' } }, [
+      el('div', { style: { fontSize: '13px', color: 'var(--primary)', fontWeight: 'bold' }, text: `#${index + 1}` }),
+      el('div', { style: { fontWeight: '600', marginBottom: '12px', whiteSpace: 'pre-wrap', flex: '1' }, text: p.content })
+    ]),
+    showBtn,
     answer,
   ]);
+
+  return { el: cardEl, answer, showBtn, p };
 }
 
 function ratingBtn(label, rating, point, filter) {
@@ -122,7 +270,6 @@ function ratingBtn(label, rating, point, filter) {
     class: 'btn btn-sm btn-ghost', text: label,
     onClick: () => {
       store.ratePoint(point.id, rating);
-      // 自评「忘了」自动标记为易错
       if (rating === 'forgot') {
         store.incrementErrorCount(point.id);
       }
@@ -130,6 +277,33 @@ function ratingBtn(label, rating, point, filter) {
       renderReview({ query: { filter } });
     },
   });
+}
+
+// 👇 预览图片弹窗
+async function showImages(imageIds) {
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.9)' } });
+  const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });
+  
+  mask.appendChild(el('h3', { text: '附件预览', style: { color: '#fff', textAlign: 'center', marginTop: '20px' } }));
+  mask.appendChild(imgWrap);
+
+  for (const id of imageIds) {
+    const rec = await dbGet('images', id);
+    if (rec && (rec.annotatedBlob || rec.originalBlob)) {
+      const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
+      imgWrap.appendChild(el('img', {
+        src: url,
+        style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px', objectFit: 'contain' },
+        onLoad: () => URL.revokeObjectURL(url)
+      }));
+    }
+  }
+
+  const closeBtn = el('button', { class: 'btn btn-primary', text: '关闭', style: { position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)' }, onClick: () => mask.remove() });
+  mask.appendChild(closeBtn);
+  
+  mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
+  document.body.appendChild(mask);
 }
 
 /** 管理待复习：批量设置下次复习日期 */

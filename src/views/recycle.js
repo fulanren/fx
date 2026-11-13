@@ -117,17 +117,40 @@ function recycleCard(item) {
       }),
     ]) : null,
     el('div', { class: 'card-title', text: name }),
-    el('div', { class: 'card-meta' }, [
-      el('span', { text: `删除于 ${fmtDate(item.deletedAt)}` }),
-      el('span', { text: `剩余 ${remain} 天`, style: remain <= 3 ? { color: 'var(--danger)' } : {} }),
+    el('div', { class: 'card-meta', style: { display: 'flex', gap: '12px', alignItems: 'center' } }, [
+      // 👇 解析时间并格式化
+      el('span', { 
+        text: `删除于 ${(() => {
+          const d = new Date(item.deletedAt);
+          const y = d.getFullYear();
+          const m = String(d.getMonth() + 1).padStart(2, '0');
+          const day = String(d.getDate()).padStart(2, '0');
+          const h = String(d.getHours()).padStart(2, '0');
+          const min = String(d.getMinutes()).padStart(2, '0');
+          return `${y}-${m}-${day} ${h}:${min}`;
+        })()}` 
+      }),
+      el('span', { 
+        text: `剩余 ${remain} 天`, 
+        style: remain <= 3 ? { color: 'var(--danger)', fontWeight: '600' } : {} 
+      }),
     ]),
     !multiMode ? el('div', { class: 'card-actions' }, [
       el('button', {
         class: 'btn btn-sm btn-primary', text: '恢复',
         onClick: () => {
-          store.restoreRecycle(item.id);
-          toastSuccess('已恢复');
-          renderRecycle();
+          try {
+            const success = store.restoreRecycle(item.id);
+            if (success) {
+              toastSuccess('已恢复');
+              renderRecycle();
+            } else {
+              alert('底层恢复失败：找不到此项目或数据已损坏');
+            }
+          } catch (err) {
+            console.error("恢复过程中发生错误:", err);
+            alert("恢复报错：" + err.message);
+          }
         },
       }),
       el('button', {

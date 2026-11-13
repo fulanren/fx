@@ -43,6 +43,17 @@ async function handleFile(file, pointId, resolve) {
 
         // 3. 保存为附件占位图（让列表里能看到它）
         const fakeImageId = uuid();
+        // 👇 新增：生成第一页封面
+        let coverUrl = '';
+        try {
+            const page1 = await pdf.getPage(1);
+            const vp = page1.getViewport({ scale: 0.4 });
+            const c = document.createElement('canvas');
+            c.width = vp.width; c.height = vp.height;
+            await page1.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+            coverUrl = c.toDataURL('image/jpeg', 0.8);
+        } catch (e) { console.warn('生成封面失败', e); }
+
         await putImageCached({
             id: fakeImageId,
             type: 'pdf_placeholder',
@@ -52,6 +63,7 @@ async function handleFile(file, pointId, resolve) {
             pdfId: pdfId,
             pdfName: file.name,
             pdfPages: pdf.numPages,
+            coverUrl: coverUrl, // 👈 存入封面数据
             createdAt: new Date().toISOString()
         });
 

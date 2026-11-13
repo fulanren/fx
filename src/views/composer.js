@@ -28,48 +28,130 @@ export function renderComposer({ params, query }) {
   // ============ 状态变量 ============
   let style = 'vertical';
   let gap = 16;
+  let autoTrim = false;
   let width = 800;
   let bg = '#FFFFFF';
   let showIndex = true;
 
+  // 👇 核心修复 1：合并数据源，防止漏掉普通图片、合成图或 PDF
   const allIds = [
     ...(point.imageIds || []),
     ...(point.compositeImageIds || []),
+    ...((point.pdfFiles || []).map(p => p.id))
   ];
   let selectedIds = new Set(allIds);
   const externalFiles = [];
 
   let loadedImages = [];
   let previewTimer = null;
+  let currentFilterType = 'all'; // 'all' | 'image' | 'pdf'
 
-    // ============ 选择区容器 ============
+  // ============ 容器构建 ============
   const pickerContainer = el('div', { style: { marginBottom: '8px' } });
-
-  // 缩略图网格
+  const filterBar = el('div', { style: { display: 'flex', gap: '8px', padding: '8px 0', marginBottom: '4px' } });
   const pickerWrap = el('div', {
     style: {
-      display: 'flex', flexWrap: 'wrap', gap: '8px',
-      padding: '8px 0', borderBottom: '1px solid rgba(0,0,0,.05)',
-      maxHeight: '200px', overflowY: 'auto',
-      alignItems: 'flex-start',
+      display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px 0',
+      borderBottom: '1px solid rgba(0,0,0,.05)', maxHeight: '200px',
+      overflowY: 'auto', alignItems: 'flex-start',
     }
   });
-  pickerContainer.appendChild(pickerWrap);
+  const pickerActions = el('div', { style: { display: 'flex', gap: '6px', padding: '8px 0', flexWrap: 'wrap', alignItems: 'center' } });
 
-  // 底部操作按钮行
-  const pickerActions = el('div', {
-    style: { display: 'flex', gap: '6px', padding: '8px 0', flexWrap: 'wrap', alignItems: 'center' }
-  });
+  pickerContainer.appendChild(filterBar);
+  pickerContainer.appendChild(pickerWrap);
   pickerContainer.appendChild(pickerActions);
 
   const itemStates = new Map();
+  const selectionStatus = el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: 'auto' } });
 
-  const selectionStatus = el('div', {
-    style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: 'auto' },
-  });
+  // 👇 核心修复 2：筛选按钮统一尺寸
+  const btnStyle = { padding: '4px 12px', fontSize: '12px', minHeight: '28px', borderRadius: '6px', fontWeight: '500' };
+
+  filterBar.appendChild(el('button', {
+    class: 'btn btn-sm btn-primary', text: '全部', style: btnStyle, onClick: (e) => {
+      currentFilterType = 'all'; filterBar.querySelectorAll('.btn').forEach(b => b.className = 'btn btn-sm btn-ghost'); e.target.className = 'btn btn-sm btn-primary'; updatePickerVisibility();
+    }
+  }));
+  filterBar.appendChild(el('button', {
+    class: 'btn btn-sm btn-ghost', text: '🖼 只看图片', style: btnStyle, onClick: (e) => {
+      currentFilterType = 'image'; filterBar.querySelectorAll('.btn').forEach(b => b.className = 'btn btn-sm btn-ghost'); e.target.className = 'btn btn-sm btn-primary'; updatePickerVisibility();
+    }
+  }));
+  filterBar.appendChild(el('button', {
+    class: 'btn btn-sm btn-ghost', text: '📄 只看 PDF', style: btnStyle, onClick: (e) => {
+      currentFilterType = 'pdf'; filterBar.querySelectorAll('.btn').forEach(b => b.className = 'btn btn-sm btn-ghost'); e.target.className = 'btn btn-sm btn-primary'; updatePickerVisibility();
+    }
+  }));
+
+  function updateSelectionStatus() {
+    selectionStatus.textContent = `已选 ${selectedIds.size} / 共 ${itemStates.size} 个文件`;
+    updatePickerVisibility();
+  }
+
+  function updatePickerVisibility() {
+    itemStates.forEach((state, id) => {
+      const ext = externalFiles.find(f => f.id === id);
+      let isPdf = false;
+
+      if (ext) {
+        isPdf = ext.type === 'pdf';
+      } else {
+        const p = store.getPoint(pointId);
+        if (p && p.pdfFiles && p.pdfFiles.some(pf => pf.id === id)) {
+          isPdf = true;
+        }
+      }
+
+      if (currentFilterType === 'all') {
+        state.el.style.display = 'flex';
+      } else if (currentFilterType === 'image' && !isPdf) {
+        state.el.style.display = 'flex';
+      } else if (currentFilterType === 'pdf' && isPdf) {
+        state.el.style.display = 'flex';
+      } else {
+        state.el.style.display = 'none';
+      }
+    });
+  }
 
   function updateSelectionStatus() {
     selectionStatus.textContent = `已选 ${selectedIds.size} / 共 ${itemStates.size}`;
+    updatePickerVisibility();
+  }
+
+  // 👇 控制每个文件的显隐
+  function updatePickerVisibility() {
+    itemStates.forEach((state, id) => {
+      const ext = externalFiles.find(f => f.id === id);
+      let isPdf = false;
+
+      if (ext) {
+        isPdf = ext.type === 'pdf';
+      } else {
+        // 对于数据库里已有的文件，我们需要判断它是不是 PDF
+        import('../db.js').then(({ dbGet }) => {
+          dbGet('images', id).then(rec => {
+            if (rec && rec.type === 'pdf_placeholder') {
+              state.el.style.display = (currentFilterType === 'image') ? 'none' : 'flex';
+            } else {
+              state.el.style.display = (currentFilterType === 'pdf') ? 'none' : 'flex';
+            }
+          });
+        });
+        return; // 异步获取，先跳过下面的同步代码
+      }
+
+      if (currentFilterType === 'all') {
+        state.el.style.display = 'flex';
+      } else if (currentFilterType === 'image' && !isPdf) {
+        state.el.style.display = 'flex';
+      } else if (currentFilterType === 'pdf' && isPdf) {
+        state.el.style.display = 'flex';
+      } else {
+        state.el.style.display = 'none';
+      }
+    });
   }
 
   // 单个缩略图构建
@@ -194,10 +276,13 @@ export function renderComposer({ params, query }) {
 
   // ============ 导入 / 全选 / 重置按钮组 ============
   function addImportButtons(parent) {
-    // 外部导入图片
+    // 👇 统一的高度和字号
+    const baseStyle = { flexShrink: 0, padding: '4px 12px', fontSize: '12px', minHeight: '28px', borderRadius: '6px', fontWeight: '500' };
+
+    // 1. 外部导入图片
     const importImgBtn = el('button', {
       class: 'btn btn-sm btn-ghost',
-      style: { flexShrink: 0, padding: '4px 10px', border: '1.5px dashed var(--primary)', borderRadius: '6px', color: 'var(--primary-dark)', fontSize: '12px', minHeight: '28px' },
+      style: { ...baseStyle, border: '1.5px dashed var(--primary)', color: 'var(--primary-dark)' },
       title: '从本地选择图片加入合并',
       onClick: () => {
         const input = document.createElement('input');
@@ -217,10 +302,10 @@ export function renderComposer({ params, query }) {
       },
     }, [el('span', { text: '🖼 图片' })]);
 
-    // 外部导入 PDF
+    // 2. 外部导入 PDF
     const importPdfBtn = el('button', {
       class: 'btn btn-sm btn-ghost',
-      style: { flexShrink: 0, padding: '4px 10px', border: '1.5px dashed var(--accent)', borderRadius: '6px', color: 'var(--accent)', fontSize: '12px', minHeight: '28px' },
+      style: { ...baseStyle, border: '1.5px dashed var(--accent)', color: 'var(--accent)' },
       title: '从本地选择 PDF 加入合并',
       onClick: () => {
         const input = document.createElement('input');
@@ -240,10 +325,10 @@ export function renderComposer({ params, query }) {
       },
     }, [el('span', { text: '📄 PDF' })]);
 
-    // 全选 / 取消全选
+    // 3. 全选 / 取消全选
     const toggleAllBtn = el('button', {
       class: 'btn btn-sm btn-ghost',
-      style: { flexShrink: 0, padding: '4px 10px', border: '1px solid rgba(0,0,0,.1)', borderRadius: '6px', color: 'var(--text-2)', fontSize: '12px', minHeight: '28px' },
+      style: { ...baseStyle, border: '1px solid rgba(0,0,0,.1)', color: 'var(--text-2)' },
       title: '全选 / 全部取消',
       onClick: () => {
         const allSelected = selectedIds.size === itemStates.size;
@@ -265,10 +350,10 @@ export function renderComposer({ params, query }) {
       },
     }, [el('span', { text: '☑ 全选' })]);
 
-    // 重置为知识点原有
+    // 4. 重置为知识点原有文件
     const resetBtn = el('button', {
       class: 'btn btn-sm btn-ghost',
-      style: { flexShrink: 0, padding: '4px 10px', border: '1px solid rgba(0,0,0,.1)', borderRadius: '6px', color: 'var(--text-2)', fontSize: '12px', minHeight: '28px' },
+      style: { ...baseStyle, border: '1px solid rgba(0,0,0,.1)', color: 'var(--text-2)' },
       title: '重置为知识点原有文件（清空外部导入）',
       onClick: () => {
         externalFiles.forEach(ext => {
@@ -291,6 +376,7 @@ export function renderComposer({ params, query }) {
       },
     }, [el('span', { text: '🔄 重置' })]);
 
+    // 将按钮塞入容器
     parent.appendChild(importImgBtn);
     parent.appendChild(importPdfBtn);
     parent.appendChild(toggleAllBtn);
@@ -299,7 +385,7 @@ export function renderComposer({ params, query }) {
   }
 
   addImportButtons(pickerActions);
-  updateSelectionStatus();updateSelectionStatus();
+  updateSelectionStatus(); updateSelectionStatus();
 
   // ============ styleRow ============
   const styleRow = el('div', { class: 'compose-row' }, [
@@ -436,8 +522,13 @@ export function renderComposer({ params, query }) {
 
     for (const id of ids) {
       const ext = externalFiles.find(f => f.id === id);
+
+      let im = null;
+      let isPdf = false;
+
       if (ext) {
         if (ext.type === 'pdf') {
+          isPdf = true;
           const buf = await ext.blob.arrayBuffer();
           const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
           for (let i = 1; i <= pdf.numPages; i++) {
@@ -447,53 +538,65 @@ export function renderComposer({ params, query }) {
             c.width = vp.width; c.height = vp.height;
             await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
             const url = c.toDataURL('image/png');
-            const im = new Image();
-            im.src = url;
-            await new Promise(r => { im.onload = r; });
-            result.push({ img: im, width: im.width, height: im.height, url, sourceId: id, pageNum: i });
+            const tempIm = new Image();
+            tempIm.src = url;
+            await new Promise(r => { tempIm.onload = r; });
+
+            // 处理 PDF 页面的去白边
+            let finalIm = tempIm;
+            if (autoTrim) finalIm = await trimImageWhitespace(tempIm);
+            result.push({ img: finalIm, width: finalIm.width, height: finalIm.height, url, sourceId: id, pageNum: i });
           }
+          continue;
         } else {
           const url = URL.createObjectURL(ext.blob);
-          const im = new Image();
+          im = new Image();
           im.src = url;
           await new Promise(r => { im.onload = r; });
-          result.push({ img: im, width: im.width, height: im.height, url, sourceId: id });
         }
-        continue;
-      }
+      } else {
+        const rec = await getImageCached(id);
+        if (!rec) continue;
 
-      const rec = await getImageCached(id);
-      if (!rec) continue;
+        if (rec.type === 'pdf_placeholder' && rec.pdfId) {
+          isPdf = true;
+          const { dbGet } = await import('../db.js');
+          const pdfRec = await dbGet('pdfs', rec.pdfId);
+          if (!pdfRec || !pdfRec.blob) continue;
+          const buf = await pdfRec.blob.arrayBuffer();
+          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+          for (let i = 1; i <= pdf.numPages; i++) {
+            const page = await pdf.getPage(i);
+            const vp = page.getViewport({ scale: 2 });
+            const c = document.createElement('canvas');
+            c.width = vp.width; c.height = vp.height;
+            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+            const url = c.toDataURL('image/png');
+            const tempIm = new Image();
+            tempIm.src = url;
+            await new Promise(r => { tempIm.onload = r; });
 
-      if (rec.type === 'pdf_placeholder' && rec.pdfId) {
-        const { dbGet } = await import('../db.js');
-        const pdfRec = await dbGet('pdfs', rec.pdfId);
-        if (!pdfRec || !pdfRec.blob) continue;
-
-        const buf = await pdfRec.blob.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-        for (let i = 1; i <= pdf.numPages; i++) {
-          const page = await pdf.getPage(i);
-          const vp = page.getViewport({ scale: 2 });
-          const c = document.createElement('canvas');
-          c.width = vp.width; c.height = vp.height;
-          await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-          const url = c.toDataURL('image/png');
-          const im = new Image();
+            let finalIm = tempIm;
+            if (autoTrim) finalIm = await trimImageWhitespace(tempIm);
+            result.push({ img: finalIm, width: finalIm.width, height: finalIm.height, url, sourceId: id, pageNum: i });
+          }
+          continue;
+        } else {
+          const blob = rec.annotatedBlob || rec.originalBlob;
+          if (!(blob instanceof Blob) || blob.size === 0) continue;
+          const url = URL.createObjectURL(blob);
+          im = new Image();
           im.src = url;
           await new Promise(r => { im.onload = r; });
-          result.push({ img: im, width: im.width, height: im.height, url, sourceId: id, pageNum: i });
         }
-        continue;
       }
 
-      const blob = rec.annotatedBlob || rec.originalBlob;
-      if (!(blob instanceof Blob) || blob.size === 0) continue;
-      const url = URL.createObjectURL(blob);
-      const im = new Image();
-      im.src = url;
-      await new Promise(r => { im.onload = r; });
-      result.push({ img: im, width: im.width, height: im.height, url, sourceId: id });
+      // 普通图片的处理
+      if (im) {
+        let finalIm = im;
+        if (autoTrim) finalIm = await trimImageWhitespace(im);
+        result.push({ img: finalIm, width: finalIm.width, height: finalIm.height, url: im.src, sourceId: id });
+      }
     }
     return result;
   }
@@ -688,7 +791,7 @@ export function renderComposer({ params, query }) {
                   }
                 },
               }),
-                            el('button', {
+              el('button', {
                 class: 'btn btn-ghost', text: '取消',
                 onClick: async () => {
                   mask.remove();
@@ -745,4 +848,59 @@ async function downloadWithPicker(blob, filename, mimeType, extensions) {
   a.click();
   setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 1500);
   toastSuccess('已开始下载（已保存至默认下载目录）');
+}
+
+// 👇 智能去白边核心算法
+function trimImageWhitespace(img) {
+  const c = document.createElement('canvas');
+  c.width = img.width; c.height = img.height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0);
+
+  const imgData = ctx.getImageData(0, 0, c.width, c.height);
+  const data = imgData.data;
+  let top = 0, left = 0, right = c.width, bottom = c.height;
+
+  for (let y = 0; y < c.height; y++) {
+    let hasContent = false;
+    for (let x = 0; x < c.width; x++) {
+      const i = (y * c.width + x) * 4;
+      if (data[i] < 240 || data[i + 1] < 240 || data[i + 2] < 240) { hasContent = true; break; }
+    }
+    if (hasContent) { top = y; break; }
+  }
+  for (let y = c.height - 1; y >= 0; y--) {
+    let hasContent = false;
+    for (let x = 0; x < c.width; x++) {
+      const i = (y * c.width + x) * 4;
+      if (data[i] < 240 || data[i + 1] < 240 || data[i + 2] < 240) { hasContent = true; break; }
+    }
+    if (hasContent) { bottom = y; break; }
+  }
+  for (let x = 0; x < c.width; x++) {
+    let hasContent = false;
+    for (let y = top; y <= bottom; y++) {
+      const i = (y * c.width + x) * 4;
+      if (data[i] < 240 || data[i + 1] < 240 || data[i + 2] < 240) { hasContent = true; break; }
+    }
+    if (hasContent) { left = x; break; }
+  }
+  for (let x = c.width - 1; x >= 0; x--) {
+    let hasContent = false;
+    for (let y = top; y <= bottom; y++) {
+      const i = (y * c.width + x) * 4;
+      if (data[i] < 240 || data[i + 1] < 240 || data[i + 2] < 240) { hasContent = true; break; }
+    }
+    if (hasContent) { right = x; break; }
+  }
+
+  // 裁剪
+  const croppedC = document.createElement('canvas');
+  croppedC.width = right - left + 1;
+  croppedC.height = bottom - top + 1;
+  croppedC.getContext('2d').drawImage(c, left, top, croppedC.width, croppedC.height, 0, 0, croppedC.width, croppedC.height);
+
+  const newImg = new Image();
+  newImg.src = croppedC.toDataURL();
+  return new Promise(r => { newImg.onload = () => r(newImg); });
 }
