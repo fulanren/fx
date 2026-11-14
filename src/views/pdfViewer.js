@@ -699,46 +699,36 @@ export async function renderPdfViewer({ params, query }) {
 
         currentPage = pageNum;
         localStorage.setItem(`kg_pdf_progress_${pdfId}`, pageNum);
-        
-        // 如果是翻页模式，必须重新渲染 UI
+
+        // 如果是翻页模式，直接重绘
         if (mode === 'paged') {
             renderUI();
-        } else {
-            const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
-            if (target) {
-                // 👈 核心修复：用原生的 scrollIntoView，并且阻止默认的偏移
-                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            return;
+        }
+
+        // 👇 核心修复：用 native scrollTop 计算绝对高度，无视平滑滚动干扰
+        const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
+        if (target) {
+            // 获取外层滚动容器（通常是 .pdf-scroll-container 或 #view）
+            const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view');
+            if (scrollContainer) {
+                // 目标页距离容器顶部的绝对距离
+                const targetTop = target.offsetTop - 20; 
+                // 瞬间跳转，不用 smooth，规避 iOS 的动画回弹
+                scrollContainer.scrollTop = targetTop;
             }
+        }
+
+        // 延时更新顶部 UI（避免输入框失焦导致外层窗体跳动）
+        setTimeout(() => {
             const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
             if (pageInput) pageInput.value = currentPage;
             
+            // 更新蓝色边框高亮
             document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
-            if (target) target.style.outline = '3px solid var(--primary)';
-        }
-
-        // 显示返回大纲悬浮球（保留你原本的逻辑）
-        const oldBackBtn = document.getElementById('pdf-back-outline');
-        if (oldBackBtn) oldBackBtn.remove();
-
-        const backBtn = el('button', {
-            id: 'pdf-back-outline',
-            style: {
-                position: 'fixed', bottom: '130px', right: '20px', zIndex: '9999',
-                background: 'rgba(43,45,66,0.85)', color: '#fff', padding: '8px 14px',
-                borderRadius: '20px', fontWeight: 'bold', border: 'none', cursor: 'pointer',
-                boxShadow: '0 4px 12px rgba(0,0,0,0.3)', backdropFilter: 'blur(4px)',
-                display: 'flex', alignItems: 'center', gap: '6px'
-            },
-            text: '⬅️ 返回大纲'
-        });
-
-        backBtn.onclick = () => {
-            backBtn.remove();
-            if (window.__pdfOpenDrawer) window.__pdfOpenDrawer((content) => renderOutlineInto(content));
-        };
-
-        document.body.appendChild(backBtn);
-        setTimeout(() => { if (backBtn.isConnected) backBtn.remove(); }, 5000);
+            const targetEl = document.getElementById(`pdf-page-wrap-${pageNum}`);
+            if (targetEl) targetEl.style.outline = '3px solid var(--primary)';
+        }, 50);
     }
 
     function renderUI() {
@@ -854,13 +844,76 @@ export async function renderPdfViewer({ params, query }) {
             // 右侧：工具集合
             el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', whiteSpace: 'nowrap', paddingLeft: '12px' } }, [
 
-                // 1. 翻页组件
+                                // 1. 翻页组件
                 currentPrefs.nav !== false ? (() => {
                     const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)' } });
-                    group.appendChild(el('button', { class: 'btn btn-sm btn-ghost', text: '‹', style: { padding: '0 6px', height: '24px', fontSize: '16px' }, onClick: () => { if (currentPage > 1) { currentPage -= 1; renderUI(); } } }));
-                    group.appendChild(el('input', { type: 'number', value: String(currentPage), style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px' }, onkeydown: (e) => { if (e.key === 'Enter') { const val = parseInt(e.target.value); if (val >= 1 && val <= total) { currentPage = val; renderUI(); } else e.target.value = String(currentPage); } } }));
+                    
+                    // 上一页
+                    group.appendChild(el('button', { 
+                        class: 'btn btn-sm btn-ghost', text: '‹', 
+                        style: { padding: '0 6px', height: '24px', fontSize: '16px' }, 
+                        onClick: async () => { 
+                            if (currentPage > 1) {
+                                if (window.showLoading) window.showLoading('正在加载...');
+                                await saveAll(false);
+                                const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+                                const pdfId = urlParams.get('pdfId');
+                                const pointId = urlParams.get('pointId') || '';
+                                const returnUrl = urlParams.get('returnUrl') || '';
+                                const prevPage = currentPage - 1;
+                                // 👈 核心：跳转到上一页的图片 ID，而不是只调 renderUI
+                                window.location.hash = `#/annotate/pdf_${pdfId}_page_${prevPage}?pdfId=${pdfId}&page=${prevPage}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+                            } else {
+                                toastError('已经是第一页了');
+                            }
+                        } 
+                    }));
+                    
+                    // 输入框
+                    group.appendChild(el('input', { 
+                        type: 'number', value: String(currentPage), 
+                        style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px' }, 
+                        onkeydown: async (e) => { 
+                            if (e.key === 'Enter') { 
+                                const val = parseInt(e.target.value); 
+                                if (val >= 1 && val <= total) { 
+                                    if (window.showLoading) window.showLoading('正在加载...');
+                                    await saveAll(false);
+                                    const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+                                    const pdfId = urlParams.get('pdfId');
+                                    const pointId = urlParams.get('pointId') || '';
+                                    const returnUrl = urlParams.get('returnUrl') || '';
+                                    window.location.hash = `#/annotate/pdf_${pdfId}_page_${val}?pdfId=${pdfId}&page=${val}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+                                } else {
+                                    e.target.value = String(currentPage); 
+                                }
+                            } 
+                        } 
+                    }));
+                    
                     group.appendChild(el('span', { style: { fontSize: '12px', color: 'var(--text-2)', padding: '0 2px' }, text: `/ ${total}` }));
-                    group.appendChild(el('button', { class: 'btn btn-sm btn-ghost', text: '›', style: { padding: '0 6px', height: '24px', fontSize: '16px' }, onClick: () => { if (currentPage < total) { currentPage += 1; renderUI(); } } }));
+                    
+                    // 下一页
+                    group.appendChild(el('button', { 
+                        class: 'btn btn-sm btn-ghost', text: '›', 
+                        style: { padding: '0 6px', height: '24px', fontSize: '16px' }, 
+                        onClick: async () => { 
+                            if (currentPage < total) {
+                                if (window.showLoading) window.showLoading('正在加载...');
+                                await saveAll(false);
+                                const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
+                                const pdfId = urlParams.get('pdfId');
+                                const pointId = urlParams.get('pointId') || '';
+                                const returnUrl = urlParams.get('returnUrl') || '';
+                                const nextPage = currentPage + 1;
+                                // 👈 核心：跳转到下一页的图片 ID
+                                window.location.hash = `#/annotate/pdf_${pdfId}_page_${nextPage}?pdfId=${pdfId}&page=${nextPage}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+                            } else {
+                                toastError('已经是最后一页了');
+                            }
+                        } 
+                    }));
+                    
                     return group;
                 })() : null,
 
@@ -1888,8 +1941,8 @@ export async function renderPdfViewer({ params, query }) {
             window.location.hash = `#/annotate/${targetImageId}?returnUrl=${returnUrl}&isPdf=true&pdfId=${pdfId}&page=${num}`;
         });
 
-                // 👇 核心修复：彻底废除 pan-y，让浏览器自己接管滑动
-        wrap.style.touchAction = 'auto'; 
+        // 👇 核心修复：彻底废除 pan-y，让浏览器自己接管滑动
+        wrap.style.touchAction = 'auto';
         let scale = 1, startDist = 0, startScale = 1, panX = 0, panY = 0, startX = 0, startY = 0;
         let isPinching = false, isDragging = false;
 

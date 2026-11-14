@@ -2612,18 +2612,18 @@ export async function renderAnnotator({ params, query }) {
           onClick: async (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
+            
             if (currentPageNum > 1) {
               if (window.showLoading) window.showLoading('正在加载...');
               await saveAll(false);
+              
               const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
               const pdfId = urlParams.get('pdfId');
               const returnUrl = urlParams.get('returnUrl') || '';
               const pointId = urlParams.get('pointId') || '';
 
-              // 👇 加了 setTimeout
-              setTimeout(() => {
-                window.location.hash = `#/annotate/${imageId}?pdfId=${pdfId}&page=${currentPageNum - 1}&returnUrl=${returnUrl}&pointId=${pointId}`;
-              }, 50);
+              // 👇 核心修复：使用正确的 key 名（page），不要加 reload，让路由自己接管
+              window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum - 1}?pdfId=${pdfId}&page=${currentPageNum - 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
             } else {
               toastError('已经是第一页');
             }
@@ -2661,17 +2661,17 @@ export async function renderAnnotator({ params, query }) {
           onClick: async (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
+            
             if (window.showLoading) window.showLoading('正在加载...');
             await saveAll(false);
+            
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const pdfId = urlParams.get('pdfId');
             const returnUrl = urlParams.get('returnUrl') || '';
             const pointId = urlParams.get('pointId') || '';
 
-            // 👇 加了 setTimeout
-            setTimeout(() => {
-              window.location.hash = `#/annotate/${imageId}?pdfId=${pdfId}&page=${currentPageNum + 1}&returnUrl=${returnUrl}&pointId=${pointId}`;
-            }, 50);
+            // 👇 核心修复：ID 必须拼上 pdf_xxx_page_x，路由才能识别出这是新的一页
+            window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum + 1}?pdfId=${pdfId}&page=${currentPageNum + 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
           }
         })
       ]);

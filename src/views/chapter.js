@@ -1,4 +1,4 @@
-﻿import { el, clear } from '../utils/dom.js';
+import { el, clear } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { fmtDate } from '../utils/date.js';
@@ -235,7 +235,7 @@ export function renderChapterDetail({ params, query }) {
   const view = document.getElementById('view');
   clear(view);
 
-  // 👇 核心修复：直接通过当前章节找到它所属的文件夹（Task），用文件夹的名字！
+  // 直接通过当前章节找到它所属的文件夹（Task），用文件夹的名字！
   const currentTask = store.getTask(chapter.taskId);
   const displayTitle = currentTask ? currentTask.name : chapter.name;
 
@@ -897,7 +897,7 @@ function startFocusListMode(points, chapterId) {
       el.style.border = '2px solid var(--primary)'; // 高亮当前卡片
       el.scrollIntoView({ behavior: 'smooth', block: 'center' });
 
-      // 👇 核心修复：直接通过 DOM 找到解释框并控制它
+      // 直接通过 DOM 找到解释框并控制它
       // 因为解释框是卡片里的第二个子元素（header 是第一个）
       const header = el.children[0];
       const contentBox = el.children[1];
@@ -987,7 +987,7 @@ function startFocusListMode(points, chapterId) {
       if (!isExpanded) { isExpanded = true; highlightCard(); return; }
 
       const p = points[currentIndex];
-      // 👇 核心修复：直接从 localStorage 抓取最新数据，不管内存里有没有
+      // 直接从 localStorage 抓取最新数据，不管内存里有没有
       const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
       const realPoint = allPoints.find(x => x.id === p.id) || p;
 

@@ -51,9 +51,9 @@ export function renderImageList(point, onRefresh) {
   ]);
   wrap.appendChild(tabsWrap);
 
-    // ============ 顶部操作栏（单行紧凑版） ============
+  // ============ 顶部操作栏（单行紧凑版） ============
   const topBar = el('div', { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' } }, [
-    
+
     // 1. 加图片 / 加 PDF
     activeTab === 'images' ? el('button', {
       class: 'btn btn-sm btn-primary', text: '+ 加图片',
@@ -112,12 +112,16 @@ export function renderImageList(point, onRefresh) {
     el('button', { class: 'btn btn-sm ' + (viewMode === 'name' ? 'btn-primary' : 'btn-ghost'), text: '📄', title: '列表模式', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { viewMode = 'name'; onRefresh(); } }),
 
     // 3. 文件夹操作（⬇️ ⬆️ 📁+）
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
-      forceExpandAll = !forceExpandAll; if (forceExpandAll) forceCollapseAll = false; saveCollapsed({}); onRefresh();
-    } }),
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
-      forceCollapseAll = !forceCollapseAll; if (forceCollapseAll) forceExpandAll = false; const folders = getAllFolders(); const collapsedAll = {}; folders.forEach(f => collapsedAll[f] = true); saveCollapsed(collapsedAll); onRefresh();
-    } }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
+        forceExpandAll = !forceExpandAll; if (forceExpandAll) forceCollapseAll = false; saveCollapsed({}); onRefresh();
+      }
+    }),
+    el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
+        forceCollapseAll = !forceCollapseAll; if (forceCollapseAll) forceExpandAll = false; const folders = getAllFolders(); const collapsedAll = {}; folders.forEach(f => collapsedAll[f] = true); saveCollapsed(collapsedAll); onRefresh();
+      }
+    }),
     el('button', {
       class: 'btn btn-sm btn-ghost', text: '📁+', title: '新建文件夹', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
       onClick: () => {
@@ -148,7 +152,7 @@ export function renderImageList(point, onRefresh) {
             sortOrder === opt.id ? el('span', { text: '✓' }) : null
           ]));
         });
-        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [ el('h3', { text: '选择排序方式' }), list, el('div', { class: 'confirm-actions' }, [el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })]) ]);
+        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [el('h3', { text: '选择排序方式' }), list, el('div', { class: 'confirm-actions' }, [el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })])]);
         mask.appendChild(box); document.body.appendChild(mask);
       }
     }, [
@@ -156,22 +160,22 @@ export function renderImageList(point, onRefresh) {
     ]),
 
     // 5. 多选按钮与展开栏
-    el('button', { 
-      class: 'btn btn-sm ' + (isMulti ? 'btn-danger' : 'btn-ghost'), text: isMulti ? '✕ 退出' : '☑ 多选', title: '多选', 
-      style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { isMulti = !isMulti; selected.clear(); onRefresh(); } 
+    el('button', {
+      class: 'btn btn-sm ' + (isMulti ? 'btn-danger' : 'btn-ghost'), text: isMulti ? '✕ 退出' : '☑ 多选', title: '多选',
+      style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { isMulti = !isMulti; selected.clear(); onRefresh(); }
     }),
 
-    isMulti ? el('div', { 
-      style: { 
-        display: 'flex', 
-        gap: '4px', 
-        alignItems: 'center', 
-        padding: '2px 6px', 
-        background: 'rgba(142, 202, 230, 0.15)', 
-        borderRadius: '8px', 
+    isMulti ? el('div', {
+      style: {
+        display: 'flex',
+        gap: '4px',
+        alignItems: 'center',
+        padding: '2px 6px',
+        background: 'rgba(142, 202, 230, 0.15)',
+        borderRadius: '8px',
         flexWrap: 'wrap', // 👈 允许换行，防止撑破
         zIndex: '10'
-      } 
+      }
     }, [
       el('span', { style: { fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)', marginRight: '4px' }, text: `${selected.size}` }),
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '全选', onClick: () => { latestPoint.imageIds.forEach(id => selected.add(id)); onRefresh(); } }),
@@ -189,15 +193,15 @@ export function renderImageList(point, onRefresh) {
     el('input', {
       type: 'text', placeholder: '🔍 搜索文件...',
       value: searchQuery,
-      style: { 
-        flex: '1', 
+      style: {
+        flex: '1',
         minWidth: '140px', // 稍微给大一点基础宽度
         maxWidth: '300px', // 限制最大宽度，不抢后面的空间
-        padding: '4px 10px', 
-        borderRadius: '20px', 
-        border: '1px solid rgba(0,0,0,.1)', 
-        fontSize: '13px', 
-        outline: 'none', 
+        padding: '4px 10px',
+        borderRadius: '20px',
+        border: '1px solid rgba(0,0,0,.1)',
+        fontSize: '13px',
+        outline: 'none',
         height: '28px',
         zIndex: '10' // 保证它在最上层
       },
@@ -739,14 +743,18 @@ export function renderImageList(point, onRefresh) {
         }, 100);
       }
 
-      // 如果是“未分组”且里面没文件，直接跳过；如果是“未分组”且有文件，只渲染网格不渲染文件夹头
+      // 如果是“未分组”且里面没文件，直接跳过
       if (groupName === '' && groupFiles.length === 0) return;
 
-      if (groupName !== '' || groupFiles.length > 0) {
+      // 👇 核心修复：如果当前只有一个文件夹（说明是在详情页里），就不要重复渲染标题了
+      const isOnlyOneFolder = Object.keys(groupedList).length === 2 && groupedList[''].length === 0;
+
+      if (!isOnlyOneFolder && (groupName !== '' || groupFiles.length > 0)) {
         contentWrap.appendChild(header);
 
         // 文件夹专属操作栏（未分组的不显示，收起时不显示）
         if (groupName !== '' && !isCollapsed && !isLocked) {
+          // 如果你有操作按钮代码，放这里
         }
       }
 

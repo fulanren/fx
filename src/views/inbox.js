@@ -10,7 +10,7 @@ export function renderInbox() {
   document.getElementById('page-title').textContent = '速记收件箱';
   document.getElementById('btn-back').classList.remove('hidden');
 
-  // 👇 新增：多选状态
+  // 多选状态
   let isMulti = false;
   let selected = new Set();
 

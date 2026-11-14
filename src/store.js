@@ -1,4 +1,4 @@
-﻿import { uuid } from './utils/id.js';
+import { uuid } from './utils/id.js';
 import { now, addDays, todayStart, isDue } from './utils/date.js';
 
 const K = {
@@ -93,7 +93,7 @@ export function restoreRecycle(id) {
     filtered.push(data);
     write(K.tasks, filtered);
 
-    // 👇 核心修复：把属于这个任务的所有章节也复活
+    // 把属于这个任务的所有章节也复活
     const chapters = read(K.chapters);
     chapters.forEach(c => {
       if (c.taskId === data.id) {
@@ -126,7 +126,7 @@ export function restoreRecycle(id) {
     filtered.push(data);
     write(K.chapters, filtered);
 
-    // 👇 核心修复：把属于这个章节的所有知识点也复活
+    // 把属于这个章节的所有知识点也复活
     const points = read(K.points);
     points.forEach(p => {
       if (p.chapterId === data.id) p.deletedAt = null;
