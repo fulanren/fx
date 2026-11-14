@@ -693,7 +693,7 @@ export async function renderPdfViewer({ params, query }) {
     }
 
     // 跳页辅助函数
-       function jumpToPage(pageNum) {
+        function jumpToPage(pageNum) {
         if (pageNum < 1) pageNum = 1;
         if (pageNum > total) pageNum = total;
 
@@ -704,16 +704,14 @@ export async function renderPdfViewer({ params, query }) {
         if (mode === 'paged') {
             renderUI();
         } else {
-            // 如果是滚动模式，只需平滑滚动到目标页，不需要重新渲染整个 UI（大幅提升性能）
             const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
             if (target) {
+                // 👈 核心修复：用原生的 scrollIntoView，并且阻止默认的偏移
                 target.scrollIntoView({ behavior: 'smooth', block: 'start' });
             }
-            // 更新顶部输入框和页码显示
             const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
             if (pageInput) pageInput.value = currentPage;
             
-            // 高亮当前页
             document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
             if (target) target.style.outline = '3px solid var(--primary)';
         }
@@ -1890,8 +1888,8 @@ export async function renderPdfViewer({ params, query }) {
             window.location.hash = `#/annotate/${targetImageId}?returnUrl=${returnUrl}&isPdf=true&pdfId=${pdfId}&page=${num}`;
         });
 
-        // 👇 1. 双指缩放与拖拽逻辑
-        wrap.style.touchAction = 'pan-y'; // 允许单指上下滑动，禁止浏览器自己处理双指 // 禁用浏览器默认手势
+                // 👇 核心修复：彻底废除 pan-y，让浏览器自己接管滑动
+        wrap.style.touchAction = 'auto'; 
         let scale = 1, startDist = 0, startScale = 1, panX = 0, panY = 0, startX = 0, startY = 0;
         let isPinching = false, isDragging = false;
 
@@ -1900,37 +1898,31 @@ export async function renderPdfViewer({ params, query }) {
                 isPinching = true;
                 startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 startScale = scale;
-            } else if (e.touches.length === 1 && scale > 1) {
+            } else if (e.touches.length === 1 && scale > 1.05) {
                 isDragging = true;
                 startX = e.touches[0].clientX - panX;
                 startY = e.touches[0].clientY - panY;
             }
-        });
+        }, { passive: false });
 
         wrap.addEventListener('touchmove', (e) => {
             if (isPinching && e.touches.length === 2) {
-                e.preventDefault(); // 双指缩放时，阻止页面滚动
+                e.preventDefault(); // 双指缩放时阻止滚动
                 const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 scale = Math.max(1, Math.min(5, startScale * (dist / startDist)));
                 c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
-                c.style.cursor = 'grab';
-            } else if (isDragging && e.touches.length === 1) {
-                // 👇 核心修复：只有在放大状态下，才阻止默认事件并拖拽图片
-                if (scale > 1.05) {
-                    e.preventDefault();
-                    panX = e.touches[0].clientX - startX;
-                    panY = e.touches[0].clientY - startY;
-                    c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
-                }
-                // 如果 scale <= 1.05，这里什么都不写，浏览器就会默认触发上下滚动翻页了！
+            } else if (isDragging && e.touches.length === 1 && scale > 1.05) {
+                e.preventDefault(); // 只有在放大状态下，单指滑动才用于拖拽图片
+                panX = e.touches[0].clientX - startX;
+                panY = e.touches[0].clientY - startY;
+                c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
             }
-        }, { passive: false }); // 👈 注意：加上 { passive: false } 才能允许 preventDefault 生效
+        }, { passive: false });
 
         wrap.addEventListener('touchend', (e) => {
             if (e.touches.length < 2) isPinching = false;
             if (e.touches.length === 0) {
                 isDragging = false;
-                // 缩放回原状时重置
                 if (scale <= 1.05) {
                     scale = 1; panX = 0; panY = 0;
                     c.style.transform = 'scale(1)';

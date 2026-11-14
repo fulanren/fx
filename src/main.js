@@ -490,73 +490,47 @@ function attachLongPressTooltip(btn, text) {
   let timer = null;
   let tooltipEl = null;
 
-  // 为了防误触，给按钮加上防选中属性
+  // 添加防选中属性
   btn.style.userSelect = 'none';
   btn.style.webkitUserSelect = 'none';
-  btn.style.webkitTouchCallout = 'none'; // 阻止 iOS 长按弹窗
+  btn.style.webkitTouchCallout = 'none';
 
   const show = () => {
     if (tooltipEl) return;
     const rect = btn.getBoundingClientRect();
     tooltipEl = document.createElement('div');
     tooltipEl.style.cssText = `
-      position: fixed;
-      left: ${rect.left + rect.width / 2}px;
-      top: ${rect.bottom + 8}px;
-      transform: translateX(-50%);
-      background: rgba(43,45,66,.95);
-      color: #fff;
-      padding: 6px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      white-space: nowrap;
-      pointer-events: none;
-      z-index: 9999;
+      position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.bottom + 8}px;
+      transform: translateX(-50%); background: rgba(43,45,66,.95); color: #fff;
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap;
+      pointer-events: none; z-index: 99999; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     `;
     tooltipEl.textContent = text;
     document.body.appendChild(tooltipEl);
+    if (navigator.vibrate) navigator.vibrate(50); 
   };
 
   const hide = () => {
-    if (tooltipEl) {
-      tooltipEl.remove();
-      tooltipEl = null;
-    }
+    if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
   };
 
-  // 触屏设备用 touchstart / touchend，鼠标用 pointerdown / pointerup
+  // 1. 平板触摸
   btn.addEventListener('touchstart', (e) => {
-    e.preventDefault(); // 防止触发系统的选中文字或复制弹窗
-    timer = setTimeout(show, 500);
+    e.preventDefault(); // 核心：强行干掉系统默认行为
+    timer = setTimeout(show, 400);
   }, { passive: false });
 
-  btn.addEventListener('touchend', () => {
-    clearTimeout(timer);
-    setTimeout(hide, 1000);
-  });
+  btn.addEventListener('touchend', () => { clearTimeout(timer); setTimeout(hide, 1000); });
+  btn.addEventListener('touchmove', () => { clearTimeout(timer); hide(); });
 
-  btn.addEventListener('touchmove', () => {
-    clearTimeout(timer); // 手指滑动就取消长按
-    hide();
-  });
-
+  // 2. 电脑鼠标
   btn.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse') {
-      timer = setTimeout(show, 500);
-    }
+    if (e.pointerType === 'mouse') timer = setTimeout(show, 500);
   });
-
   btn.addEventListener('pointerup', (e) => {
-    if (e.pointerType === 'mouse') {
-      clearTimeout(timer);
-      setTimeout(hide, 1000);
-    }
+    if (e.pointerType === 'mouse') { clearTimeout(timer); setTimeout(hide, 1000); }
   });
-
-  btn.addEventListener('pointerleave', () => {
-    clearTimeout(timer);
-    hide();
-  });
+  btn.addEventListener('pointerleave', () => { clearTimeout(timer); hide(); });
 }
 
 // ============ 一次性迁移：给旧图片补 name 字段 ============
