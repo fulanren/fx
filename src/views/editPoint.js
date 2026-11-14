@@ -211,12 +211,16 @@ export function renderEditPoint({ params, query }) {
           manualBtn.textContent = '隐藏手动设置';
         }
         
-        // 👇 2. 核心修复：恢复完之后，立刻清空草稿！
+        // 👇 2. 暴力修复：直接强行清理所有可能的草稿缓存
         clearDraft('point', entityId); 
+        localStorage.removeItem(`kg_draft_point_${entityId}`);
+        localStorage.removeItem(`kg_draft_${entityId}`);
         
       } else {
-        // 如果点放弃，也要清空
+        // 如果点放弃，同样强行清理
         clearDraft('point', entityId);
+        localStorage.removeItem(`kg_draft_point_${entityId}`);
+        localStorage.removeItem(`kg_draft_${entityId}`);
       }
     }, 300);
   }
@@ -280,21 +284,50 @@ export function renderEditPoint({ params, query }) {
     body.appendChild(infoRow);
 
     const actionRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
-      // 新建文件夹
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '➕ 新建文件夹并归入',
-        onClick: () => {
-          const newName = prompt('新建文件夹名称：', '未命名文件夹');
-          if (!newName || !newName.trim()) return;
+ // 新建文件夹
+el('button', {
+  class: 'btn btn-sm btn-ghost',
+  text: '+ 新建文件夹并归入',
+  onClick: () => {
+    const folderName = prompt('新建文件夹名称：');
+    if (!folderName || !folderName.trim()) return;
+    
+    const finalName = folderName.trim();
+    
+    // 1. 把新文件夹加入系统的文件夹列表 (注意 key 是 kg_all_folders)
+    let folders = [];
+    try { folders = JSON.parse(localStorage.getItem('kg_all_folders') || '[]'); } catch {}
+    if (!folders.includes(finalName)) {
+      folders.push(finalName);
+      localStorage.setItem('kg_all_folders', JSON.stringify(folders));
+    }
 
-          const newTask = store.createTask({ name: newName.trim() });
-          const newChap = store.createChapter({ name: '默认子模块', taskId: newTask.id });
-
-          chapterId = newChap.id;
-          renderFolderSelector();
-          toastSuccess(`已新建文件夹「${newName}」并归入`);
+    // 2. 把当前散落卡片里的图片归入文件夹
+    const pt = store.getPoint(point.id);
+    if (pt && pt.imageIds && pt.imageIds.length > 0) {
+      toastSuccess(`正在将图片移入「${finalName}」...`);
+      
+      Promise.all(pt.imageIds.map(id => dbGet('images', id))).then(async recs => {
+        for (const rec of recs) {
+          if (rec) {
+            rec.group = finalName;
+            await dbPut('images', rec);
+          }
         }
-      }),
+        toastSuccess(`已成功归入「${finalName}」`);
+        if (typeof onRefresh === 'function') {
+          onRefresh();
+        } else {
+          window.location.reload(); 
+        }
+      });
+    } else {
+      toastSuccess(`文件夹「${finalName}」已创建`);
+      if (typeof onRefresh === 'function') onRefresh();
+      else window.location.reload();
+    }
+  }
+}),
       // 选择已有文件夹
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '🔍 选择已有文件夹',

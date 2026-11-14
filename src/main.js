@@ -206,7 +206,7 @@ async function boot() {
 
   startRouter();
 
-    const btnBack = document.getElementById('btn-back');
+      const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
     
@@ -237,22 +237,28 @@ async function boot() {
     else if (hash.startsWith('#/chapter-list/')) {
       navigate('#/');
     } 
-    // 👇 6. 核心修复：如果是 PDF 阅读器或标注页
+    // 👇 6. 核心修复：PDF 阅读器或标注页
     else if (hash.startsWith('#/pdf-viewer/') || hash.startsWith('#/annotate/')) {
-      // 提取 URL 里的 returnUrl（如果有的话）
+      // 优先检查有没有 returnUrl
       const match = hash.match(/[?&]returnUrl=([^&]+)/);
       if (match) {
-        // 如果带 returnUrl，优先跳回它指定的地方
-        window.location.hash = decodeURIComponent(match[1]);
-      } else if (hash.startsWith('#/pdf-viewer/') && hash.includes('pointId=')) {
-        // 如果没有 returnUrl 但有 pointId，说明是从知识点进来的，退回知识点
-        const pointId = hash.match(/pointId=([^&]+)/)[1];
-        navigate(`#/edit-point/${pointId}`);
-      } else {
-        // 兜底，正常后退
-        if (history.length > 1) history.back();
-        else navigate('#/resources');
+        // 如果有 returnUrl，且不是当前页面，就跳转过去
+        const returnUrl = decodeURIComponent(match[1]);
+        if (returnUrl !== hash) {
+            window.location.hash = returnUrl;
+            return;
+        }
       }
+      
+      // 如果没有 returnUrl，但有 pointId（从知识点进入的），退回知识点
+      const pointMatch = hash.match(/[?&]pointId=([^&]+)/);
+      if (pointMatch && pointMatch[1]) {
+        navigate(`#/edit-point/${pointMatch[1]}`);
+        return;
+      }
+      
+      // 如果什么参数都没有，保底退回资料总览，绝不使用 history.back()
+      navigate('#/resources');
     } 
     // 7. 其他页面 -> 正常后退
     else {
@@ -299,23 +305,22 @@ function openMoreMenu() {
   if (existing) { existing.remove(); return; }
 
   // 如果你之前加过页面的 items，保留它们，并加上顶栏工具
-  const items = [
-    { icon: '📚', label: '背诵', href: '#/' },
-    { icon: '📁', label: '资源总览', href: '#/resources' },
-    { icon: '🎯', label: '待复习管理', href: '#/review' },
-    { icon: '🔍', label: '搜索', href: '#/search' },
-    { icon: '📥', label: '速记', href: '#/inbox' },
-    { icon: '📤', label: '导出数据', action: 'export' },
-    { icon: '📥', label: '导入备份', action: 'import' },
-    { icon: '📑', label: '资料模板', href: '#/template' },
-    { icon: '📄', label: '导入文件', action: 'importDoc' },
-    { icon: '📋', label: '批量粘贴', action: 'batchImport' },
-    { icon: '⏰', label: '考试倒计时', href: '#/countdown' },
-    { icon: '🗑', label: '回收站', href: '#/trash' },
-    { icon: '❓', label: '帮助', href: '#/help' },
-    { icon: '⚙️', label: '设置', href: '#/settings' },
+    const items = [
+    { icon: '📚', label: '背诵', href: '#/', desc: '返回首页，查看任务与待复习' },
+    { icon: '📁', label: '资源总览', href: '#/resources', desc: '查看所有图片和 PDF 附件' },
+    { icon: '🎯', label: '待复习管理', href: '#/review', desc: '按计划复习知识点' },
+    { icon: '🔍', label: '搜索', href: '#/search', desc: '在全站搜索知识点或文件' },
+    { icon: '📥', label: '速记', href: '#/inbox', desc: '查看快速记录的散落卡片' },
+    { icon: '📤', label: '导出数据', action: 'export', desc: '备份所有文字、图片为 ZIP' },
+    { icon: '📥', label: '导入备份', action: 'import', desc: '从 ZIP 文件恢复数据' },
+    { icon: '📑', label: '资料模板', href: '#/template', desc: '管理申论答题卡、横线纸模板' },
+    { icon: '📄', label: '导入文件', action: 'importDoc', desc: '从 Word/PDF 批量导入知识点' },
+    { icon: '📋', label: '批量粘贴', action: 'batchImport', desc: '粘贴大段文字并自动拆分' },
+    { icon: '⏰', label: '考试倒计时', href: '#/countdown', desc: '设置并查看倒计时' },
+    { icon: '🗑', label: '回收站', href: '#/trash', desc: '恢复误删的知识点或文件' },
+    { icon: '❓', label: '帮助', href: '#/help', desc: '查看详细操作手册' },
+    { icon: '⚙️', label: '设置', href: '#/settings', desc: '管理暗黑模式、云同步等' },
   ];
-
   const menu = el('div', {
     id: 'more-menu',
     style: {
@@ -327,13 +332,43 @@ function openMoreMenu() {
   });
 
   // 1. 渲染常规功能项
-  items.forEach(it => {
-    const elStyle = { display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 14px', borderRadius: '8px', textDecoration: 'none', color: 'var(--text)', fontSize: '15px', cursor: 'pointer' };
+    items.forEach(it => {
+    // 👇 核心修改：左侧图标和文字，右侧说明
+    const leftDiv = el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', fontWeight: '500', flexShrink: '0' } }, [
+      el('span', { text: it.icon, style: { fontSize: '18px' } }), 
+      el('span', { text: it.label })
+    ]);
+
+    const rightDiv = el('div', { 
+      style: { fontSize: '11px', color: 'var(--text-2)', marginLeft: '20px', textAlign: 'right', flex: '1', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }, 
+      text: it.desc || ''
+    });
+
+    // 让整行左右对齐，并且鼠标悬浮时有背景色
+    const elStyle = { 
+      display: 'flex', 
+      alignItems: 'center', 
+      justifyContent: 'space-between', 
+      padding: '10px 14px', 
+      borderRadius: '8px', 
+      textDecoration: 'none', 
+      color: 'var(--text)', 
+      cursor: 'pointer',
+      transition: 'background 0.2s'
+    };
+
+    // 鼠标悬浮效果
+    const onHover = (e) => { e.currentTarget.style.background = 'var(--bg)'; };
+    const onLeave = (e) => { e.currentTarget.style.background = 'transparent'; };
 
     if (it.href) {
-      menu.appendChild(el('a', { href: it.href, style: elStyle, onClick: () => menu.remove() }, [
-        el('span', { text: it.icon }), el('span', { text: it.label })
-      ]));
+      menu.appendChild(el('a', { 
+        href: it.href, 
+        style: elStyle, 
+        onClick: () => menu.remove(),
+        onPointerEnter: onHover,
+        onPointerLeave: onLeave
+      }, [leftDiv, rightDiv]));
     } else if (it.action) {
       menu.appendChild(el('div', {
         style: elStyle,
@@ -343,8 +378,10 @@ function openMoreMenu() {
           else if (it.action === 'batchImport') { import('./views/importDoc.js').then(m => m.globalBatchImportModal()); }
           else if (it.action === 'export') { import('./views/settings.js').then(m => m.openExportModal()); }
           else if (it.action === 'import') { import('./views/settings.js').then(m => m.openImportModal()); }
-        }
-      }, [el('span', { text: it.icon }), el('span', { text: it.label })]));
+        },
+        onPointerEnter: onHover,
+        onPointerLeave: onLeave
+      }, [leftDiv, rightDiv]));
     }
   });
 
@@ -490,10 +527,12 @@ function attachLongPressTooltip(btn, text) {
   let timer = null;
   let tooltipEl = null;
 
-  // 添加防选中属性
+  // 1. 彻底封印 iOS 系统菜单的三大法宝
   btn.style.userSelect = 'none';
   btn.style.webkitUserSelect = 'none';
   btn.style.webkitTouchCallout = 'none';
+  btn.style.touchAction = 'manipulation'; // 消除双击缩放延迟
+  btn.setAttribute('draggable', 'false'); // 禁止长按拖拽图标
 
   const show = () => {
     if (tooltipEl) return;
@@ -503,34 +542,56 @@ function attachLongPressTooltip(btn, text) {
       position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.bottom + 8}px;
       transform: translateX(-50%); background: rgba(43,45,66,.95); color: #fff;
       padding: 6px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap;
-      pointer-events: none; z-index: 99999; box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+      pointer-events: none; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
     `;
     tooltipEl.textContent = text;
     document.body.appendChild(tooltipEl);
-    if (navigator.vibrate) navigator.vibrate(50); 
+    // 震动反馈
+    if (navigator.vibrate) navigator.vibrate(40); 
   };
 
   const hide = () => {
     if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; }
   };
 
-  // 1. 平板触摸
-  btn.addEventListener('touchstart', (e) => {
-    e.preventDefault(); // 核心：强行干掉系统默认行为
-    timer = setTimeout(show, 400);
+  // 👇 核心修改点：使用原生的绑定，并强行阻断所有冒泡
+  btn.addEventListener('touchstart', function (e) {
+    // 强行阻止系统菜单、复制、翻译
+    e.preventDefault();
+    e.stopPropagation();
+    
+    timer = setTimeout(show, 350);
+  }, { passive: false }); // 👈 passive: false 是关键，允许我们拦截默认行为
+
+  btn.addEventListener('touchend', function (e) {
+    e.preventDefault();
+    clearTimeout(timer);
+    setTimeout(hide, 1000);
   }, { passive: false });
 
-  btn.addEventListener('touchend', () => { clearTimeout(timer); setTimeout(hide, 1000); });
-  btn.addEventListener('touchmove', () => { clearTimeout(timer); hide(); });
+  btn.addEventListener('touchmove', function (e) {
+    clearTimeout(timer);
+    hide(); // 手指一旦滑动就取消
+  }, { passive: true });
 
-  // 2. 电脑鼠标
+  // 👇 电脑鼠标逻辑保留
   btn.addEventListener('pointerdown', (e) => {
-    if (e.pointerType === 'mouse') timer = setTimeout(show, 500);
+    if (e.pointerType === 'mouse') {
+      timer = setTimeout(show, 500);
+    }
   });
+  
   btn.addEventListener('pointerup', (e) => {
-    if (e.pointerType === 'mouse') { clearTimeout(timer); setTimeout(hide, 1000); }
+    if (e.pointerType === 'mouse') {
+      clearTimeout(timer);
+      setTimeout(hide, 1000);
+    }
   });
-  btn.addEventListener('pointerleave', () => { clearTimeout(timer); hide(); });
+  
+  btn.addEventListener('pointerleave', () => {
+    clearTimeout(timer);
+    hide();
+  });
 }
 
 // ============ 一次性迁移：给旧图片补 name 字段 ============
@@ -656,3 +717,169 @@ window.addEventListener('paste', (e) => {
   e.preventDefault();
   openPasteCreateModal(text, hasImage);
 });
+
+// ============ 全局：防键盘遮挡（平板体验） ============
+document.addEventListener('focusin', (e) => {
+  const target = e.target;
+  // 如果是输入框或文本域
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
+    // 延迟一点，等系统键盘完全弹出来，再平滑滚动
+    setTimeout(() => {
+      target.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center' // 把它滚到屏幕正中间，绝对不挡
+      });
+    }, 300);
+  }
+});
+
+// 👇 全局防连点机制（防止平板用户手抖连按导致崩溃）
+let lastClickTime = 0;
+let lastClickTarget = null;
+document.addEventListener('click', (e) => {
+  // 如果是画板或特定需要连续点击的地方，跳过拦截
+  if (e.target.closest('.annotator-wrap')) return;
+  
+  const now = Date.now();
+  const btn = e.target.closest('button, .btn'); // 只拦截按钮
+  
+  if (btn) {
+    if (btn === lastClickTarget && now - lastClickTime < 400) {
+      // 400毫秒内点同一个按钮，强行拦截！
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    lastClickTime = now;
+    lastClickTarget = btn;
+  }
+});
+
+// ============ 通用手势：左滑删除 / 右滑标星 ============
+window.attachSwipeAction = function(container, onDelete, onStar) {
+  let startX = 0, startY = 0, currentX = 0;
+  const content = container.querySelector('.point-card-content');
+  if (!content) return;
+  
+  let isSwiping = false;
+
+  content.addEventListener('touchstart', (e) => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    currentX = 0;
+    isSwiping = false;
+    content.style.transition = 'none'; // 拖拽时去掉动画
+  }, { passive: true });
+
+  content.addEventListener('touchmove', (e) => {
+    if (e.touches.length !== 1) return;
+    const diffX = e.touches[0].clientX - startX;
+    const diffY = e.touches[0].clientY - startY;
+
+    // 如果横向移动大于纵向移动，说明是左右滑动
+    if (Math.abs(diffX) > Math.abs(diffY) && Math.abs(diffX) > 10) {
+      isSwiping = true;
+      // 限制最大滑动距离为 80px
+      currentX = Math.max(-80, Math.min(80, diffX));
+      content.style.transform = `translateX(${currentX}px)`;
+    }
+  }, { passive: true });
+
+  content.addEventListener('touchend', (e) => {
+    content.style.transition = 'transform 0.2s cubic-bezier(0.25, 0.8, 0.25, 1)';
+    
+    if (isSwiping) {
+      // 阻止事件冒泡（防止触发卡片的点击展开）
+      e.stopPropagation();
+      e.preventDefault();
+      
+      if (currentX < -40) {
+        // 左滑超过一半，自动弹到 -80px 露出删除按钮
+        content.style.transform = 'translateX(-80px)';
+      } else if (currentX > 40) {
+        // 右滑超过一半，弹到 80px 露出标星按钮
+        content.style.transform = 'translateX(80px)';
+      } else {
+        // 滑动不够，自动回弹
+        content.style.transform = 'translateX(0)';
+      }
+    }
+  });
+
+  // 点击卡片其他地方时，自动收回
+  content.addEventListener('click', (e) => {
+    if (isSwiping) return; // 如果是滑动后触发的点击，不处理
+    // 如果已经滑开了，点击就收起
+    if (content.style.transform && content.style.transform !== 'translateX(0px)') {
+      content.style.transform = 'translateX(0)';
+      e.stopPropagation();
+      e.preventDefault();
+    }
+  }, true);
+};
+
+// ============ 全局：回到顶部火箭 ============
+// 1. 创建悬浮火箭
+const globalBackToTop = document.createElement('button');
+globalBackToTop.id = 'global-back-to-top';
+globalBackToTop.innerHTML = '🚀';
+globalBackToTop.title = '回到顶部';
+globalBackToTop.style.cssText = `
+  position: fixed;
+  right: 20px;
+  bottom: calc(80px + env(safe-area-inset-bottom));
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  border: 1px solid rgba(0,0,0,0.05);
+  font-size: 20px;
+  z-index: 999;
+  cursor: pointer;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s, opacity 0.2s;
+  opacity: 0;
+`;
+document.body.appendChild(globalBackToTop);
+
+// 2. 点击回顶
+globalBackToTop.onclick = () => {
+  // 兼容多种容器滚动（PDF阅读器、网页主体等）
+  const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view') || window;
+  if (scrollContainer === window) {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } else {
+    scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+};
+
+// 3. 监听全局滚动，控制火箭显示/隐藏
+window.addEventListener('scroll', () => {
+  let scrollTop = 0;
+  const pdfContainer = document.querySelector('.pdf-scroll-container');
+  
+  if (pdfContainer && document.getElementById('view').contains(pdfContainer)) {
+    scrollTop = pdfContainer.scrollTop;
+  } else {
+    const view = document.getElementById('view');
+    scrollTop = view ? view.scrollTop : window.scrollY;
+  }
+
+  // 如果开启了隐藏火箭设置，就直接隐藏
+  if (localStorage.getItem('kg_hide_back_to_top') === '1') {
+    globalBackToTop.style.display = 'none';
+    return;
+  }
+
+  if (scrollTop > 300) {
+    globalBackToTop.style.display = 'flex';
+    setTimeout(() => globalBackToTop.style.opacity = '1', 10);
+  } else {
+    globalBackToTop.style.opacity = '0';
+    setTimeout(() => globalBackToTop.style.display = 'none', 200);
+  }
+}, true); // 用捕获阶段监听，兼容嵌套滚动

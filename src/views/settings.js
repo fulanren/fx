@@ -43,7 +43,21 @@ export function renderSettings() {
             toastSuccess('已切换为暗黑模式');
           }
         }
-      })
+      }),
+      // 👇 新增：悬浮火箭开关
+      el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' } }, [
+        el('input', { 
+          type: 'checkbox', 
+          checked: localStorage.getItem('kg_hide_back_to_top') !== '1',
+          onChange: (e) => {
+            localStorage.setItem('kg_hide_back_to_top', e.target.checked ? '0' : '1');
+            toastSuccess(e.target.checked ? '已开启悬浮火箭' : '已关闭悬浮火箭');
+            // 触发一次滚动事件更新状态
+            window.dispatchEvent(new Event('scroll'));
+          }
+        }),
+        el('span', { text: '显示“🚀 回到顶部”悬浮按钮' })
+      ])
     ])
   ]));
 

@@ -626,7 +626,13 @@ export function renderImageList(point, onRefresh) {
               const rawBlob = rec.annotatedBlob || rec.originalBlob;
               if (rawBlob instanceof Blob && rawBlob.size > 0) {
                 const url = URL.createObjectURL(rawBlob);
-                thumbIcon.appendChild(el('img', { src: url, style: { width: '100%', height: '100%', objectFit: 'cover' }, onLoad: () => URL.revokeObjectURL(url) }));
+                thumbIcon.appendChild(el('img', {
+                  src: url,
+                  loading: 'lazy',
+                  decoding: 'async',
+                  style: { width: '100%', height: '100%', objectFit: 'cover' },
+                  onLoad: () => URL.revokeObjectURL(url)
+                }));
               } else {
                 thumbIcon.appendChild(el('span', { style: { fontSize: '16px' }, text: '🖼' }));
               }
@@ -654,7 +660,13 @@ export function renderImageList(point, onRefresh) {
               const rawBlob = rec.annotatedBlob || rec.originalBlob;
               if (rawBlob instanceof Blob && rawBlob.size > 0) {
                 const url = URL.createObjectURL(rawBlob);
-                card.appendChild(el('img', { src: url, style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', objectFit: 'cover' }, onLoad: () => URL.revokeObjectURL(url) }));
+                card.appendChild(el('img', {
+                  src: url,
+                  loading: 'lazy',
+                  decoding: 'async',
+                  style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', objectFit: 'cover' },
+                  onLoad: () => URL.revokeObjectURL(url)
+                }));
               } else {
                 card.appendChild(el('div', { style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', color: '#999' }, text: '🖼' }));
               }
@@ -747,7 +759,53 @@ export function renderImageList(point, onRefresh) {
 
     let isImmersive = false;
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.92)', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' } });
-    const imgWrap = el('div', { style: { flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', cursor: 'zoom-in' } }, [el('img', { src: url, style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' } })]);
+    // 👇 核心修改：支持双指缩放与单指平移
+    const imgEl = el('img', { src: url, style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', transition: 'transform 0.1s', transformOrigin: 'center center' } });
+    const imgWrap = el('div', {
+      style: { flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', cursor: 'grab', overflow: 'hidden' }
+    }, [imgEl]);
+
+    // 手势状态变量
+    let scale = 1, panX = 0, panY = 0;
+    let startDist = 0, startScale = 1;
+    let startX = 0, startY = 0;
+    let isDragging = false;
+
+    imgWrap.addEventListener('touchstart', (e) => {
+      if (e.touches.length === 2) {
+        startDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        startScale = scale;
+      } else if (e.touches.length === 1 && scale > 1.05) {
+        isDragging = true;
+        startX = e.touches[0].clientX - panX;
+        startY = e.touches[0].clientY - panY;
+      }
+    }, { passive: false });
+
+    imgWrap.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 2) {
+        e.preventDefault(); // 阻止页面滚动
+        const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
+        scale = Math.max(1, Math.min(5, startScale * (dist / startDist)));
+        imgEl.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
+      } else if (isDragging && e.touches.length === 1 && scale > 1.05) {
+        e.preventDefault();
+        panX = e.touches[0].clientX - startX;
+        panY = e.touches[0].clientY - startY;
+        imgEl.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
+      }
+    }, { passive: false });
+
+    imgWrap.addEventListener('touchend', (e) => {
+      if (e.touches.length === 0) {
+        isDragging = false;
+        if (scale <= 1.05) {
+          scale = 1; panX = 0; panY = 0;
+          imgEl.style.transform = 'scale(1)';
+        }
+      }
+    });
+    // 👆 手势逻辑结束
 
     const toolbar = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '10px', justifyContent: 'center', width: '100%', maxWidth: '600px', marginTop: '20px' } }, [
       // 复制当前图
@@ -785,6 +843,69 @@ export function renderImageList(point, onRefresh) {
           store.updatePoint(pt.id, { imageIds: pt.imageIds });
           toastSuccess('粘贴成功');
           mask.remove(); URL.revokeObjectURL(url); onRefresh();
+        }
+      }),
+            // 👇 新增：一键提取文字 (OCR)
+      el('button', {
+        class: 'btn btn-ghost', text: '🔤 提取文字', 
+        style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },
+        onClick: async () => {
+          if (!window.Tesseract) { toastError('OCR 库未加载'); return; }
+          
+          toastSuccess('正在识别文字，请稍候…');
+          try {
+            // 直接调用全局的 Tesseract 识别
+            const result = await window.Tesseract.recognize(blob, 'chi_sim+eng');
+            const text = result.data.text.trim();
+            
+            if (!text) {
+              toastError('未识别到文字，请确认图片是否清晰');
+              return;
+            }
+
+            // 弹出结果供用户复制或建卡
+            const maskOcr = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
+            const boxOcr = el('div', { class: 'confirm-box', style: { maxWidth: '360px', display: 'flex', flexDirection: 'column' } }, [
+              el('h3', { text: '🔤 识别结果' }),
+              el('textarea', {
+                value: text,
+                style: { width: '100%', height: '150px', padding: '10px', margin: '12px 0', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', fontSize: '14px', resize: 'none', outline: 'none' }
+              }),
+              el('div', { style: { display: 'flex', gap: '8px', justifyContent: 'flex-end' } }, [
+                el('button', {
+                  class: 'btn btn-ghost', text: '📋 复制',
+                  onClick: async () => {
+                    await navigator.clipboard.writeText(text);
+                    toastSuccess('已复制到剪贴板');
+                    maskOcr.remove();
+                  }
+                }),
+                el('button', {
+                  class: 'btn btn-primary', text: '📥 存为新卡片',
+                  onClick: () => {
+                    const pt = store.getPoint(point.id);
+                    if (pt) {
+                      const newPoint = store.createPoint({ 
+                        chapterId: pt.chapterId, 
+                        content: text, 
+                        imageIds: [imageId] // 顺便把原图也带上
+                      });
+                      toastSuccess('已创建新知识点');
+                      maskOcr.remove();
+                      mask.remove(); // 关掉大图预览
+                      onRefresh();
+                    }
+                  }
+                }),
+                el('button', { class: 'btn btn-ghost', text: '关闭', onClick: () => maskOcr.remove() })
+              ])
+            ]);
+            maskOcr.appendChild(boxOcr);
+            document.body.appendChild(maskOcr);
+
+          } catch (err) {
+            toastError('识别失败: ' + err.message);
+          }
         }
       }),
       el('button', {

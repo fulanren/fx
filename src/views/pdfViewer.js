@@ -76,13 +76,24 @@ export async function renderPdfViewer({ params, query }) {
             display: 'flex', flexDirection: 'column',
             height: '100%', width: '100%',
             overflowY: 'auto', overflowX: 'hidden',
-            position: 'relative', // 👈 改回 relative，恢复滚动流
+            // 👇 新增：锁死外层，不许回弹
+            overscrollBehaviorY: 'contain',
+            WebkitOverflowScrolling: 'touch', // 保持 iOS 丝滑滚动
+            position: 'relative',
             margin: '0', padding: '0',
-            background: eyeMode ? '#F0F5E9' : 'var(--bg)',
-            WebkitOverflowScrolling: 'touch' // 👈 核心：让 iOS 滚动更丝滑
+            background: eyeMode ? '#F0F5E9' : 'var(--bg)'
         }
     });
     view.appendChild(container);
+
+    // 监听滚动事件，超过 500px 显示火箭，否则隐藏
+    container.addEventListener('scroll', () => {
+        if (container.scrollTop > 500) {
+            backToTopBtn.style.display = 'flex';
+        } else {
+            backToTopBtn.style.display = 'none';
+        }
+    });
 
     async function initPdf(id) {
         container.innerHTML = '<div style="padding:20px;text-align:center;">加载中...</div>';
@@ -138,22 +149,26 @@ export async function renderPdfViewer({ params, query }) {
             document.querySelectorAll('#pdf-bottom-float').forEach(el => el.remove());
             document.querySelectorAll('#pdf-page-float').forEach(el => el.remove());
 
-            renderUI();
+                        // 延迟 50 毫秒调用，确保 DOM 全部初始化完毕
+            setTimeout(() => renderUI(), 50);
         } catch (err) {
             console.error('PDF加载崩溃:', err);
             container.innerHTML = `<div style="padding:20px;text-align:center;color:red;">加载失败: ${err.message}</div>`;
         }
     }
 
-    // 在 pdfViewer.js 渲染结束时，直接把父级大盒子的 padding 抹除
+    // 👇 在 pdfViewer.js 渲染结束时，把父级大盒子的 padding 抹除（仅在 PDF 阅读页生效）
     setTimeout(() => {
-        let parent = document.getElementById('view');
-        while (parent && parent.tagName !== 'BODY') {
-            parent.style.setProperty('padding', '0', 'important');
-            parent.style.setProperty('margin', '0', 'important');
-            parent.style.setProperty('border', 'none', 'important');
-            parent.style.setProperty('border-radius', '0', 'important');
-            parent = parent.parentNode;
+        // 判断当前路由是否真的是 PDF 阅读器
+        if (location.hash.startsWith('#/pdf-viewer/')) {
+            let parent = document.getElementById('view');
+            while (parent && parent.tagName !== 'BODY') {
+                parent.style.setProperty('padding', '0', 'important');
+                parent.style.setProperty('margin', '0', 'important');
+                parent.style.setProperty('border', 'none', 'important');
+                parent.style.setProperty('border-radius', '0', 'important');
+                parent = parent.parentNode;
+            }
         }
     }, 100);
 
@@ -700,35 +715,24 @@ export async function renderPdfViewer({ params, query }) {
         currentPage = pageNum;
         localStorage.setItem(`kg_pdf_progress_${pdfId}`, pageNum);
 
-        // 如果是翻页模式，直接重绘
         if (mode === 'paged') {
             renderUI();
-            return;
-        }
-
-        // 👇 核心修复：用 native scrollTop 计算绝对高度，无视平滑滚动干扰
-        const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
-        if (target) {
-            // 获取外层滚动容器（通常是 .pdf-scroll-container 或 #view）
-            const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view');
-            if (scrollContainer) {
-                // 目标页距离容器顶部的绝对距离
-                const targetTop = target.offsetTop - 20;
-                // 瞬间跳转，不用 smooth，规避 iOS 的动画回弹
-                scrollContainer.scrollTop = targetTop;
+        } else {
+            // 滚动模式：用原生 offsetTop 获取绝对高度，彻底规避平板的回弹
+            const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
+            if (target) {
+                // 瞬间跳转，不用 smooth，规避 iOS 的动画冲突
+                target.scrollIntoView({ behavior: 'auto', block: 'start' });
             }
+            setTimeout(() => {
+                const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
+                if (pageInput) pageInput.value = currentPage;
+
+                document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
+                const targetEl = document.getElementById(`pdf-page-wrap-${pageNum}`);
+                if (targetEl) targetEl.style.outline = '3px solid var(--primary)';
+            }, 50);
         }
-
-        // 延时更新顶部 UI（避免输入框失焦导致外层窗体跳动）
-        setTimeout(() => {
-            const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
-            if (pageInput) pageInput.value = currentPage;
-
-            // 更新蓝色边框高亮
-            document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
-            const targetEl = document.getElementById(`pdf-page-wrap-${pageNum}`);
-            if (targetEl) targetEl.style.outline = '3px solid var(--primary)';
-        }, 50);
     }
 
     function renderUI() {
@@ -755,6 +759,11 @@ export async function renderPdfViewer({ params, query }) {
                 currentPage = closestPage;
                 localStorage.setItem(`kg_pdf_progress_${pdfId}`, currentPage);
                 if (window.__updatePdfPageFloat) window.__updatePdfPageFloat();
+            }
+            // 👇 新增：实时记录当前滚动的精确像素位置
+            const scrollContainer = document.querySelector('.pdf-scroll-container') || container;
+            if (scrollContainer) {
+                sessionStorage.setItem(`kg_pdf_scroll_${pdfId}`, scrollContainer.scrollTop);
             }
         };
 
@@ -838,7 +847,7 @@ export async function renderPdfViewer({ params, query }) {
                 width: '100%'
             }
         }, [
-                        // 左侧：文件名
+            // 左侧：文件名
             el('span', { style: { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }, text: pdfRecord.name }),
 
             // 右侧：工具集合
@@ -985,6 +994,39 @@ export async function renderPdfViewer({ params, query }) {
         ]);
         container.appendChild(topBar);
 
+        // 👇👇👇 新增：“ⓘ”功能说明按钮 (代替长按) 👇👇👇
+        const infoBtn = el('button', {
+            class: 'btn btn-sm btn-ghost', text: 'ⓘ', title: '功能说明',
+            style: { width: '32px', height: '32px', padding: 0, fontSize: '16px', marginLeft: '4px' },
+            onClick: (e) => {
+                e.preventDefault();
+                const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+                const box = el('div', { class: 'confirm-box', style: { maxWidth: '360px', maxHeight: '80vh', overflowY: 'auto' } }, [
+                    el('h3', { text: '💡 当前页面按钮说明' }),
+                    el('div', { style: { fontSize: '13px', color: 'var(--text-2)', lineHeight: '1.8', margin: '16px 0', display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+                        el('div', { innerHTML: '<b>‹ / ›</b>：上一页 / 下一页' }),
+                        el('div', { innerHTML: '<b>🎨 专业标注</b>：进入画板，在 PDF 上画线、做笔记' }),
+                        el('div', { innerHTML: '<b>✏️</b>：重命名当前文档' }),
+                        el('div', { innerHTML: '<b>📑 / 📋 / 🗂</b>：书签 / 大纲 / 缩略图' }),
+                        el('div', { innerHTML: '<b>🔍</b>：搜索当前文档的内容' }),
+                        el('div', { innerHTML: '<b>🔤</b>：划词 OCR 提取文字' }),
+                        el('div', { innerHTML: '<b>➕</b>：插入新页（答题卡/横线纸/错题纸）' }),
+                        el('div', { innerHTML: '<b>⛶</b>：全屏沉浸阅读' }),
+                    ]),
+                    el('div', { class: 'confirm-actions' }, [
+                        el('button', { class: 'btn btn-primary', text: '知道了', onClick: () => mask.remove() })
+                    ])
+                ]);
+                mask.appendChild(box);
+                document.body.appendChild(mask);
+            }
+        });
+        // 把 infoBtn 插到顶栏的“设置”齿轮前面
+        const topbarRight = topBar.querySelector('div[style*="display: flex"]');
+        if (topbarRight) {
+            topbarRight.insertBefore(infoBtn, topbarRight.lastElementChild);
+        }
+
         // 8. 彻底废除推挤式布局，永远 100% 宽度
         const updateLayout = () => {
             container.style.marginLeft = '0';
@@ -995,7 +1037,7 @@ export async function renderPdfViewer({ params, query }) {
         updateLayout();
 
         // 9. 画布渲染区
-        const scrollWrap = el('div', { style: { width: '100%', display: 'block' } });
+        const scrollWrap = el('div', { style: { width: '100%', display: 'block', paddingBottom: '100px' } });
         const canvasWrap = el('div', { style: { display: 'block', width: '100%', padding: '50px 0 150px 0' } });
         scrollWrap.appendChild(canvasWrap);
         container.appendChild(scrollWrap);
@@ -1821,34 +1863,40 @@ export async function renderPdfViewer({ params, query }) {
         c.width = vp.width; c.height = vp.height;
         c.style.display = 'block'; c.style.width = '100%'; c.style.height = 'auto';
 
-        let savedAnnotated = null;
-        try {
-            const { dbAll } = await import('../db.js');
-            const allImages = await dbAll('images');
-            const pageTag = `pdf_${pdfId}_page_${num}`;
+        // ================= 👇 懒加载核心逻辑 👇 =================
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(async entry => {
+                // 当画布进入视线，且还没渲染过时
+                if (entry.isIntersecting && !c.dataset.rendered) {
+                    c.dataset.rendered = '1';
 
-            // 宽松匹配，新旧数据都能找到
-            const matched = allImages.find(img =>
-                img.source === pageTag ||
-                img.name === pageTag ||
-                (img.source && img.source.includes(pageTag)) ||
-                (img.name && img.name.includes(pageTag))
-            );
+                    let savedAnnotated = null;
+                    try {
+                        const { dbAll } = await import('../db.js');
+                        const allImages = await dbAll('images');
+                        const pageTag = `pdf_${pdfId}_page_${num}`;
+                        const matched = allImages.find(img => img.source === pageTag || img.name === pageTag || (img.source && img.source.includes(pageTag)) || (img.name && img.name.includes(pageTag)));
+                        if (matched && matched.annotatedBlob) savedAnnotated = matched.annotatedBlob;
+                    } catch (e) { }
 
-            if (matched && matched.annotatedBlob) {
-                savedAnnotated = matched.annotatedBlob; // 👈 取完整的合成大图
-            }
-        } catch (e) { }
+                    // ================= 👇 下面这段就是你原本的代码，被我原封不动包进来了 =================
+                    if (savedAnnotated) {
+                        const url = URL.createObjectURL(savedAnnotated);
+                        const img = new Image();
+                        await new Promise(r => { img.onload = r; img.onerror = r; img.src = url; });
+                        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+                        URL.revokeObjectURL(url);
+                    } else {
+                        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                    }
+                    // ================= 👆 原本的代码结束 👆 =================
 
-        if (savedAnnotated) {
-            const url = URL.createObjectURL(savedAnnotated);
-            const img = new Image();
-            await new Promise(r => { img.onload = r; img.onerror = r; img.src = url; });
-            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-            URL.revokeObjectURL(url);
-        } else {
-            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-        }
+                    observer.disconnect(); // 渲染完这一页，断开监听
+                }
+            });
+        }, { rootMargin: '500px' }); // 提前 500px 开始渲染，滑动不白屏
+        observer.observe(wrap);
+        // ================= 👆 懒加载核心逻辑结束 👆 =================
 
         // 滤镜组合
         const filters = [];
@@ -1880,17 +1928,13 @@ export async function renderPdfViewer({ params, query }) {
         if (updatePdfImage && updatePdfId && updatePdfId === `pdf_${pdfId}_page_${num}`) {
             const newImg = new Image();
             newImg.onload = () => {
-                // 强行把画过的图覆盖到当前 PDF 页面的 Canvas 上
                 c.getContext('2d').clearRect(0, 0, c.width, c.height);
                 c.getContext('2d').drawImage(newImg, 0, 0, c.width, c.height);
             };
             newImg.src = updatePdfImage;
-
-            // 👇 必须在这里清空，且只清空一次（防止重新渲染丢失）
             sessionStorage.removeItem('update_pdf_image');
             sessionStorage.removeItem('update_pdf_id');
         }
-
 
         // 👇 核心改造：双击进入全功能画板
         wrap.style.cursor = 'pointer';

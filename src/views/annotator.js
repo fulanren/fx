@@ -126,6 +126,14 @@ function showLoading(text = '正在保存并加载，请稍候...') {
   document.body.appendChild(mask);
 }
 
+function hideLoading() {
+  const mask = document.getElementById('global-loading-mask');
+  if (mask) {
+    mask.style.opacity = '0';
+    setTimeout(() => mask.remove(), 200);
+  }
+}
+
 export async function renderAnnotator({ params, query }) {
   let baseUrl = '';
   let imageId = params.id;
@@ -2524,7 +2532,7 @@ export async function renderAnnotator({ params, query }) {
     try { topConfig = JSON.parse(localStorage.getItem('kg_topbar_config') || '{}'); } catch { }
     topConfig = { ...DEFAULT_TOP_BAR_CONFIG, ...topConfig };
 
-    // 👇 2. 补回 PDF 翻页条
+        // 👇 2. 补回 PDF 翻页条
     if (query && query.pdfId && query.page) {
       const currentPdfId = query.pdfId;
       const currentPageNum = parseInt(query.page);
@@ -2549,17 +2557,15 @@ export async function renderAnnotator({ params, query }) {
           onClick: async (ev) => {
             ev.preventDefault();
             ev.stopPropagation();
-            if (window.showLoading) window.showLoading('正在加载...');
+            if (window.showLoading) window.showLoading('正在保存并加载上一页...');
             await saveAll(false);
+            
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const pdfId = urlParams.get('pdfId');
             const returnUrl = urlParams.get('returnUrl') || '';
             const pointId = urlParams.get('pointId') || '';
 
-            // 👇 加了 setTimeout
-            setTimeout(() => {
-              window.location.hash = `#/annotate/${imageId}?pdfId=${pdfId}&page=${currentPageNum - 1}&returnUrl=${returnUrl}&pointId=${pointId}`;
-            }, 50);
+            window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum - 1}?pdfId=${pdfId}&page=${currentPageNum - 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
           }
         }));
       }
@@ -2573,21 +2579,19 @@ export async function renderAnnotator({ params, query }) {
         onClick: async (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
-          if (window.showLoading) window.showLoading('正在加载...');
+          if (window.showLoading) window.showLoading('正在保存并加载下一页...');
           await saveAll(false);
+          
           const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
           const pdfId = urlParams.get('pdfId');
           const returnUrl = urlParams.get('returnUrl') || '';
           const pointId = urlParams.get('pointId') || '';
 
-          // 👇 加了 setTimeout
-          setTimeout(() => {
-            window.location.hash = `#/annotate/${imageId}?pdfId=${pdfId}&page=${currentPageNum + 1}&returnUrl=${returnUrl}&pointId=${pointId}`;
-          }, 50);
+          window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum + 1}?pdfId=${pdfId}&page=${currentPageNum + 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
         }
       }));
 
-            // 拿总页数
+      // 拿总页数
       (async () => {
         try {
           const { dbGet } = await import('../db.js');
@@ -4540,6 +4544,10 @@ export async function renderAnnotator({ params, query }) {
     if (e.key === 'Escape') { document.querySelectorAll('.confirm-mask').forEach(m => m.remove()); return; }
   };
   window.addEventListener('keydown', keyHandler);
+
+    // 页面加载完毕，强行关掉所有加载遮罩
+  if (window.hideLoading) window.hideLoading();
+  // 如果你前面写的是普通函数，直接写 hideLoading(); 即可
 
   window.__annotatorCleanup = () => {
     window.removeEventListener('keydown', keyHandler);

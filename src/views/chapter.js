@@ -247,10 +247,7 @@ export function renderChapterDetail({ params, query }) {
     else navigate(`#/`);
   };
 
-  view.appendChild(el('div', {
-    style: { fontSize: '18px', fontWeight: 'bold', marginBottom: '16px', color: 'var(--primary-dark)' },
-    text: `📁 ${displayTitle}`
-  }));
+
 
   const points = store.getPoints(chapter.id);
 
@@ -403,8 +400,8 @@ function pointCard(p, chapterId) {
 
   // 卡片主体
   const card = el('div', {
-    class: 'card' + (isSelected ? ' selected' : ''),
-    style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s' }
+    class: 'card point-card-content' + (isSelected ? ' selected' : ''), // 👈 加上 point-card-content 类名
+    style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s', background: 'var(--card)' }
   });
 
   const header = el('div', {
@@ -439,11 +436,8 @@ function pointCard(p, chapterId) {
 
       // 👇 右侧：直接挂上标签（不点开也能看到）
       (() => {
-        // 1. 暴力读取最新数据
         const allPts = JSON.parse(localStorage.getItem('kg_points') || '[]');
         const freshP = allPts.find(x => x.id === p.id) || p;
-
-        // 2. 兼容真假值（有些时候存的是字符串 'false' 或 'true'）
         const showDiff = freshP.showDifficultyBeforeExpand === true || freshP.showDifficultyBeforeExpand === 'true';
         const showCount = freshP.showReviewCountBeforeExpand === true || freshP.showReviewCountBeforeExpand === 'true';
 
@@ -471,7 +465,6 @@ function pointCard(p, chapterId) {
     ])
   ]);
 
-  // 展开后的解释
   if (p.explanation) {
     contentBox.appendChild(el('div', {
       style: { fontSize: '14px', color: 'var(--text-2)', marginBottom: '12px', whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.02)', padding: '8px', borderRadius: '6px' },
@@ -479,41 +472,74 @@ function pointCard(p, chapterId) {
     }));
   }
 
-  // 展开后的图文附件提示
-    // 👇 修改为：图文提示和操作按钮在同一行，紧凑排列
   const footerRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap', gap: '8px' } });
 
-  // 左侧：图文附件提示
   if (p.imageIds && p.imageIds.length > 0) {
-    footerRow.appendChild(el('div', { 
-      style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' }, 
-      text: `🖼 包含 ${p.imageIds.length} 张图文附件` 
+    footerRow.appendChild(el('div', {
+      style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' },
+      text: `🖼 包含 ${p.imageIds.length} 张图文附件`
     }));
   } else {
-    footerRow.appendChild(el('div')); // 占位，把按钮挤到右边
+    footerRow.appendChild(el('div'));
   }
 
-  // 右侧：操作按钮组
   const actions = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
     el('button', { class: 'btn btn-sm btn-ghost', text: '✏️ 编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-point/${p.id}`); } }),
-    el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async (e) => {
-      e.stopPropagation();
-      if (await confirmBox({ title: '删除卡片', message: '确定删除这张卡片吗？', danger: true, confirmText: '删除' })) {
-        store.deletePoint(p.id);
-        toastSuccess('已移入回收站');
-        renderChapterDetail({ params: { id: chapterId } });
+    el('button', {
+      class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async (e) => {
+        e.stopPropagation();
+        if (await confirmBox({ title: '删除卡片', message: '确定删除这张卡片吗？', danger: true, confirmText: '删除' })) {
+          store.deletePoint(p.id);
+          toastSuccess('已移入回收站');
+          renderChapterDetail({ params: { id: chapterId } });
+        }
       }
-    } }),
+    }),
     el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
     el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } })
   ]);
-  
+
   footerRow.appendChild(actions);
   contentBox.appendChild(footerRow);
 
   card.appendChild(header);
   card.appendChild(contentBox);
-  return card;
+
+  // 👇👇👇 新增：把卡片包进滑动容器中 👇👇👇
+  const btnDelete = el('div', {
+    class: 'swipe-action-btn delete', text: '🗑 删除',
+    onClick: async (e) => {
+      e.stopPropagation();
+      if (await confirmBox({ title: '删除', message: '确定删除？', danger: true, confirmText: '删除' })) {
+        store.deletePoint(p.id);
+        toastSuccess('已删除');
+        renderChapterDetail({ params: { id: chapterId } });
+      }
+    }
+  });
+
+  const btnStar = el('div', {
+    class: 'swipe-action-btn star', text: '⭐ 易错',
+    onClick: (e) => {
+      e.stopPropagation();
+      store.updatePoint(p.id, { isErrorProne: !p.isErrorProne });
+      toastSuccess(p.isErrorProne ? '已取消标星' : '⭐ 已标为易错');
+      renderChapterDetail({ params: { id: chapterId } });
+    }
+  });
+
+  const container = el('div', { class: 'point-card-container' }, [
+    btnStar,
+    btnDelete,
+    card
+  ]);
+
+  // 绑定滑动手势（调用我们刚才在 main.js 写的通用函数）
+  if (window.attachSwipeAction) {
+    window.attachSwipeAction(container, null, null);
+  }
+
+  return container;
 }
 
 // ============ 沉浸式极速复习模式 ============
