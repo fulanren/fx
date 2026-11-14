@@ -324,409 +324,208 @@ export function renderImageList(point, onRefresh) {
 
       const isNewFolder = (groupName === renameTarget);
 
-      const header = el('div', {
-        onDragOver: (e) => { e.preventDefault(); e.currentTarget.style.background = 'rgba(142,202,230,0.1)'; },
-        onDragLeave: (e) => { e.preventDefault(); e.currentTarget.style.background = 'transparent'; },
-        onDrop: async (e) => {
-          e.preventDefault();
-          e.currentTarget.style.background = 'transparent';
-          const draggedId = e.dataTransfer.getData('text/plain');
-          if (!draggedId) return;
-          const rec = await dbGet('images', draggedId);
-          if (rec) {
-            rec.group = groupName;
-            await dbPut('images', rec);
-            toastSuccess(`已移入「${displayName}」`);
-            onRefresh();
-          }
-        },
-        // 👇 核心修改：把 margin: '16px 0 8px' 改为 '4px 0 4px'
-        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 4px', paddingBottom: '4px', borderBottom: groupName === '' ? 'none' : '1px dashed rgba(0,0,0,.1)', paddingLeft: indent + 'px', borderRadius: '4px', transition: 'background 0.2s' }
-      }, [
-        el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)', cursor: groupName === '' ? 'default' : 'pointer', userSelect: 'none' },
-          onClick: () => {
-            if (groupName === '') return;
-            if (isLocked) {
-              const pwd = prompt(`文件夹「${displayName}」已加密，请输入密码解锁：`);
-              if (pwd === locked[groupName]) { delete locked[groupName]; saveLocked(locked); onRefresh(); }
-              else if (pwd !== null) { toastError('密码错误'); }
-              return;
+      // 👇 核心绝杀逻辑：找出所有真正拥有文件的文件夹
+      const groupsWithFiles = Object.keys(groupedList).filter(k => k !== '' && groupedList[k].length > 0);
+      // 如果当前有文件的文件夹只有 1 个，而且名字跟当前循环的一致，那就彻底跳过渲染
+      const shouldHideHeader = (groupsWithFiles.length === 1 && groupsWithFiles[0] === groupName);
+
+      // 只有当它不该被隐藏时，才生成 header 这个 DOM 元素
+      let header = null;
+      if (!shouldHideHeader) {
+        header = el('div', {
+          onDragOver: (e) => { e.preventDefault(); e.currentTarget.style.background = 'rgba(142,202,230,0.1)'; },
+          onDragLeave: (e) => { e.preventDefault(); e.currentTarget.style.background = 'transparent'; },
+          onDrop: async (e) => {
+            e.preventDefault();
+            e.currentTarget.style.background = 'transparent';
+            const draggedId = e.dataTransfer.getData('text/plain');
+            if (!draggedId) return;
+            const rec = await dbGet('images', draggedId);
+            if (rec) {
+              rec.group = groupName;
+              await dbPut('images', rec);
+              toastSuccess(`已移入「${displayName}」`);
+              onRefresh();
             }
-            collapsed[groupName] = !isCollapsed; saveCollapsed(collapsed); onRefresh();
           },
-          onDblClick: (e) => {
-            e.stopPropagation();
-            if (groupName === '') return;
-            const newName = prompt('输入新文件夹名（支持 / 建子文件夹）：', displayName);
-            if (!newName || newName.trim() === displayName) return;
-
-            const finalNewName = newName.trim();
-            const parent = level > 0 ? groupName.split('/').slice(0, -1).join('/') + '/' : '';
-            const fullNew = parent + finalNewName;
-
-            groupFiles.forEach(async f => {
-              const rec = await dbGet('images', f.id);
-              if (rec) { rec.group = fullNew; await dbPut('images', rec); }
-            });
-            const folders = getAllFolders().filter(f => f !== groupName);
-            if (!folders.includes(fullNew)) folders.push(fullNew);
-            saveAllFolders(folders);
-            onRefresh();
-          }
+          style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 4px', paddingBottom: '4px', borderBottom: groupName === '' ? 'none' : '1px dashed rgba(0,0,0,.1)', paddingLeft: indent + 'px', borderRadius: '4px', transition: 'background 0.2s' }
         }, [
-          groupName !== '' ? el('span', { text: isLocked ? '🔒' : (isCollapsed ? '▸' : '▾') }) : null,
-          el('span', {
-            text: groupName === '' ? '📄 未分组文件' : `📁 ${displayName} (${groupFiles.length})`,
-            style: isNewFolder ? { color: 'var(--danger)', textDecoration: 'underline' } : {}
-          })
-        ]),
-
-        // ================= 智能防遮挡折叠菜单 =================
-        groupName !== '' && !isLocked ? el('button', {
-          class: 'btn btn-sm btn-ghost',
-          text: '▾',
-          title: '更多操作',
-          style: { fontSize: '18px', padding: '4px 10px' },
-          onClick: (e) => {
-            e.stopPropagation();
-
-            // 避免重复点击生成多个菜单
-            const existingMenu = document.getElementById('floating-folder-menu');
-            if (existingMenu) { existingMenu.remove(); return; }
-
-            const btnRect = e.currentTarget.getBoundingClientRect();
-            const menu = el('div', {
-              id: 'floating-folder-menu',
-              style: {
-                position: 'fixed',
-                background: 'var(--card)',
-                border: '1px solid rgba(0,0,0,.1)',
-                borderRadius: '8px',
-                padding: '6px',
-                zIndex: 999999,
-                boxShadow: '0 8px 24px rgba(0,0,0,0.15)',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: '2px',
-                minWidth: '140px',
-                maxHeight: '300px',
-                overflowY: 'auto'
+          el('div', {
+            style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)', cursor: groupName === '' ? 'default' : 'pointer', userSelect: 'none' },
+            onClick: () => {
+              if (groupName === '') return;
+              if (isLocked) {
+                const pwd = prompt(`文件夹「${displayName}」已加密，请输入密码解锁：`);
+                if (pwd === locked[groupName]) { delete locked[groupName]; saveLocked(locked); onRefresh(); }
+                else if (pwd !== null) { toastError('密码错误'); }
+                return;
               }
-            });
-
-            // 👇 智能计算位置：如果下方空间不足，就向上弹
-            const spaceBelow = window.innerHeight - btnRect.bottom;
-            if (spaceBelow < 300) {
-              menu.style.bottom = (window.innerHeight - btnRect.top + 4) + 'px';
-            } else {
-              menu.style.top = (btnRect.bottom + 4) + 'px';
-            }
-            menu.style.left = Math.max(10, btnRect.right - 160) + 'px';
-
-            const closeMenu = () => menu.remove();
-            setTimeout(() => {
-              document.addEventListener('pointerdown', (ev) => {
-                if (!menu.contains(ev.target)) closeMenu();
-              }, { once: true });
-            }, 50);
-
-            // 菜单项生成函数
-            const addMenuItem = (text, danger, onClickAction) => {
-              menu.appendChild(el('button', {
-                class: 'btn btn-sm btn-ghost',
-                text: text,
-                style: { justifyContent: 'flex-start', padding: '8px 12px', color: danger ? 'var(--danger)' : 'inherit' },
-                onClick: () => { closeMenu(); onClickAction(); }
-              }));
-            };
-
-            // 全选当前组
-            addMenuItem('☑ 全选本组', false, () => {
-              isMulti = true;
-              groupFiles.forEach(f => selected.add(f.id));
-              onRefresh();
-            });
-
-            // 全不选当前组
-            addMenuItem('⬜ 全不选本组', false, () => {
-              groupFiles.forEach(f => selected.delete(f.id));
-              onRefresh();
-            });
-
-            // 移动到其他文件夹
-            addMenuItem('📁 移动到...', false, () => {
-              const thisGroupSelected = new Set(groupFiles.filter(f => selected.has(f.id)).map(f => f.id));
-              // 如果当前没勾选，默认移动该文件夹下的所有文件
-              if (thisGroupSelected.size === 0) {
-                groupFiles.forEach(f => thisGroupSelected.add(f.id));
-              }
-              openMoveModal(thisGroupSelected, onRefresh);
-            });
-
-            // 新建子文件夹
-            addMenuItem('📁+ 新建子文件夹', false, () => {
-              openInputModal('新建子文件夹', '新建子文件夹', (name) => {
-                const finalName = `${groupName}/${name}`;
-                openInputModal('新建文件夹', '新建文件夹', (name) => {
-                  const folders = getAllFolders();
-
-                  // 记录文件夹创建时间
-                  let folderTimes = {};
-                  try { folderTimes = JSON.parse(localStorage.getItem('kg_folder_create_times') || '{}'); } catch { }
-                  // 这里因为名字可能会被自动加(1)，稍后确定好 finalName 再存
-
-                  let finalName = name;
-                  let i = 1;
-                  while (folders.includes(finalName)) {
-                    finalName = `${name} (${i})`;
-                    i++;
-                  }
-                  folders.push(finalName);
-                  saveAllFolders(folders);
-
-                  // 👇 真正记录创建时间
-                  folderTimes[finalName] = new Date().toISOString();
-                  localStorage.setItem('kg_folder_create_times', JSON.stringify(folderTimes));
-
-                  toastSuccess(`文件夹「${finalName}」已创建`);
-                  onRefresh();
-                });
-                const folders = getAllFolders();
-                if (!folders.includes(finalName)) {
-                  folders.push(finalName);
-                  saveAllFolders(folders);
-                }
-                toastSuccess(`子文件夹「${name}」已创建`);
-
-                // 把当前勾选的文件自动移入子文件夹
-                const thisGroupSelected = Array.from(selected).filter(id => groupFiles.some(f => f.id === id));
-                if (thisGroupSelected.length > 0) {
-                  Promise.all(thisGroupSelected.map(id => dbGet('images', id))).then(recs => {
-                    recs.forEach(async rec => {
-                      if (rec) { rec.group = finalName; await dbPut('images', rec); }
-                    });
-                    toastSuccess(`已将选中的 ${thisGroupSelected.length} 个文件移入子文件夹`);
-                    selected.clear();
-                    collapsed[groupName] = false;
-                    saveCollapsed(collapsed);
-                    onRefresh();
-                  });
-                } else {
-                  collapsed[groupName] = false;
-                  saveCollapsed(collapsed);
-                  onRefresh();
-                }
-              });
-            });
-
-            // 1. 导出
-            addMenuItem('📦 导出整组为 ZIP', false, async () => {
-              if (typeof JSZip === 'undefined') { toastError('JSZip未加载'); return; }
-              const zip = new JSZip(); const folder = zip.folder(displayName);
-              toastSuccess('打包中，请稍候...');
-              for (let i = 0; i < groupFiles.length; i++) {
-                const f = groupFiles[i]; const blob = f.annotatedBlob || f.originalBlob || f.blob;
-                if (blob) folder.file(`${f.name || '文件'}_${i + 1}.${f.type === 'pdf_placeholder' ? 'pdf' : 'png'}`, blob);
-              }
-
-              try {
-                const content = await zip.generateAsync({ type: 'blob' });
-                // 👇 调用新的下载函数
-                await downloadWithPicker(content, `${displayName}_${new Date().toISOString().slice(0, 10)}.zip`);
-              } catch (err) {
-                toastError('打包失败');
-              }
-            });
-
-            // 2. 重命名
-            addMenuItem('📝 重命名', false, () => {
+              collapsed[groupName] = !isCollapsed; saveCollapsed(collapsed); onRefresh();
+            },
+            onDblClick: (e) => {
+              e.stopPropagation();
+              if (groupName === '') return;
               const newName = prompt('输入新文件夹名（支持 / 建子文件夹）：', displayName);
               if (!newName || newName.trim() === displayName) return;
+
               const finalNewName = newName.trim();
               const parent = level > 0 ? groupName.split('/').slice(0, -1).join('/') + '/' : '';
               const fullNew = parent + finalNewName;
+
               groupFiles.forEach(async f => {
-                const rec = await dbGet('images', f.id); if (rec) { rec.group = fullNew; await dbPut('images', rec); }
+                const rec = await dbGet('images', f.id);
+                if (rec) { rec.group = fullNew; await dbPut('images', rec); }
               });
               const folders = getAllFolders().filter(f => f !== groupName);
               if (!folders.includes(fullNew)) folders.push(fullNew);
               saveAllFolders(folders);
               onRefresh();
-            });
+            }
+          }, [
+            groupName !== '' ? el('span', { text: isLocked ? '🔒' : (isCollapsed ? '▸' : '▾') }) : null,
+            el('span', {
+              text: groupName === '' ? '📄 未分组文件' : `📁 ${displayName} (${groupFiles.length})`,
+              style: isNewFolder ? { color: 'var(--danger)', textDecoration: 'underline' } : {}
+            })
+          ]),
 
-            // 3. 复制整组
-            addMenuItem('📋 复制整组', false, () => {
-              localStorage.setItem('kg_clipboard_group', JSON.stringify(groupFiles.map(f => f.id)));
-              toastSuccess(`已复制分组「${displayName}」`);
-            });
+          // 智能防遮挡折叠菜单
+          groupName !== '' && !isLocked ? el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '▾',
+            title: '更多操作',
+            style: { fontSize: '18px', padding: '4px 10px' },
+            onClick: (e) => {
+              e.stopPropagation();
+              const existingMenu = document.getElementById('floating-folder-menu');
+              if (existingMenu) { existingMenu.remove(); return; }
+              const btnRect = e.currentTarget.getBoundingClientRect();
+              const menu = el('div', {
+                id: 'floating-folder-menu',
+                style: { position: 'fixed', background: 'var(--card)', border: '1px solid rgba(0,0,0,.1)', borderRadius: '8px', padding: '6px', zIndex: 999999, boxShadow: '0 8px 24px rgba(0,0,0,0.15)', display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '140px', maxHeight: '300px', overflowY: 'auto' }
+              });
+              const spaceBelow = window.innerHeight - btnRect.bottom;
+              if (spaceBelow < 300) { menu.style.bottom = (window.innerHeight - btnRect.top + 4) + 'px'; }
+              else { menu.style.top = (btnRect.bottom + 4) + 'px'; }
+              menu.style.left = Math.max(10, btnRect.right - 160) + 'px';
+              const closeMenu = () => menu.remove();
+              setTimeout(() => {
+                document.addEventListener('pointerdown', (ev) => {
+                  if (!menu.contains(ev.target)) closeMenu();
+                }, { once: true });
+              }, 50);
 
-            // 查看文件夹详情
-            addMenuItem('ℹ️ 文件夹详情', false, async () => {
-              // 1. 获取当前文件夹的创建时间
-              let folderTimes = {};
-              try { folderTimes = JSON.parse(localStorage.getItem('kg_folder_create_times') || '{}'); } catch { }
+              const addMenuItem = (text, danger, onClickAction) => {
+                menu.appendChild(el('button', {
+                  class: 'btn btn-sm btn-ghost', text: text,
+                  style: { justifyContent: 'flex-start', padding: '8px 12px', color: danger ? 'var(--danger)' : 'inherit' },
+                  onClick: () => { closeMenu(); onClickAction(); }
+                }));
+              };
 
-              // 如果是旧文件夹没有记录时间，就给个默认值或当前时间
-              let createTimeStr = folderTimes[groupName]
-                ? new Date(folderTimes[groupName]).toLocaleString()
-                : '较早创建';
-
-              // 2. 计算总大小
-              let totalBytes = 0;
-              for (const f of groupFiles) {
-                if (f.type === 'pdf_placeholder') {
-                  const pdfRec = await dbGet('pdfs', f.pdfId);
-                  if (pdfRec && pdfRec.blob) totalBytes += pdfRec.blob.size;
-                } else {
-                  if (f.originalBlob) totalBytes += f.originalBlob.size;
-                  if (f.annotatedBlob && f.annotatedBlob !== f.originalBlob) totalBytes += f.annotatedBlob.size;
+              addMenuItem('☑ 全选本组', false, () => { isMulti = true; groupFiles.forEach(f => selected.add(f.id)); onRefresh(); });
+              addMenuItem('⬜ 全不选本组', false, () => { groupFiles.forEach(f => selected.delete(f.id)); onRefresh(); });
+              addMenuItem('📁 移动到...', false, () => {
+                const thisGroupSelected = new Set(groupFiles.filter(f => selected.has(f.id)).map(f => f.id));
+                if (thisGroupSelected.size === 0) groupFiles.forEach(f => thisGroupSelected.add(f.id));
+                openMoveModal(thisGroupSelected, onRefresh);
+              });
+              addMenuItem('📦 导出整组为 ZIP', false, async () => {
+                if (typeof JSZip === 'undefined') { toastError('JSZip未加载'); return; }
+                const zip = new JSZip(); const folder = zip.folder(displayName);
+                toastSuccess('打包中，请稍候...');
+                for (let i = 0; i < groupFiles.length; i++) {
+                  const f = groupFiles[i]; const blob = f.annotatedBlob || f.originalBlob || f.blob;
+                  if (blob) folder.file(`${f.name || '文件'}_${i + 1}.${f.type === 'pdf_placeholder' ? 'pdf' : 'png'}`, blob);
                 }
-              }
-              const sizeMB = (totalBytes / (1024 * 1024)).toFixed(2);
-              const sizeStr = totalBytes > 1024 * 1024 ? `${sizeMB} MB` : `${(totalBytes / 1024).toFixed(1)} KB`;
-
-              // 3. 渲染弹窗
-              const mask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
-              const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
-                el('h3', { text: '📁 文件夹详情' }),
-                el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', margin: '16px 0' } }, [
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '文件夹名' }), el('span', { style: { fontWeight: '600' }, text: displayName })]),
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '路径' }), el('span', { style: { fontWeight: '600', wordBreak: 'break-all', textAlign: 'right' }, text: groupName })]),
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '文件数量' }), el('span', { style: { fontWeight: '600' }, text: `${groupFiles.length} 个文件` })]),
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '占用空间' }), el('span', { style: { fontWeight: '600', color: 'var(--primary)' }, text: sizeStr })]),
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '创建时间' }), el('span', { style: { fontWeight: '600' }, text: createTimeStr })]),
-                  el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '是否加密' }), el('span', { style: { fontWeight: '600', color: isLocked ? 'var(--danger)' : 'inherit' }, text: isLocked ? '🔒 已加密' : '未加密' })]),
-                ]),
-                el('div', { class: 'confirm-actions' }, [
-                  el('button', { class: 'btn btn-primary', text: '关闭', onClick: () => mask.remove() })
-                ])
-              ]);
-              mask.appendChild(box);
-              document.body.appendChild(mask);
-            });
-
-            // 4. 智能粘贴（粘贴单文件或整组）
-            addMenuItem('📥 粘贴到此文件夹', false, async () => {
-              const clipFilesStr = sessionStorage.getItem('kg_clipboard_files');
-              const clipFolderStr = localStorage.getItem('kg_clipboard_folders');
-
-              if (!clipFilesStr && !clipFolderStr) {
-                toastError('剪贴板为空');
-                return;
-              }
-
-              toastSuccess('正在粘贴...');
-              const pt = store.getPoint(point.id);
-              if (!pt.imageIds) pt.imageIds = [];
-
-              // 粘贴单图
-              if (clipFilesStr) {
-                const clipIds = JSON.parse(clipFilesStr);
-                for (const oldId of clipIds) {
-                  const rec = await dbGet('images', oldId);
-                  if (rec) {
-                    const newId = uuid();
-                    await dbPut('images', { ...rec, id: newId, group: groupName, createdAt: new Date().toISOString() });
-                    pt.imageIds.push(newId);
+                try {
+                  const content = await zip.generateAsync({ type: 'blob' });
+                  if (typeof downloadFileWithPath === 'function') downloadFileWithPath(content, `${displayName}.zip`, 'application/zip', ['.zip']);
+                  else { const a = document.createElement('a'); a.href = URL.createObjectURL(content); a.download = `${displayName}.zip`; a.click(); }
+                } catch (err) { toastError('打包失败'); }
+              });
+              addMenuItem('ℹ️ 文件夹详情', false, () => {
+                let folderTimes = {};
+                try { folderTimes = JSON.parse(localStorage.getItem('kg_folder_create_times') || '{}'); } catch { }
+                let createTimeStr = folderTimes[groupName] ? new Date(folderTimes[groupName]).toLocaleString() : '较早创建';
+                let totalBytes = 0;
+                for (const f of groupFiles) {
+                  if (f.type === 'pdf_placeholder') {
+                    const pdfRec = f; if (pdfRec && pdfRec.blob) totalBytes += pdfRec.blob.size;
+                  } else {
+                    if (f.originalBlob) totalBytes += f.originalBlob.size;
+                    if (f.annotatedBlob && f.annotatedBlob !== f.originalBlob) totalBytes += f.annotatedBlob.size;
                   }
                 }
-                sessionStorage.removeItem('kg_clipboard_files');
-              }
-
-              // 粘贴整组
-              if (clipFolderStr) {
-                const data = JSON.parse(clipFolderStr);
-                // 如果当前在这个组里粘贴，就合并到这个组，否则取副本
-                const target = groupName || data.group + ' (副本)';
-                for (const oldId of data.ids) {
-                  const rec = await dbGet('images', oldId);
-                  if (rec) {
-                    const newId = uuid();
-                    await dbPut('images', { ...rec, id: newId, group: target, createdAt: new Date().toISOString() });
-                    pt.imageIds.push(newId);
-                  }
-                }
-                if (!groupName) {
-                  const folders = getAllFolders();
-                  if (!folders.includes(target)) { folders.push(target); saveAllFolders(folders); }
-                }
-                localStorage.removeItem('kg_clipboard_folders');
-              }
-
-              store.updatePoint(pt.id, { imageIds: pt.imageIds });
-              toastSuccess('粘贴成功');
-              onRefresh();
-            });
-
-            // 5. 加密
-            addMenuItem('🔒 加密该组', false, () => {
-              const pwd = prompt('设置密码（留空则取消加密）：');
-              if (pwd === null) return;
-              if (pwd.trim()) { locked[groupName] = pwd.trim(); toastSuccess('已加密'); }
-              else { delete locked[groupName]; toastSuccess('已取消'); }
-              saveLocked(locked); onRefresh();
-            });
-
-            // 6. 删除
-            addMenuItem('🗑 删除分组', true, () => {
-              // 弹出选择框
-              const mask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
-              const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
-                el('h3', { text: '删除文件夹' }),
-                el('p', { style: { fontSize: '14px', color: 'var(--text-2)', margin: '12px 0', textAlign: 'left' }, text: `你希望如何处理文件夹「${displayName}」里的 ${groupFiles.length} 个文件？` }),
-                el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
-                  el('button', {
-                    class: 'btn btn-primary', text: '📁 仅删文件夹，文件退回上一级',
-                    onClick: async () => {
-                      mask.remove();
-                      toastSuccess('正在处理...');
-                      for (const f of groupFiles) {
-                        const rec = await dbGet('images', f.id);
-                        if (rec) {
-                          const parent = level > 0 ? groupName.split('/').slice(0, -1).join('/') : null;
-                          if (parent) rec.group = parent; else delete rec.group;
-                          await dbPut('images', rec);
+                const sizeStr = totalBytes > 1024 * 1024 ? `${(totalBytes / (1024 * 1024)).toFixed(2)} MB` : `${(totalBytes / 1024).toFixed(1)} KB`;
+                const mask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
+                const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+                  el('h3', { text: '📁 文件夹详情' }),
+                  el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', fontSize: '13px', margin: '16px 0' } }, [
+                    el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '文件夹名' }), el('span', { style: { fontWeight: '600' }, text: displayName })]),
+                    el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '文件数量' }), el('span', { style: { fontWeight: '600' }, text: `${groupFiles.length} 个文件` })]),
+                    el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '占用空间' }), el('span', { style: { fontWeight: '600', color: 'var(--primary)' }, text: sizeStr })]),
+                    el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '创建时间' }), el('span', { style: { fontWeight: '600' }, text: createTimeStr })])
+                  ]),
+                  el('div', { class: 'confirm-actions' }, [el('button', { class: 'btn btn-primary', text: '关闭', onClick: () => mask.remove() })])
+                ]);
+                mask.appendChild(box); document.body.appendChild(mask);
+              });
+              addMenuItem('🔒 加密该组', false, () => {
+                const pwd = prompt('设置密码（留空则取消加密）：');
+                if (pwd === null) return;
+                if (pwd.trim()) { locked[groupName] = pwd.trim(); toastSuccess('已加密'); }
+                else { delete locked[groupName]; toastSuccess('已取消'); }
+                saveLocked(locked); onRefresh();
+              });
+              addMenuItem('🗑 删除分组', true, () => {
+                const mask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
+                const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
+                  el('h3', { text: '删除文件夹' }),
+                  el('p', { style: { fontSize: '14px', color: 'var(--text-2)', margin: '12px 0', textAlign: 'left' }, text: `如何处理「${displayName}」里的 ${groupFiles.length} 个文件？` }),
+                  el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
+                    el('button', {
+                      class: 'btn btn-primary', text: '📁 仅删文件夹，文件退回上一级', onClick: async () => {
+                        mask.remove(); toastSuccess('正在处理...');
+                        for (const f of groupFiles) {
+                          const rec = await dbGet('images', f.id);
+                          if (rec) {
+                            const parent = level > 0 ? groupName.split('/').slice(0, -1).join('/') : null;
+                            if (parent) rec.group = parent; else delete rec.group;
+                            await dbPut('images', rec);
+                          }
                         }
+                        const folders = getAllFolders().filter(f => f !== groupName);
+                        saveAllFolders(folders); onRefresh();
                       }
-                      const folders = getAllFolders().filter(f => f !== groupName);
-                      saveAllFolders(folders);
-                      onRefresh();
-                    }
-                  }),
-                  el('button', {
-                    class: 'btn btn-danger', text: '🗑 连同文件一起彻底删除',
-                    onClick: async () => {
-                      if (!confirm(`⚠️ 警告：确定要彻底删除文件夹及里面的所有文件吗？此操作不可恢复！`)) return;
-                      mask.remove();
-                      toastSuccess('正在删除...');
-                      const pt = store.getPoint(point.id);
-                      for (const f of groupFiles) {
-                        const rec = await dbGet('images', f.id);
-                        if (rec && rec.type === 'pdf_placeholder' && rec.pdfId) await dbDelete('pdfs', rec.pdfId);
-                        await dbDelete('images', f.id);
-                        if (pt && pt.imageIds) pt.imageIds = pt.imageIds.filter(id => id !== f.id);
+                    }),
+                    el('button', {
+                      class: 'btn btn-danger', text: '🗑 连同文件一起彻底删除', onClick: async () => {
+                        if (!confirm(`⚠️ 警告：确定要彻底删除文件夹及里面的所有文件吗？此操作不可恢复！`)) return;
+                        mask.remove(); toastSuccess('正在删除...');
+                        const pt = store.getPoint(point.id);
+                        for (const f of groupFiles) {
+                          const rec = await dbGet('images', f.id);
+                          if (rec && rec.type === 'pdf_placeholder' && rec.pdfId) await dbDelete('pdfs', rec.pdfId);
+                          await dbDelete('images', f.id);
+                          if (pt && pt.imageIds) pt.imageIds = pt.imageIds.filter(id => id !== f.id);
+                        }
+                        if (pt) store.updatePoint(pt.id, { imageIds: pt.imageIds });
+                        const folders = getAllFolders().filter(f => f !== groupName);
+                        saveAllFolders(folders); onRefresh();
                       }
-                      if (pt) store.updatePoint(pt.id, { imageIds: pt.imageIds });
-                      const folders = getAllFolders().filter(f => f !== groupName);
-                      saveAllFolders(folders);
-                      onRefresh();
-                    }
-                  }),
-                  el('button', {
-                    class: 'btn btn-ghost', text: '取消',
-                    onClick: () => mask.remove()
-                  })
-                ])
-              ]);
-              mask.appendChild(box);
-              document.body.appendChild(mask);
-            });
+                    }),
+                    el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+                  ])
+                ]);
+                mask.appendChild(box); document.body.appendChild(mask);
+              });
 
-            document.body.appendChild(menu);
-          }
-        }) : null
-      ]);
+              document.body.appendChild(menu);
+            }
+          }) : null
+        ]);
+      } // 👈 这是补上的 if (!shouldHideHeader) 闭合！
 
       // 👇 如果刚才新建了，立刻弹出重命名
       if (isNewFolder) {
@@ -743,24 +542,16 @@ export function renderImageList(point, onRefresh) {
         }, 100);
       }
 
-      // 如果是“未分组”且里面没文件，直接跳过
+      // 如果未分组且里面没文件，直接跳过
       if (groupName === '' && groupFiles.length === 0) return;
 
-      // 👇 核心修复：如果当前只有一个文件夹（说明是在详情页里），就不要重复渲染标题了
-      const isOnlyOneFolder = Object.keys(groupedList).length === 2 && groupedList[''].length === 0;
-
-      if (!isOnlyOneFolder && (groupName !== '' || groupFiles.length > 0)) {
+      // 👇 核心修复：只有生成了 header 才把它加进去
+      if (header) {
         contentWrap.appendChild(header);
-
-        // 文件夹专属操作栏（未分组的不显示，收起时不显示）
-        if (groupName !== '' && !isCollapsed && !isLocked) {
-          // 如果你有操作按钮代码，放这里
-        }
       }
 
       // 渲染文件网格
       if (!isCollapsed && !isLocked) {
-        // 👇 核心修改：如果是 PDF，强制单列全宽；如果是图片，才用网格
         const gridStyle = activeTab === 'pdfs'
           ? { display: 'flex', flexDirection: 'column', width: '100%', gap: '6px', marginBottom: '16px', paddingLeft: indent + 'px' }
           : { display: viewMode !== 'name' ? 'grid' : 'flex', flexDirection: viewMode !== 'name' ? undefined : 'column', gridTemplateColumns: 'repeat(auto-fill, minmax(90px, 1fr))', gap: '8px', marginBottom: '16px', paddingLeft: indent + 'px' };
@@ -780,7 +571,7 @@ export function renderImageList(point, onRefresh) {
           // 大图压缩标签
           let sizeTag = null;
           const rawSize = rec.originalBlob ? rec.originalBlob.size : 0;
-          if (rawSize > 2 * 1024 * 1024) { // 大于 2MB
+          if (rawSize > 2 * 1024 * 1024) {
             sizeTag = el('div', {
               style: { position: 'absolute', top: '4px', left: '4px', background: 'var(--danger)', color: '#fff', padding: '2px 6px', fontSize: '11px', borderRadius: '4px', zIndex: 10, cursor: 'pointer' },
               text: '🗜 大图',
@@ -815,37 +606,19 @@ export function renderImageList(point, onRefresh) {
             card = el('div', {
               ...dragAttr,
               style: {
-                position: 'relative',
-                display: 'flex',
-                alignItems: 'center',
-                gap: '10px',
-                padding: '4px 10px', // 极矮高度
-                background: '#FFF0F0',
-                borderRadius: '6px',
-                border: isMulti && selected.has(rec.id) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.06)',
-                cursor: 'pointer',
-                width: '100%', // 👈 占满
-                boxSizing: 'border-box'
+                position: 'relative', display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 10px', background: '#FFF0F0',
+                borderRadius: '6px', border: isMulti && selected.has(rec.id) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.06)',
+                cursor: 'pointer', width: '100%', boxSizing: 'border-box'
               },
               onClick: () => handleClick(rec, latestPoint, onRefresh)
             }, [
-              isMulti ? el('input', {
-                type: 'checkbox',
-                checked: selected.has(rec.id),
-                style: { width: '16px', height: '16px', flexShrink: '0', margin: '0' },
-                onClick: (e) => e.stopPropagation()
-              }) : null,
-
+              isMulti ? el('input', { type: 'checkbox', checked: selected.has(rec.id), style: { width: '16px', height: '16px', flexShrink: '0', margin: '0' }, onClick: (e) => e.stopPropagation() }) : null,
               el('div', { style: { fontSize: '18px' }, text: '📄' }),
-
               el('div', { style: { flex: '1', overflow: 'hidden' } }, [
                 el('div', { style: { fontWeight: '500', fontSize: '13px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }, text: rec.pdfName }),
               ]),
-              detailBtn,
-              sizeTag
+              detailBtn, sizeTag
             ]);
-
-            // 多选模式下的高亮边框
             if (isMulti && selected.has(rec.id)) card.style.border = '2px solid var(--primary)';
           } else {
             if (viewMode === 'name') {
@@ -857,43 +630,26 @@ export function renderImageList(point, onRefresh) {
               } else {
                 thumbIcon.appendChild(el('span', { style: { fontSize: '16px' }, text: '🖼' }));
               }
-
               card = el('div', {
                 ...dragAttr,
                 style: {
-                  position: 'relative',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  padding: '4px 10px', // 👈 核心：上下内边距缩小，高度变扁
+                  position: 'relative', display: 'flex', alignItems: 'center', gap: '10px', padding: '4px 10px',
                   background: isMulti && selected.has(rec.id) ? 'rgba(142, 202, 230, 0.2)' : '#fff',
-                  borderRadius: '6px',
-                  border: isMulti && selected.has(rec.id) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.08)',
-                  cursor: 'pointer',
-                  width: '100%',
-                  boxSizing: 'border-box'
+                  borderRadius: '6px', border: isMulti && selected.has(rec.id) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.08)',
+                  cursor: 'pointer', width: '100%', boxSizing: 'border-box'
                 },
                 onClick: () => handleClick(rec, latestPoint, onRefresh)
               }, [
-                isMulti ? el('input', {
-                  type: 'checkbox',
-                  checked: selected.has(rec.id),
-                  style: { width: '16px', height: '16px', flexShrink: '0', margin: '0' },
-                  onClick: (e) => e.stopPropagation()
-                }) : null,
+                isMulti ? el('input', { type: 'checkbox', checked: selected.has(rec.id), style: { width: '16px', height: '16px', flexShrink: '0', margin: '0' }, onClick: (e) => e.stopPropagation() }) : null,
                 thumbIcon,
-
-                // 👇 核心修复：显示真实文件名
                 el('div', { style: { flex: '1', fontSize: '13px', fontWeight: '500', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }, text: rec.name || `图片 ${idx + 1}` }),
-
-                detailBtn,
-                sizeTag
+                detailBtn, sizeTag
               ]);
             } else {
               card = el('div', {
                 ...dragAttr,
                 style: { position: 'relative', borderRadius: '8px', overflow: 'hidden', background: '#f0f0f0', border: isMulti && selected.has(rec.id) ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.08)', cursor: 'pointer', display: 'flex', flexDirection: 'column' },
-                onClick: () => handleClick(rec, latestPoint, onRefresh) // 👈 改回单击处理
+                onClick: () => handleClick(rec, latestPoint, onRefresh)
               });
               const rawBlob = rec.annotatedBlob || rec.originalBlob;
               if (rawBlob instanceof Blob && rawBlob.size > 0) {
@@ -903,33 +659,9 @@ export function renderImageList(point, onRefresh) {
                 card.appendChild(el('div', { style: { width: '100%', height: viewMode === 'thumb' ? '80px' : '100px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', color: '#999' }, text: '🖼' }));
               }
               if (viewMode === 'both') {
-                card.appendChild(el('div', {
-                  style: {
-                    padding: '6px',
-                    fontSize: '12px',
-                    textAlign: 'center',
-                    background: '#fff',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                    width: '100%',
-                    boxSizing: 'border-box'
-                  },
-                  // 👇 优先显示重命名后的名字，如果没有名字则显示“图片 X”
-                  text: rec.name || `图片 ${idx + 1}`
-                }));
+                card.appendChild(el('div', { style: { padding: '6px', fontSize: '12px', textAlign: 'center', background: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%', boxSizing: 'border-box' }, text: rec.name || `图片 ${idx + 1}` }));
               }
-
-              // 👇 加上多选复选框（绝对定位在左上角）
-              if (isMulti) {
-                card.appendChild(el('input', {
-                  type: 'checkbox',
-                  checked: selected.has(rec.id),
-                  style: { position: 'absolute', top: '8px', left: '8px', width: '20px', height: '20px', zIndex: '10', margin: '0' },
-                  onClick: (e) => e.stopPropagation()
-                }));
-              }
-
+              if (isMulti) card.appendChild(el('input', { type: 'checkbox', checked: selected.has(rec.id), style: { position: 'absolute', top: '8px', left: '8px', width: '20px', height: '20px', zIndex: '10', margin: '0' }, onClick: (e) => e.stopPropagation() }));
               card.appendChild(el('div', { style: { position: 'absolute', top: '4px', right: '4px' } }, [detailBtn]));
               if (sizeTag) card.appendChild(sizeTag);
             }

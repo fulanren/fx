@@ -2587,7 +2587,7 @@ export async function renderAnnotator({ params, query }) {
         }
       }));
 
-      // 拿总页数
+            // 拿总页数
       (async () => {
         try {
           const { dbGet } = await import('../db.js');
@@ -2605,14 +2605,12 @@ export async function renderAnnotator({ params, query }) {
       const pdfNavGroup = el('div', {
         style: { display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg)', padding: '2px 6px', borderRadius: '6px', marginRight: '8px', border: '1px solid rgba(0,0,0,0.06)' }
       }, [
-        // 顶栏上一页
+        // 上一页
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '‹', title: '上一页',
           style: { padding: '0 6px', height: '24px', minHeight: '24px', fontSize: '16px', borderRadius: '4px', fontWeight: 'bold' },
           onClick: async (ev) => {
             ev.preventDefault();
-            ev.stopPropagation();
-            
             if (currentPageNum > 1) {
               if (window.showLoading) window.showLoading('正在加载...');
               await saveAll(false);
@@ -2622,7 +2620,6 @@ export async function renderAnnotator({ params, query }) {
               const returnUrl = urlParams.get('returnUrl') || '';
               const pointId = urlParams.get('pointId') || '';
 
-              // 👇 核心修复：使用正确的 key 名（page），不要加 reload，让路由自己接管
               window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum - 1}?pdfId=${pdfId}&page=${currentPageNum - 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
             } else {
               toastError('已经是第一页');
@@ -2644,24 +2641,19 @@ export async function renderAnnotator({ params, query }) {
                 const returnUrl = urlParams.get('returnUrl') || '';
                 const pointId = urlParams.get('pointId') || '';
 
-                // 👇 加了 setTimeout
-                setTimeout(() => {
-                  window.location.hash = `#/annotate/${imageId}?pdfId=${pdfId}&page=${val}&returnUrl=${returnUrl}&pointId=${pointId}`;
-                }, 50);
+                window.location.hash = `#/annotate/pdf_${pdfId}_page_${val}?pdfId=${pdfId}&page=${val}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
               }
             }
           }
         }),
         // 总页数
         el('span', { id: 'pdf-nav-total', style: { fontSize: '12px', color: 'var(--text-2)', fontWeight: 'bold' }, text: '/ ?' }),
-        // 顶栏下一页
+        // 下一页
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '›', title: '下一页',
           style: { padding: '0 6px', height: '24px', minHeight: '24px', fontSize: '16px', borderRadius: '4px', fontWeight: 'bold' },
           onClick: async (ev) => {
             ev.preventDefault();
-            ev.stopPropagation();
-            
             if (window.showLoading) window.showLoading('正在加载...');
             await saveAll(false);
             
@@ -2670,7 +2662,6 @@ export async function renderAnnotator({ params, query }) {
             const returnUrl = urlParams.get('returnUrl') || '';
             const pointId = urlParams.get('pointId') || '';
 
-            // 👇 核心修复：ID 必须拼上 pdf_xxx_page_x，路由才能识别出这是新的一页
             window.location.hash = `#/annotate/pdf_${pdfId}_page_${currentPageNum + 1}?pdfId=${pdfId}&page=${currentPageNum + 1}&returnUrl=${encodeURIComponent(returnUrl)}&pointId=${pointId}&isPdf=true`;
           }
         })

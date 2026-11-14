@@ -693,7 +693,7 @@ export async function renderPdfViewer({ params, query }) {
     }
 
     // 跳页辅助函数
-        function jumpToPage(pageNum) {
+    function jumpToPage(pageNum) {
         if (pageNum < 1) pageNum = 1;
         if (pageNum > total) pageNum = total;
 
@@ -713,7 +713,7 @@ export async function renderPdfViewer({ params, query }) {
             const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view');
             if (scrollContainer) {
                 // 目标页距离容器顶部的绝对距离
-                const targetTop = target.offsetTop - 20; 
+                const targetTop = target.offsetTop - 20;
                 // 瞬间跳转，不用 smooth，规避 iOS 的动画回弹
                 scrollContainer.scrollTop = targetTop;
             }
@@ -723,7 +723,7 @@ export async function renderPdfViewer({ params, query }) {
         setTimeout(() => {
             const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
             if (pageInput) pageInput.value = currentPage;
-            
+
             // 更新蓝色边框高亮
             document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
             const targetEl = document.getElementById(`pdf-page-wrap-${pageNum}`);
@@ -838,82 +838,62 @@ export async function renderPdfViewer({ params, query }) {
                 width: '100%'
             }
         }, [
-            // 左侧：文件名
+                        // 左侧：文件名
             el('span', { style: { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }, text: pdfRecord.name }),
 
             // 右侧：工具集合
             el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', whiteSpace: 'nowrap', paddingLeft: '12px' } }, [
 
-                                // 1. 翻页组件
+                // 1. 翻页组件
                 currentPrefs.nav !== false ? (() => {
                     const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)' } });
-                    
-                    // 上一页
-                    group.appendChild(el('button', { 
-                        class: 'btn btn-sm btn-ghost', text: '‹', 
-                        style: { padding: '0 6px', height: '24px', fontSize: '16px' }, 
-                        onClick: async () => { 
+
+                    // 👈 上一页
+                    group.appendChild(el('button', {
+                        class: 'btn btn-sm btn-ghost', text: '‹', title: '上一页',
+                        style: { padding: '0 6px', height: '24px', fontSize: '16px' },
+                        onClick: (e) => {
+                            e.preventDefault();
                             if (currentPage > 1) {
-                                if (window.showLoading) window.showLoading('正在加载...');
-                                await saveAll(false);
-                                const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-                                const pdfId = urlParams.get('pdfId');
-                                const pointId = urlParams.get('pointId') || '';
-                                const returnUrl = urlParams.get('returnUrl') || '';
-                                const prevPage = currentPage - 1;
-                                // 👈 核心：跳转到上一页的图片 ID，而不是只调 renderUI
-                                window.location.hash = `#/annotate/pdf_${pdfId}_page_${prevPage}?pdfId=${pdfId}&page=${prevPage}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+                                jumpToPage(currentPage - 1); // 👈 核心修复：直接调用跳页函数，不刷路由！
                             } else {
                                 toastError('已经是第一页了');
                             }
-                        } 
+                        }
                     }));
-                    
-                    // 输入框
-                    group.appendChild(el('input', { 
-                        type: 'number', value: String(currentPage), 
-                        style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px' }, 
-                        onkeydown: async (e) => { 
-                            if (e.key === 'Enter') { 
-                                const val = parseInt(e.target.value); 
-                                if (val >= 1 && val <= total) { 
-                                    if (window.showLoading) window.showLoading('正在加载...');
-                                    await saveAll(false);
-                                    const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-                                    const pdfId = urlParams.get('pdfId');
-                                    const pointId = urlParams.get('pointId') || '';
-                                    const returnUrl = urlParams.get('returnUrl') || '';
-                                    window.location.hash = `#/annotate/pdf_${pdfId}_page_${val}?pdfId=${pdfId}&page=${val}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+
+                    // 👈 页码输入框
+                    group.appendChild(el('input', {
+                        type: 'number', value: String(currentPage),
+                        style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px' },
+                        onkeydown: (e) => {
+                            if (e.key === 'Enter') {
+                                const val = parseInt(e.target.value);
+                                if (val >= 1 && val <= total) {
+                                    jumpToPage(val);
                                 } else {
-                                    e.target.value = String(currentPage); 
+                                    e.target.value = String(currentPage);
                                 }
-                            } 
-                        } 
+                            }
+                        }
                     }));
-                    
+
                     group.appendChild(el('span', { style: { fontSize: '12px', color: 'var(--text-2)', padding: '0 2px' }, text: `/ ${total}` }));
-                    
-                    // 下一页
-                    group.appendChild(el('button', { 
-                        class: 'btn btn-sm btn-ghost', text: '›', 
-                        style: { padding: '0 6px', height: '24px', fontSize: '16px' }, 
-                        onClick: async () => { 
+
+                    // 👈 下一页
+                    group.appendChild(el('button', {
+                        class: 'btn btn-sm btn-ghost', text: '›', title: '下一页',
+                        style: { padding: '0 6px', height: '24px', fontSize: '16px' },
+                        onClick: (e) => {
+                            e.preventDefault();
                             if (currentPage < total) {
-                                if (window.showLoading) window.showLoading('正在加载...');
-                                await saveAll(false);
-                                const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-                                const pdfId = urlParams.get('pdfId');
-                                const pointId = urlParams.get('pointId') || '';
-                                const returnUrl = urlParams.get('returnUrl') || '';
-                                const nextPage = currentPage + 1;
-                                // 👈 核心：跳转到下一页的图片 ID
-                                window.location.hash = `#/annotate/pdf_${pdfId}_page_${nextPage}?pdfId=${pdfId}&page=${nextPage}&pointId=${pointId}&returnUrl=${encodeURIComponent(returnUrl)}&isPdf=true`;
+                                jumpToPage(currentPage + 1); // 👈 核心修复：直接调用跳页函数
                             } else {
                                 toastError('已经是最后一页了');
                             }
-                        } 
+                        }
                     }));
-                    
+
                     return group;
                 })() : null,
 
