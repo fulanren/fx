@@ -73,16 +73,13 @@ export async function renderPdfViewer({ params, query }) {
 
     const container = el('div', {
         style: {
-            display: 'flex',
-            flexDirection: 'column',
-            height: '100%', // 👈 改回 100%
-            width: '100%',
-            overflowY: 'auto',
-            overflowX: 'hidden',
-            position: 'relative', // 👈 改回相对定位
-            margin: '0',
-            padding: '0',
-            background: eyeMode ? '#F0F5E9' : 'var(--bg)'
+            display: 'flex', flexDirection: 'column',
+            height: '100%', width: '100%',
+            overflowY: 'auto', overflowX: 'hidden',
+            position: 'relative', // 👈 改回 relative，恢复滚动流
+            margin: '0', padding: '0',
+            background: eyeMode ? '#F0F5E9' : 'var(--bg)',
+            WebkitOverflowScrolling: 'touch' // 👈 核心：让 iOS 滚动更丝滑
         }
     });
     view.appendChild(container);
@@ -696,13 +693,32 @@ export async function renderPdfViewer({ params, query }) {
     }
 
     // 跳页辅助函数
-    // 👇 如果没有就加上这个，如果有就替换掉旧的
-    function jumpToPage(pageNum) {
+       function jumpToPage(pageNum) {
+        if (pageNum < 1) pageNum = 1;
+        if (pageNum > total) pageNum = total;
+
         currentPage = pageNum;
         localStorage.setItem(`kg_pdf_progress_${pdfId}`, pageNum);
-        renderUI();
+        
+        // 如果是翻页模式，必须重新渲染 UI
+        if (mode === 'paged') {
+            renderUI();
+        } else {
+            // 如果是滚动模式，只需平滑滚动到目标页，不需要重新渲染整个 UI（大幅提升性能）
+            const target = document.getElementById(`pdf-page-wrap-${pageNum}`);
+            if (target) {
+                target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
+            // 更新顶部输入框和页码显示
+            const pageInput = document.querySelector('.pdf-topbar input[type="number"]');
+            if (pageInput) pageInput.value = currentPage;
+            
+            // 高亮当前页
+            document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => { w.style.outline = 'none'; });
+            if (target) target.style.outline = '3px solid var(--primary)';
+        }
 
-        // 👇 增加：跳转后显示“返回大纲”悬浮球
+        // 显示返回大纲悬浮球（保留你原本的逻辑）
         const oldBackBtn = document.getElementById('pdf-back-outline');
         if (oldBackBtn) oldBackBtn.remove();
 
@@ -724,14 +740,7 @@ export async function renderPdfViewer({ params, query }) {
         };
 
         document.body.appendChild(backBtn);
-
-        // 5秒后自动消失，不碍事
         setTimeout(() => { if (backBtn.isConnected) backBtn.remove(); }, 5000);
-
-        setTimeout(() => {
-            const target = document.getElementById(`pdf-page-wrap-${currentPage}`);
-            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }, 100);
     }
 
     function renderUI() {
@@ -1753,7 +1762,7 @@ export async function renderPdfViewer({ params, query }) {
 
     async function renderPage(num, parent, renderMode) {
         const page = await pdfDoc.getPage(num);
-        const vp = page.getViewport({ scale: 1.5 });
+        const vp = page.getViewport({ scale: 1.2 });
 
         let widthStyle = '92%', marginStyle = '0 auto', boxShadowStyle = '0 4px 12px rgba(0,0,0,0.08)', borderRadiusStyle = '6px';
         if (renderMode === 'scroll-single') { widthStyle = '100%'; marginStyle = '0 auto'; boxShadowStyle = 'none'; borderRadiusStyle = '0'; }
@@ -1882,7 +1891,7 @@ export async function renderPdfViewer({ params, query }) {
         });
 
         // 👇 1. 双指缩放与拖拽逻辑
-        wrap.style.touchAction = 'none'; // 禁用浏览器默认手势
+        wrap.style.touchAction = 'pan-y'; // 允许单指上下滑动，禁止浏览器自己处理双指 // 禁用浏览器默认手势
         let scale = 1, startDist = 0, startScale = 1, panX = 0, panY = 0, startX = 0, startY = 0;
         let isPinching = false, isDragging = false;
 
@@ -1900,18 +1909,22 @@ export async function renderPdfViewer({ params, query }) {
 
         wrap.addEventListener('touchmove', (e) => {
             if (isPinching && e.touches.length === 2) {
-                e.preventDefault(); // 阻止页面滚动
+                e.preventDefault(); // 双指缩放时，阻止页面滚动
                 const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 scale = Math.max(1, Math.min(5, startScale * (dist / startDist)));
                 c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
                 c.style.cursor = 'grab';
             } else if (isDragging && e.touches.length === 1) {
-                e.preventDefault();
-                panX = e.touches[0].clientX - startX;
-                panY = e.touches[0].clientY - startY;
-                c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
+                // 👇 核心修复：只有在放大状态下，才阻止默认事件并拖拽图片
+                if (scale > 1.05) {
+                    e.preventDefault();
+                    panX = e.touches[0].clientX - startX;
+                    panY = e.touches[0].clientY - startY;
+                    c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
+                }
+                // 如果 scale <= 1.05，这里什么都不写，浏览器就会默认触发上下滚动翻页了！
             }
-        });
+        }, { passive: false }); // 👈 注意：加上 { passive: false } 才能允许 preventDefault 生效
 
         wrap.addEventListener('touchend', (e) => {
             if (e.touches.length < 2) isPinching = false;

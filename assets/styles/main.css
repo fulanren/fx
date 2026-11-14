@@ -595,3 +595,14 @@ details[open] > div {
   height: auto !important;
   opacity: 1 !important;
 }
+
+* {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+/* 但输入框除外 */
+input, textarea {
+  -webkit-user-select: auto;
+  user-select: auto;
+}

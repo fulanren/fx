@@ -206,27 +206,56 @@ async function boot() {
 
   startRouter();
 
-  const btnBack = document.getElementById('btn-back');
+    const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
+    
+    // 1. 编辑任务 -> 回首页
     if (hash.startsWith('#/edit-task/')) {
       navigate('#/');
-    } else if (hash.startsWith('#/edit-chapter/')) {
+    } 
+    // 2. 编辑章节 -> 回章节列表
+    else if (hash.startsWith('#/edit-chapter/')) {
       const m = hash.match(/taskId=([^&]+)/);
       if (m) navigate(`#/chapter-list/${m[1]}`);
       else history.back();
-    } else if (hash.startsWith('#/edit-point/')) {
+    } 
+    // 3. 编辑知识点 -> 回章节详情
+    else if (hash.startsWith('#/edit-point/')) {
       const m = hash.match(/chapterId=([^&]+)/);
       if (m) navigate(`#/chapter/${m[1]}`);
       else history.back();
-    } else if (hash.startsWith('#/chapter/')) {
+    } 
+    // 4. 章节详情 -> 回章节列表
+    else if (hash.startsWith('#/chapter/')) {
       const chapterId = hash.split('/')[2]?.split('?')[0];
       const chapter = store.getChapter(chapterId);
       if (chapter) navigate(`#/chapter-list/${chapter.taskId}`);
       else navigate('#/');
-    } else if (hash.startsWith('#/chapter-list/')) {
+    } 
+    // 5. 章节列表 -> 回首页
+    else if (hash.startsWith('#/chapter-list/')) {
       navigate('#/');
-    } else {
+    } 
+    // 👇 6. 核心修复：如果是 PDF 阅读器或标注页
+    else if (hash.startsWith('#/pdf-viewer/') || hash.startsWith('#/annotate/')) {
+      // 提取 URL 里的 returnUrl（如果有的话）
+      const match = hash.match(/[?&]returnUrl=([^&]+)/);
+      if (match) {
+        // 如果带 returnUrl，优先跳回它指定的地方
+        window.location.hash = decodeURIComponent(match[1]);
+      } else if (hash.startsWith('#/pdf-viewer/') && hash.includes('pointId=')) {
+        // 如果没有 returnUrl 但有 pointId，说明是从知识点进来的，退回知识点
+        const pointId = hash.match(/pointId=([^&]+)/)[1];
+        navigate(`#/edit-point/${pointId}`);
+      } else {
+        // 兜底，正常后退
+        if (history.length > 1) history.back();
+        else navigate('#/resources');
+      }
+    } 
+    // 7. 其他页面 -> 正常后退
+    else {
       if (history.length > 1) history.back();
       else navigate('#/');
     }
@@ -456,10 +485,15 @@ function showStorageError() {
   `;
 }
 
-// ============ 全局长按提示 ============
+// ============ 全局长按提示（适配平板触屏） ============
 function attachLongPressTooltip(btn, text) {
   let timer = null;
   let tooltipEl = null;
+
+  // 为了防误触，给按钮加上防选中属性
+  btn.style.userSelect = 'none';
+  btn.style.webkitUserSelect = 'none';
+  btn.style.webkitTouchCallout = 'none'; // 阻止 iOS 长按弹窗
 
   const show = () => {
     if (tooltipEl) return;
@@ -490,14 +524,33 @@ function attachLongPressTooltip(btn, text) {
     }
   };
 
-  btn.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    timer = setTimeout(show, 500); // 长按 0.5 秒显示
+  // 触屏设备用 touchstart / touchend，鼠标用 pointerdown / pointerup
+  btn.addEventListener('touchstart', (e) => {
+    e.preventDefault(); // 防止触发系统的选中文字或复制弹窗
+    timer = setTimeout(show, 500);
+  }, { passive: false });
+
+  btn.addEventListener('touchend', () => {
+    clearTimeout(timer);
+    setTimeout(hide, 1000);
   });
 
-  btn.addEventListener('pointerup', () => {
-    clearTimeout(timer);
-    setTimeout(hide, 1000); // 松手后 1 秒消失
+  btn.addEventListener('touchmove', () => {
+    clearTimeout(timer); // 手指滑动就取消长按
+    hide();
+  });
+
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') {
+      timer = setTimeout(show, 500);
+    }
+  });
+
+  btn.addEventListener('pointerup', (e) => {
+    if (e.pointerType === 'mouse') {
+      clearTimeout(timer);
+      setTimeout(hide, 1000);
+    }
   });
 
   btn.addEventListener('pointerleave', () => {
