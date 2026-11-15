@@ -74,15 +74,15 @@ export function renderSearch({ query }) {
     result.points.forEach(p => {
       const ch = store.getChapter(p.chapterId);
       const subTitle = ch ? `📁 ${ch.name}` : '📄 散落卡片';
-      
+
       const card = el('div', {
-        class: 'card', 
+        class: 'card',
         onClick: () => {
           // 👈 核心修复：把关键词带进编辑页
-          navigate(`#/edit-point/${p.id}?highlight=${encodeURIComponent(q)}`); 
-        }, 
+          navigate(`#/edit-point/${p.id}?highlight=${encodeURIComponent(q)}`);
+        },
       });
-      
+
       card.innerHTML = `
         <div style="font-weight:600; white-space:pre-wrap;">${highlightText(p.content.slice(0, 100), q)}</div>
         <div style="font-size:12px; color:var(--text-2); margin-top:4px;">${subTitle}</div>

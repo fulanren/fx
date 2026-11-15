@@ -11,7 +11,7 @@ export function renderReview({ query }) {
   if (oldBar) oldBar.remove();
   const view = document.getElementById('view');
   clear(view);
-    document.getElementById('page-title').textContent = '待复习管理';
+  document.getElementById('page-title').textContent = '待复习管理';
   document.getElementById('btn-back').classList.add('hidden');
 
   const filter = query.filter || 'due';
@@ -67,7 +67,7 @@ export function renderReview({ query }) {
     view.appendChild(cardObj.el);
     cards.push(cardObj);
   });
-    // 👇 平板专属：底部悬浮触控板
+  // 👇 平板专属：底部悬浮触控板
   const touchBar = el('div', {
     id: 'review-touch-bar',
     style: {
@@ -78,7 +78,7 @@ export function renderReview({ query }) {
     }
   }, [
     // 上一个
-    el('button', { 
+    el('button', {
       class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬆️',
       onClick: () => {
         const idx = cards.findIndex(c => c.el === activeCard);
@@ -86,12 +86,12 @@ export function renderReview({ query }) {
       }
     }),
     // 空格：展开答案
-    el('button', { 
+    el('button', {
       class: 'btn btn-primary', style: { fontSize: '16px', padding: '8px 24px', borderRadius: '20px' }, text: '翻开答案',
       onClick: () => { if (activeShowBtn) activeShowBtn.click(); }
     }),
     // 下一个
-    el('button', { 
+    el('button', {
       class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬇️',
       onClick: () => {
         const idx = cards.findIndex(c => c.el === activeCard);
@@ -117,7 +117,7 @@ export function renderReview({ query }) {
   function setActiveCard(cardObj) {
     // 移除之前的边框
     if (activeCard) activeCard.style.border = '1px solid rgba(0,0,0,.05)';
-    
+
     activeCard = cardObj.el;
     activeAnswer = cardObj.answer;
     activeShowBtn = cardObj.showBtn;
@@ -155,7 +155,7 @@ export function renderReview({ query }) {
     } else if (e.key === '1' || e.key === '2' || e.key === '3') {
       // 如果答案没显示，先不处理
       if (activeAnswer && activeAnswer.classList.contains('hidden')) return;
-      
+
       const btnText = e.key === '1' ? '忘了' : e.key === '2' ? '模糊' : '记得';
       // 在当前卡片里找到对应的按钮并点击
       const btn = Array.from(activeAnswer.querySelectorAll('button')).find(b => b.textContent.includes(btnText));
@@ -190,7 +190,7 @@ function reviewCard(p, filter, index) {
       el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '4px' }, text: '解释' }),
       el('div', { text: p.explanation, style: { whiteSpace: 'pre-wrap' } }),
     ]) : null,
-    
+
     // 快捷查看附件
     (p.imageIds && p.imageIds.length > 0) || (p.pdfFiles && p.pdfFiles.length > 0) ? el('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' } }, [
       p.imageIds && p.imageIds.length > 0 ? el('button', {
@@ -243,8 +243,8 @@ function reviewCard(p, filter, index) {
     },
   });
 
-    const cardEl = el('div', { 
-    class: 'card', 
+  const cardEl = el('div', {
+    class: 'card',
     style: { cursor: 'pointer', border: '1px solid rgba(0,0,0,.05)', transition: 'border 0.2s' },
     // 👇 平板体验核心：点击卡片任意位置，即可展开/收起解释
     onClick: (e) => {
@@ -283,7 +283,7 @@ function ratingBtn(label, rating, point, filter) {
 async function showImages(imageIds) {
   const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.9)' } });
   const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });
-  
+
   mask.appendChild(el('h3', { text: '附件预览', style: { color: '#fff', textAlign: 'center', marginTop: '20px' } }));
   mask.appendChild(imgWrap);
 
@@ -301,7 +301,7 @@ async function showImages(imageIds) {
 
   const closeBtn = el('button', { class: 'btn btn-primary', text: '关闭', style: { position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)' }, onClick: () => mask.remove() });
   mask.appendChild(closeBtn);
-  
+
   mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
   document.body.appendChild(mask);
 }

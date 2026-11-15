@@ -68,18 +68,18 @@ export function renderEditPoint({ params, query }) {
   }
   contentInput.value = form.content;
 
-    // 👇 核心新增：搜索高亮与自动定位功能
+  // 👇 核心新增：搜索高亮与自动定位功能
   const highlightWord = query.highlight;
   if (highlightWord) {
     setTimeout(() => {
       // 1. 自动把光标聚焦到内容框
       contentInput.focus();
-      
+
       // 2. 平滑滚动到屏幕中央
       if (!window.__hasScrolledToSearch) {
         window.__hasScrolledToSearch = true; // 防止多次刷新重复乱滚
         contentInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        
+
         // 3. 如果输入框里真的有这个词，就把它选中（视觉效果更好）
         const pos = contentInput.value.indexOf(highlightWord);
         if (pos !== -1) {
@@ -213,19 +213,19 @@ export function renderEditPoint({ params, query }) {
       manualRow.style.display = showManual ? 'flex' : 'none';
     },
   });
-  
+
   // 然后才是加载
   const draft = loadDraft('point', entityId);
   if (draft && hasChanges(original, draft.data)) {
     setTimeout(async () => {
-      const restore = await confirmBox({ 
-        title: '恢复草稿', 
-        message: '检测到未保存的草稿，是否恢复？', 
-        confirmText: '恢复', 
-        cancelText: '放弃' 
+      const restore = await confirmBox({
+        title: '恢复草稿',
+        message: '检测到未保存的草稿，是否恢复？',
+        confirmText: '恢复',
+        cancelText: '放弃'
       });
-      
-            if (restore) {
+
+      if (restore) {
         // 恢复数据
         form = { ...form, ...draft.data };
         contentInput.value = form.content;
@@ -247,26 +247,26 @@ export function renderEditPoint({ params, query }) {
         if (contentInput) contentInput.value = form.content;
         if (explainInput) explainInput.value = form.explanation;
       }
-      
+
       // 1. 锁死标志位
       isDraftResolved = true;
 
       // 2. 👇 核心修复：不管选了什么，立刻销毁草稿！
-      clearDraft('point', entityId); 
+      clearDraft('point', entityId);
       localStorage.removeItem(`kg_draft_point_${entityId}`);
-      
+
     }, 300);
   }
 
   const status = el('div', { class: 'save-status' });
   function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
-      const queueSave = debounce(() => {
+  const queueSave = debounce(() => {
     // 如果已经处理过弹窗（恢复了或者放弃了），就不准再自动存草稿了！
-    if (isDraftResolved) return; 
-    
-    saveDraft('point', entityId, form); 
-    setStatus('已保存草稿', 'saved'); 
+    if (isDraftResolved) return;
+
+    saveDraft('point', entityId, form);
+    setStatus('已保存草稿', 'saved');
   }, 300);
 
 
@@ -557,7 +557,7 @@ export function renderEditPoint({ params, query }) {
     }
   });
 
-    // 组装 UI 容器
+  // 组装 UI 容器
   const reviewSection = el('div', { class: 'section' });
 
   function renderReviewSection() {
@@ -759,12 +759,12 @@ export function renderEditPoint({ params, query }) {
     }
   }
 
-    async function goBack() {
+  async function goBack() {
     // 👇 核心修复：如果已经处理过草稿弹窗，或者没有任何修改，绝对不准再存草稿！
     if (!isDraftResolved && hasChanges(original, form)) {
       saveDraft('point', entityId, form);
     }
-    
+
     // 跳转回上一级
     if (chapterId) {
       const chapter = store.getChapter(chapterId);
@@ -839,19 +839,19 @@ function openFolderSelectModal(onSelect) {
 
   box.appendChild(list);
 
-    box.appendChild(el('div', { class: 'confirm-actions', style: { justifyContent: 'flex-end' } }, [
+  box.appendChild(el('div', { class: 'confirm-actions', style: { justifyContent: 'flex-end' } }, [
     el('button', {
       class: 'btn btn-primary', text: '➕ 新建文件夹',
       onClick: () => {
         const newName = prompt('新建文件夹名称：', '未命名文件夹');
         if (!newName || !newName.trim()) return;
-        
+
         // 建文件夹并自动生成子模块
         const newTask = store.createTask({ name: newName.trim() });
-        
+
         // 👇 核心修改：把 '默认子模块' 改成 '📁'，这样界面上就像是一个图标，不再显示文字
         const newChap = store.createChapter({ name: '📁', taskId: newTask.id });
-        
+
         mask.remove();
         onSelect(newChap.id);
         toastSuccess(`已新建并归入「${newName}」`);

@@ -61,15 +61,15 @@ export function renderSettings() {
     ])
   ]));
 
-    // ============ 3. 存储用量 ============
+  // ============ 3. 存储用量 ============
   const storageTitle = el('div', { class: 'section-head', style: { display: 'flex', alignItems: 'center', gap: '8px' } });
   storageTitle.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="var(--primary-dark)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg> 存储用量与瘦身`;
 
   const storageBody = el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
     el('div', { id: 'storage-usage', style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '正在计算…' }),
-    el('button', { 
-      class: 'btn btn-sm btn-danger', 
-      text: '🧹 一键清理废弃图片', 
+    el('button', {
+      class: 'btn btn-sm btn-danger',
+      text: '🧹 一键清理废弃图片',
       onClick: async () => {
         if (!confirm('确定要清理吗？这会删除所有未关联到任何卡片的图片和 PDF，释放大量空间。')) return;
         toastSuccess('正在扫描并清理...');
@@ -85,7 +85,7 @@ export function renderSettings() {
     storageBody
   ]));
 
-    // ============ 4. 自定义顶栏快捷按钮 ============
+  // ============ 4. 自定义顶栏快捷按钮 ============
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '🧩 自定义顶栏快捷按钮' })]),
     el('div', { class: 'section-body', style: { paddingTop: '12px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' } }, [
@@ -122,7 +122,7 @@ export function renderSettings() {
           // 用纯 DOM 方式创建，避开 el 函数
           const label = document.createElement('label');
           label.style.cssText = 'display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; user-select: none; margin: 0; padding: 0;';
-          
+
           const cb = document.createElement('input');
           cb.type = 'checkbox';
           cb.className = 'topbar-pref-cb';

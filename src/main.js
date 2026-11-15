@@ -35,7 +35,7 @@ if (window.pdfjsLib) {
 
 async function boot() {
   migrate();
-    store.autoCleanRecycleBin();
+  store.autoCleanRecycleBin();
   await migrateImageNames();
 
   const check = await storageSelfCheck();
@@ -129,15 +129,15 @@ async function boot() {
         const tool = ALL_TOOLS.find(t => t.id === id);
         if (!tool) return;
 
-                const btn = el('button', {
+        const btn = el('button', {
           class: 'btn btn-sm btn-ghost topbar-tool-btn',
-          style: { 
-            display: 'flex', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            padding: '0', 
+          style: {
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '0',
             marginRight: '4px', // 👈 把它改小一点，比如 2px 或 4px
-            width: '36px', 
+            width: '36px',
             height: '36px',
             borderRadius: '8px',
             background: 'rgba(142, 202, 230, 0.12)',
@@ -258,34 +258,34 @@ async function boot() {
   };
 
   // ============ 全局快捷键监听 ============
-window.addEventListener('keydown', (e) => {
-  // 如果正在输入框里打字，不触发快捷键
-  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+  window.addEventListener('keydown', (e) => {
+    // 如果正在输入框里打字，不触发快捷键
+    if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
 
-  // 1. 按 `N` 快捷新建卡片
-  if (e.key === 'n' || e.key === 'N') {
-    e.preventDefault();
-    // 根据当前页面上下文判断新建类型
-    if (location.hash.startsWith('#/chapter/')) {
-      const chapterId = location.hash.split('/')[2];
-      window.location.hash = `#/edit-point/new?chapterId=${chapterId}`;
-    } else {
-      window.location.hash = '#/edit-task/new';
+    // 1. 按 `N` 快捷新建卡片
+    if (e.key === 'n' || e.key === 'N') {
+      e.preventDefault();
+      // 根据当前页面上下文判断新建类型
+      if (location.hash.startsWith('#/chapter/')) {
+        const chapterId = location.hash.split('/')[2];
+        window.location.hash = `#/edit-point/new?chapterId=${chapterId}`;
+      } else {
+        window.location.hash = '#/edit-task/new';
+      }
     }
-  }
 
-  // 2. 按 `Ctrl + K` 或 `/` 全局搜索
-  if ((e.ctrlKey && e.key === 'k') || e.key === '/') {
-    e.preventDefault();
-    window.location.hash = '#/search';
-  }
+    // 2. 按 `Ctrl + K` 或 `/` 全局搜索
+    if ((e.ctrlKey && e.key === 'k') || e.key === '/') {
+      e.preventDefault();
+      window.location.hash = '#/search';
+    }
 
-  // 3. 按 `Esc` 关闭弹窗
-  if (e.key === 'Escape') {
-    const masks = document.querySelectorAll('.confirm-mask');
-    masks.forEach(m => m.remove());
-  }
-});
+    // 3. 按 `Esc` 关闭弹窗
+    if (e.key === 'Escape') {
+      const masks = document.querySelectorAll('.confirm-mask');
+      masks.forEach(m => m.remove());
+    }
+  });
 
   initShortcuts();
   initSidebar();
@@ -540,8 +540,8 @@ document.addEventListener('focusin', (e) => {
       view.style.overflowY = 'auto';
     }
 
-    setTimeout(() => { 
-      target.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+    setTimeout(() => {
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }, 300);
   }
 });
@@ -633,10 +633,10 @@ window.addEventListener('hashchange', () => {
   if (view) {
     // 🛑 终极绝杀：强制清空所有内联样式，让 CSS 文件重新接管
     view.style.cssText = '';
-    
+
     // 默认移除 PDF 专属类名
     view.classList.remove('pdf-active-view');
-    
+
     // 👇 核心修复：如果是 PDF 页面，打上专属类名
     if (location.hash.startsWith('#/pdf-viewer/')) {
       view.classList.add('pdf-active-view');
@@ -699,7 +699,7 @@ function checkBackupSafety() {
     warningBar.innerHTML = `⚠️ 已经 ${Math.floor(daysSince)} 天没有备份了！点击这里去「设置 -> 导出数据」把数据存到电脑里，防止丢失。`;
     warningBar.onclick = () => { window.location.hash = '#/settings'; warningBar.remove(); };
     document.body.appendChild(warningBar);
-    
+
     // 3秒后自动消失，不碍事
     setTimeout(() => warningBar.remove(), 5000);
   }
@@ -718,7 +718,7 @@ boot().catch(e => {
 (function initMultiTabGuard() {
   // 生成一个唯一的标签页 ID
   const tabId = Math.random().toString(36).substring(2, 9);
-  
+
   // 页面加载时，广播自己的存在
   localStorage.setItem('kg_active_tab', JSON.stringify({ tabId, time: Date.now() }));
 
@@ -739,7 +739,7 @@ boot().catch(e => {
             document.body.appendChild(warn);
           }
         }
-      } catch (err) {}
+      } catch (err) { }
     }
   });
 })();
@@ -780,11 +780,11 @@ boot().catch(e => {
     if (!target) return;
 
     // 尝试获取提示文字：优先找 title 属性，其次找 data-tooltip，最后找按钮内的文字
-    let tipText = target.getAttribute('title') || 
-                  target.getAttribute('data-tooltip') || 
-                  target.getAttribute('aria-label') || 
-                  (target.innerText ? target.innerText.trim() : '') ||
-                  (target.textContent ? target.textContent.trim() : '');
+    let tipText = target.getAttribute('title') ||
+      target.getAttribute('data-tooltip') ||
+      target.getAttribute('aria-label') ||
+      (target.innerText ? target.innerText.trim() : '') ||
+      (target.textContent ? target.textContent.trim() : '');
 
     // 如果按钮里是 SVG/Emoji，提取不到文字，就跳过
     if (!tipText || tipText.length > 10 || tipText.includes('\n')) {

@@ -400,7 +400,7 @@ function pointCard(p, chapterId) {
 
   // 卡片主体
   const card = el('div', {
-    class: 'card point-card-content' + (isSelected ? ' selected' : ''), 
+    class: 'card point-card-content' + (isSelected ? ' selected' : ''),
     style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s', background: 'var(--card)' }
   });
 
@@ -503,7 +503,7 @@ function pointCard(p, chapterId) {
   card.appendChild(contentBox);
 
   // 👇 核心修复：补上外层容器 container，把卡片包起来
-  const container = el('div', { 
+  const container = el('div', {
     class: 'point-card-container',
     style: { marginBottom: '8px' } // 保持一点卡片间距
   }, [card]);

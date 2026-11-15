@@ -38,7 +38,7 @@ const selectedCardIds = new Set();
 export function renderHome() {
   const view = document.getElementById('view');
   clear(view);
-  
+
   // 👈 【修复】彻底删掉 view.style.padding，防止在平板上导致滚动死锁
 
   document.getElementById('page-title').textContent = multiSelectMode ? '选择任务' : '资料库';
@@ -242,7 +242,7 @@ export function renderHome() {
       el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { tasks.forEach(t => selectedIds.add(t.id)); renderHome(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { multiSelectMode = false; selectedIds.clear(); renderHome(); } }),
     ]));
-    
+
     const list = el('div', { id: 'task-list' });
     const renderTree = (parentId, depth) => {
       tasks.filter(t => (t.parentId || null) === parentId).forEach(t => {
@@ -389,23 +389,23 @@ export function renderSidebar() {
 
   clear(tree);
 
-    tree.appendChild(el('div', { 
-    style: { 
+  tree.appendChild(el('div', {
+    style: {
       marginTop: '24px', // 👈 往下推开，和主文件夹拉开距离
-      paddingTop: '12px', 
+      paddingTop: '12px',
       borderTop: '1px dashed rgba(0,0,0,.08)' // 👈 用极淡的虚线作为分割
-    } 
+    }
   }, [
     el('div', {
-      style: { 
-        padding: '6px 10px', 
-        borderRadius: '6px', 
-        cursor: 'pointer', 
+      style: {
+        padding: '6px 10px',
+        borderRadius: '6px',
+        cursor: 'pointer',
         color: 'var(--danger)', // 👈 保留红色
         fontSize: '12px', // 👈 字体变小
         fontWeight: '500', // 👈 不再加粗，降低攻击性
-        display: 'flex', 
-        alignItems: 'center', 
+        display: 'flex',
+        alignItems: 'center',
         gap: '6px',
         opacity: 0.85 // 👈 稍微降低透明度，显得低调
       },
@@ -425,7 +425,7 @@ export function renderSidebar() {
     return;
   }
 
-    const renderTree = (parentId, depth) => {
+  const renderTree = (parentId, depth) => {
     const currentLevel = tasks.filter(t => (t.parentId || null) === parentId);
 
     currentLevel.forEach(task => {
@@ -442,9 +442,9 @@ export function renderSidebar() {
         el('span', {
           style: { width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '12px' },
           text: hasSub ? (taskOpen ? '▾' : '▸') : '',
-          onClick: (e) => { 
-            e.stopPropagation(); 
-            if (hasSub) toggleTask(task.id); 
+          onClick: (e) => {
+            e.stopPropagation();
+            if (hasSub) toggleTask(task.id);
           },
         }),
         // 文件夹名字
@@ -686,7 +686,7 @@ function openMoveToFolderModal(selectedCardIds, onSuccess) {
         style: { padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(0,0,0,.04)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' },
         onClick: () => executeMove(folder)
       }, [
-                el('span', { text: '📁', style: { fontSize: '16px' } }),
+        el('span', { text: '📁', style: { fontSize: '16px' } }),
         el('span', { text: folder.name, style: { fontWeight: '500' } })
       ]));
     });
@@ -702,7 +702,7 @@ function openMoveToFolderModal(selectedCardIds, onSuccess) {
         const newName = prompt('输入新文件夹名称：');
         if (!newName || !newName.trim()) return;
         const finalName = newName.trim();
-        
+
         // 建文件夹
         const newTask = store.createTask({ name: finalName });
         executeMove(newTask);
@@ -723,7 +723,7 @@ function openMoveToFolderModal(selectedCardIds, onSuccess) {
 
     toastSuccess(`已将 ${selectedCardIds.size} 张卡片移入「${targetTask.name}」`);
     mask.remove();
-    
+
     // 清理状态并刷新
     selectedCardIds.clear();
     onSuccess();

@@ -563,16 +563,16 @@ export async function renderAnnotator({ params, query }) {
   });
   canvasWrap.appendChild(base);
 
-    // ============ 3. 加载透明的笔迹层（高清 Retina 适配） ============
+  // ============ 3. 加载透明的笔迹层（高清 Retina 适配） ============
   const dpr = window.devicePixelRatio || 1; // 获取设备像素比（比如 iPad 是 2）
-  
+
   const strokeCanvas = el('canvas', { class: 'annotator-stroke' });
   // 1. 真实画布分辨率乘以 DPR
   strokeCanvas.width = W * dpr;
   strokeCanvas.height = H * dpr;
   // 2. CSS 视觉尺寸不变
   strokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;touch-action:none;z-index:2;`;
-  
+
   const ctx = strokeCanvas.getContext('2d');
   // 3. 核心：把画笔缩放 DPR 倍，这样你的坐标完全不用改，但底层是高清渲染
   ctx.scale(dpr, dpr);
@@ -597,7 +597,7 @@ export async function renderAnnotator({ params, query }) {
   paperStrokeCanvas.width = W * dpr;
   paperStrokeCanvas.height = H * dpr;
   paperStrokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:3;`;
-  
+
   const paperStrokeCtx = paperStrokeCanvas.getContext('2d', { willReadFrequently: true });
   // 2. 同样缩放坐标系
   paperStrokeCtx.scale(dpr, dpr);
@@ -1256,31 +1256,31 @@ export async function renderAnnotator({ params, query }) {
   });
   const widthNum = el('input', {
     type: 'number', min: '0.01', max: '30', step: '0.01', value: String(currentWidth),
-        style: { width: '58px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
+    style: { width: '58px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
     onInput: (e) => { const v = Math.max(0.1, Math.min(50, Number(e.target.value) || 0.1)); currentWidth = v; widthRange.value = v; },
   });
-    const widthMinus = el('button', {
+  const widthMinus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '−',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    onClick: () => { 
+    onClick: () => {
       // 👇 每次减 0.05，最小到 0.05，保留 2 位小数
-      currentWidth = Math.max(0.05, Number((currentWidth - 0.05).toFixed(2))); 
-      widthRange.value = currentWidth; 
-      widthNum.value = currentWidth; 
+      currentWidth = Math.max(0.05, Number((currentWidth - 0.05).toFixed(2)));
+      widthRange.value = currentWidth;
+      widthNum.value = currentWidth;
     },
   });
-  
+
   const widthPlus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '+',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    onClick: () => { 
+    onClick: () => {
       // 👇 每次加 0.05，最大 50，保留 2 位小数
-      currentWidth = Math.min(50, Number((currentWidth + 0.05).toFixed(2))); 
-      widthRange.value = currentWidth; 
-      widthNum.value = currentWidth; 
+      currentWidth = Math.min(50, Number((currentWidth + 0.05).toFixed(2)));
+      widthRange.value = currentWidth;
+      widthNum.value = currentWidth;
     },
   });
-  
+
   const widthRow = el('div', { class: 'annotator-widthrow' }, [
     el('span', { text: '粗细', style: { fontSize: '13px', color: 'var(--text-2)' } }),
     widthRange, widthMinus, widthNum, widthPlus,
@@ -1358,7 +1358,7 @@ export async function renderAnnotator({ params, query }) {
     window._updateSubToolbar = updateSubToolbar;
     subBar.innerHTML = "";
 
-        // 👇 就放在 updateSubToolbar 函数体内部，靠前的位置
+    // 👇 就放在 updateSubToolbar 函数体内部，靠前的位置
     if (currentTool === 'pen') {
       subBar.appendChild(el('div', { class: 'tape-row' }, [
         el('span', { class: 'tape-label', text: '笔刷' }),
@@ -1370,7 +1370,7 @@ export async function renderAnnotator({ params, query }) {
         ].map(btn => el('button', {
           class: 'tape-chip' + (currentBrushType === btn.id ? ' active' : ''),
           text: btn.label,
-          onClick: () => { 
+          onClick: () => {
             currentBrushType = btn.id; // 切换笔刷状态
             updateSubToolbar();       // 刷新面板，让高亮生效
           }
@@ -2446,7 +2446,7 @@ export async function renderAnnotator({ params, query }) {
     const papers = paperLayer.getPapers();
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
     const listWrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } });
-    
+
     // 👈 核心新增：记录当前选中的纸张 ID
     const selectedIds = new Set();
 
@@ -2474,9 +2474,9 @@ export async function renderAnnotator({ params, query }) {
         });
 
         const row = el('div', {
-          style: { 
-            display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', 
-            background: isChecked ? 'rgba(142, 202, 230, 0.1)' : 'var(--bg)', 
+          style: {
+            display: 'flex', alignItems: 'center', gap: '10px', padding: '8px',
+            background: isChecked ? 'rgba(142, 202, 230, 0.1)' : 'var(--bg)',
             borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s'
           },
           onClick: () => {
@@ -2507,20 +2507,20 @@ export async function renderAnnotator({ params, query }) {
 
     // 👈 顶部工具条：全选/全不选
     const toolBar = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px' } }, [
-      el('button', { 
-        class: 'btn btn-sm btn-ghost', text: '全选', 
-        onClick: () => { papers.forEach(p => selectedIds.add(p.id)); renderList(); } 
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '全选',
+        onClick: () => { papers.forEach(p => selectedIds.add(p.id)); renderList(); }
       }),
-      el('button', { 
-        class: 'btn btn-sm btn-ghost', text: '全不选', 
-        onClick: () => { selectedIds.clear(); renderList(); } 
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '全不选',
+        onClick: () => { selectedIds.clear(); renderList(); }
       }),
-      el('button', { 
-        class: 'btn btn-sm btn-danger', text: '删除选中', 
+      el('button', {
+        class: 'btn btn-sm btn-danger', text: '删除选中',
         onClick: () => {
           if (selectedIds.size === 0) { toastError('请先勾选纸张'); return; }
           if (!confirm(`确定删除选中的 ${selectedIds.size} 张纸吗？`)) return;
-          
+
           // 倒序删除，防止索引错乱
           for (let i = papers.length - 1; i >= 0; i--) {
             if (selectedIds.has(papers[i].id)) papers.splice(i, 1);
@@ -2555,10 +2555,10 @@ export async function renderAnnotator({ params, query }) {
       el('option', { value: 'left', text: '← 左侧' }),
       el('option', { value: 'right', text: '→ 右侧' }),
     ]);
-    
+
     // 删除了预设下拉框，只保留一个纯数字输入框
     const pxInput = el('input', { type: 'number', value: '200', min: '50', max: '5000', style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)' } });
-    
+
     const colorSelect = el('select', { style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)' } }, [
       el('option', { value: '#FFFFFF', text: '白色' }),
       el('option', { value: 'transparent', text: '透明' }),
@@ -2566,7 +2566,7 @@ export async function renderAnnotator({ params, query }) {
     ]);
     const customColorInput = el('input', { type: 'color', value: '#FFFFFF', style: { width: '100%', height: '36px', padding: '2px', borderRadius: '6px' } });
     const customColorField = el('div', { style: { display: 'none', marginTop: '8px' } }, [customColorInput]);
-    
+
     colorSelect.onchange = () => { customColorField.style.display = colorSelect.value === 'custom' ? 'block' : 'none'; };
 
     const mask = el('div', { class: 'confirm-mask' }, [
@@ -2575,7 +2575,7 @@ export async function renderAnnotator({ params, query }) {
         el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '方向', style: { fontSize: '12px', color: 'var(--text-2)' } }), dirSelect]),
         el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '扩展像素大小', style: { fontSize: '12px', color: 'var(--text-2)' } }), pxInput]),
         el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '扩展区域颜色', style: { fontSize: '12px', color: 'var(--text-2)' } }), colorSelect, customColorField]),
-        
+
         el('div', { style: { marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed rgba(0,0,0,.1)' } }, [
           el('button', {
             class: 'btn btn-ghost', style: { width: '100%', color: 'var(--primary-dark)', border: '1px solid var(--primary)', padding: '8px' },
@@ -2601,7 +2601,7 @@ export async function renderAnnotator({ params, query }) {
 
               mask.remove();
               const color = colorSelect.value === 'custom' ? customColorInput.value : colorSelect.value;
-              
+
               // 调用我们之前重写好的纯净版扩展函数（固定传 expand）
               await doExpandToSize(targetW, targetH, color, 'expand');
             }
@@ -2612,7 +2612,7 @@ export async function renderAnnotator({ params, query }) {
     document.body.appendChild(mask);
   }
 
-    // ============ 扩展画布（绝对居中，绝不覆盖版） ============
+  // ============ 扩展画布（绝对居中，绝不覆盖版） ============
   async function doExpandToSize(newW, newH, bgColor, mode = 'expand') {
     // 无论什么模式，我们统一计算居中偏移量
     const offsetX = Math.floor((newW - W) / 2);
@@ -3415,7 +3415,7 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-        // 双指缩放
+    // 双指缩放
     if (pointers.size === 2) {
       // 👇 核心修复：双指按下时，强行中断画笔/橡皮，防止画出乱码
       if (drawing === 'pen' || drawing === 'eraser' || drawing === 'circle-erase') {
@@ -3640,12 +3640,12 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-        // ============ 画笔 / 橡皮 / 圈擦 ============
+    // ============ 画笔 / 橡皮 / 圈擦 ============
     if (currentTool === 'pen' || currentTool === 'eraser' || currentTool === 'circle-erase') {
       pushUndo();
       e.preventDefault();
       const hitPaper = paperLayer.hitTest(pt.x, pt.y);
-      
+
       if (currentTool === 'eraser') {
         drawing = 'eraser';
       } else if (currentTool === 'circle-erase') {
@@ -3657,13 +3657,13 @@ export async function renderAnnotator({ params, query }) {
           hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
         }
       }
-      
+
       startPt = pt;
-      
+
       // 👇 核心修复：精准获取触控笔的压感
       const initPressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
       points = [{ ...pt, pressure: initPressure }];
-      
+
       try { strokeCanvas.setPointerCapture(e.pointerId); } catch { }
       return;
     }
@@ -3979,7 +3979,7 @@ export async function renderAnnotator({ params, query }) {
         previewCtx.restore();
       }
 
-            // --- 画笔逻辑 ---
+      // --- 画笔逻辑 ---
       else if (drawing === 'pen') {
         // 1. 抓取高频采样点（让曲线更顺滑、不锯死）
         const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
@@ -3990,7 +3990,7 @@ export async function renderAnnotator({ params, query }) {
         }
 
         const lastPt = points[points.length - 1];
-        
+
         // 2. 判断是否在纸上
         const hitPaper = paperLayer.hitTest(startPt.x, startPt.y); // 用起点判定，防止画一半切出纸张
 
@@ -4008,7 +4008,7 @@ export async function renderAnnotator({ params, query }) {
         } else {
           // 画在全局底图/画板上
           const scaleFactor = Math.sqrt(W / 800);
-          
+
           // 🛑 核心替换位置：根据 currentBrushType 分发绘制函数
           if (currentBrushType === 'fountain') {
             drawFountainPen(ctx, points, currentColor, currentWidth);

@@ -38,7 +38,7 @@ function setPdfPref(key, value) {
 export async function renderPdfViewer({ params, query }) {
     const pdfId = params.id;
     const pointId = query.pointId;
-        const view = document.getElementById('view');
+    const view = document.getElementById('view');
     clear(view);
     // 👇 打上专属标记，让 CSS 生效
     view.classList.add('pdf-active-view');
@@ -98,11 +98,11 @@ export async function renderPdfViewer({ params, query }) {
                 window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
             }
 
-                        pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+            pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
             total = pdfDoc.numPages;
 
             currentPage = 1;
-            
+
             // 👇 核心修复：优先读 URL 里的 page 参数
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const targetPage = urlParams.get('page');
@@ -941,7 +941,7 @@ export async function renderPdfViewer({ params, query }) {
                 // 👈 挂载设置里勾选的工具
                 ...visibleTools,
 
-                                el('button', {
+                el('button', {
                     class: 'btn btn-sm btn-ghost', text: '⛶', title: '全屏',
                     style: { width: '32px', height: '32px', padding: 0, fontSize: '16px' },
                     onClick: () => {
@@ -1084,7 +1084,7 @@ export async function renderPdfViewer({ params, query }) {
         scrollWrap.appendChild(canvasWrap);
         container.appendChild(scrollWrap);
 
-                renderPages(canvasWrap);
+        renderPages(canvasWrap);
 
         // 👇 核心新增：当 PDF 页面渲染完后，强制立刻滚动到当前页
         setTimeout(() => {
@@ -2557,7 +2557,7 @@ export async function renderPdfViewer({ params, query }) {
         } catch (err) { toastError('生成失败'); }
     }
 
-        // ============ 插入新页功能 ============
+    // ============ 插入新页功能 ============
     function openInsertPageModal() {
         const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
         const box = el('div', { class: 'confirm-box', style: { maxWidth: '460px', display: 'flex', flexDirection: 'column', maxHeight: '85vh', padding: '20px' } });
@@ -2595,16 +2595,16 @@ export async function renderPdfViewer({ params, query }) {
         // ============ 2. 样式网格 ============
         box.appendChild(el('div', { style: { fontWeight: '600', fontSize: '13px', marginBottom: '8px' }, text: '选择页面样式' }));
         // 👇 核心修复：给网格加了 maxHeight 和 overflowY，防止把弹窗撑爆
-        const grid = el('div', { 
-            style: { 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(3, 1fr)', 
-                gap: '10px', 
+        const grid = el('div', {
+            style: {
+                display: 'grid',
+                gridTemplateColumns: 'repeat(3, 1fr)',
+                gap: '10px',
                 maxHeight: '35vh', // 限制高度
-                overflowY: 'auto', 
-                paddingRight: '4px', 
-                marginBottom: '16px' 
-            } 
+                overflowY: 'auto',
+                paddingRight: '4px',
+                marginBottom: '16px'
+            }
         });
 
         const styles = [
@@ -2627,7 +2627,7 @@ export async function renderPdfViewer({ params, query }) {
                 class: 'btn btn-sm btn-ghost',
                 style: {
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 4px',
-                    fontSize: '12px', 
+                    fontSize: '12px',
                     minHeight: '72px', // 👈 给个固定的最小高度，保证排版整齐
                     border: selectedStyle === s.id ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.08)',
                     background: selectedStyle === s.id ? 'rgba(142, 202, 230, 0.1)' : 'transparent'
@@ -2655,18 +2655,18 @@ export async function renderPdfViewer({ params, query }) {
         const paramArea = el('div', { style: { display: 'none', background: 'var(--bg)', padding: '12px', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(0,0,0,.05)', flexShrink: '0' } });
         box.appendChild(paramArea);
 
-                function renderParams() {
+        function renderParams() {
             paramArea.innerHTML = '';
-            
+
             // 哪些样式需要显示“页面留白”？
             const needMarginStyles = ['lined', 'grid', 'cornell', 'mistake', 'english', 'vertical', 'answer_sheet', 'todo', 'weekly'];
-            
+
             if (needMarginStyles.includes(selectedStyle)) {
                 paramArea.style.display = 'block';
-                
+
                 // 1. 先添加“页面留白”
                 paramArea.appendChild(buildRangeControl('页面留白', 10, 80, currentParams.margin || 30, (v) => currentParams.margin = v));
-                
+
                 // 2. 再根据具体样式添加行距/格子大小
                 if (selectedStyle === 'lined') {
                     paramArea.appendChild(buildRangeControl('横线间距', 10, 60, currentParams.gap || 30, (v) => currentParams.gap = v));
@@ -2733,7 +2733,7 @@ export async function renderPdfViewer({ params, query }) {
         // ============ 6. 底部操作栏 ============
         box.appendChild(el('div', { class: 'confirm-actions', style: { marginTop: 'auto', paddingTop: '12px', borderTop: '1px solid rgba(0,0,0,.05)', flexShrink: '0' } }, [
             el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-                        el('button', {
+            el('button', {
                 class: 'btn btn-primary', text: '确认插入',
                 onClick: () => {
                     mask.remove();
@@ -2750,26 +2750,26 @@ export async function renderPdfViewer({ params, query }) {
         document.body.appendChild(mask);
     }
 
-         // ============ 真正执行插入页面动作的核心函数 ============
+    // ============ 真正执行插入页面动作的核心函数 ============
     async function doInsert(style, params) {
         const { PDFDocument, rgb, StandardFonts } = window.PDFLib;
-        
+
         try {
             toastSuccess('正在处理，请稍候...');
             const existingPdfBytes = await pdfRecord.blob.arrayBuffer();
             const pdfDoc = await PDFDocument.load(existingPdfBytes);
             const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
-            
+
             // 解析插入位置
-            let targetIndex = currentPage; 
+            let targetIndex = currentPage;
             // 如果你选择的是“插最前面”，那么 targetIndex 就是 0
-            
+
             if (style === 'image' || style === 'pdf' || style === 'template') {
                 const input = document.createElement('input');
                 input.type = 'file';
                 if (style === 'image') input.accept = 'image/*';
                 else if (style === 'pdf') input.accept = 'application/pdf';
-                
+
                 if (style === 'image' || style === 'pdf') {
                     input.onchange = async (e) => {
                         const file = e.target.files[0];
@@ -2785,22 +2785,22 @@ export async function renderPdfViewer({ params, query }) {
             // 获取当前页面的尺寸，新页面尽量保持一致
             const currentPdfPage = pdfDoc.getPage(currentPage - 1);
             const { width, height } = currentPdfPage.getSize();
-            
+
             const page = pdfDoc.insertPage(targetIndex, [width, height]);
             const margin = params.margin || 30; // 获取自定义边距，默认 30
 
-                        // 1. 横线纸 & 2. 方格纸（先用 Canvas 绘制，再转图插入）
+            // 1. 横线纸 & 2. 方格纸（先用 Canvas 绘制，再转图插入）
             if (style === 'lined' || style === 'grid') {
                 const canvas = document.createElement('canvas');
                 const scale = 2; // 高清倍数
                 canvas.width = width * scale;
                 canvas.height = height * scale;
                 const ctx = canvas.getContext('2d');
-                
+
                 // 铺白底
                 ctx.fillStyle = '#FFFFFF';
                 ctx.fillRect(0, 0, canvas.width, canvas.height);
-                
+
                 ctx.strokeStyle = '#CCCCCC'; // 线的颜色
                 ctx.lineWidth = 1 * scale;
 
@@ -2828,12 +2828,12 @@ export async function renderPdfViewer({ params, query }) {
                         ctx.stroke();
                     }
                 }
-                
+
                 // 把 Canvas 转成图片塞进 PDF
                 const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
                 const arrayBuffer = await blob.arrayBuffer();
                 const image = await pdfDoc.embedPng(arrayBuffer);
-                
+
                 page.drawImage(image, { x: 0, y: 0, width: width, height: height });
             }
             // 3. 康奈尔笔记
@@ -2913,19 +2913,19 @@ export async function renderPdfViewer({ params, query }) {
                 page.drawLine({ start: { x: width - margin, y: height - margin - 60 }, end: { x: width - margin, y: margin }, thickness: 0.5, color: rgb(0.8, 0.8, 0.8) });
             }
 
-                        // ===== 保存并重新加载 =====
+            // ===== 保存并重新加载 =====
             const pdfBytes = await pdfDoc.save();
             const newBlob = new Blob([pdfBytes], { type: 'application/pdf' });
-            
+
             pdfRecord.blob = newBlob;
             await dbPut('pdfs', pdfRecord);
-            
+
             // 记录插入后的目标页码
             const targetPageAfterInsert = targetIndex === 0 ? 1 : targetIndex + 1;
             localStorage.setItem(`kg_pdf_progress_${pdfId}`, targetPageAfterInsert);
-            
+
             toastSuccess('页面插入成功！');
-            
+
             setTimeout(() => {
                 // 更改 Hash 强制刷新
                 window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${pointId || ''}&page=${targetPageAfterInsert}`;
@@ -2942,7 +2942,7 @@ export async function renderPdfViewer({ params, query }) {
     async function processExternalFile(file, type, mainPdfDoc, insertIndex) {
         try {
             const bytes = await file.arrayBuffer();
-            
+
             if (type === 'image') {
                 // 把图片转成 PDF 页面插入
                 let image;
@@ -2951,16 +2951,16 @@ export async function renderPdfViewer({ params, query }) {
                 } else {
                     image = await mainPdfDoc.embedPng(bytes);
                 }
-                
+
                 // 创建一个和图片一样大的新页面
                 const page = mainPdfDoc.insertPage(insertIndex, [image.width, image.height]);
                 page.drawImage(image, { x: 0, y: 0, width: image.width, height: image.height });
-            } 
+            }
             else if (type === 'pdf') {
                 // 合并 PDF
                 const externalDoc = await window.PDFLib.PDFDocument.load(bytes);
                 const copiedPages = await mainPdfDoc.copyPages(externalDoc, externalDoc.getPageIndices());
-                
+
                 // 在指定位置插入所有拷贝的页面
                 copiedPages.forEach((page, idx) => {
                     mainPdfDoc.insertPage(insertIndex + idx, page);
@@ -2971,7 +2971,7 @@ export async function renderPdfViewer({ params, query }) {
             const pdfBytes = await mainPdfDoc.save();
             pdfRecord.blob = new Blob([pdfBytes], { type: 'application/pdf' });
             await dbPut('pdfs', pdfRecord);
-            
+
             toastSuccess('文件已作为新页插入！');
             setTimeout(() => initPdf(pdfId), 300);
 

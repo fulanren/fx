@@ -19,7 +19,7 @@ export function loadDraft(entity, id) {
 }
 export function clearDraft(entity, id) { localStorage.removeItem(key(entity, id)); }
 export function hasChanges(original, current) {
-  const keys = new Set([...Object.keys(original||{}), ...Object.keys(current||{})]);
+  const keys = new Set([...Object.keys(original || {}), ...Object.keys(current || {})]);
   for (const k of keys) {
     if (k === 'updatedAt' || k === 'id') continue;
     if (JSON.stringify(original?.[k]) !== JSON.stringify(current?.[k])) return true;

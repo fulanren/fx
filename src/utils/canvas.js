@@ -188,14 +188,14 @@ export function drawFountainPen(ctx, points, color, baseWidth) {
   ctx.strokeStyle = color;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  
+
   for (let i = 1; i < points.length; i++) {
     const p0 = points[i - 1];
     const p1 = points[i];
     // 压感越轻，线越细
     const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
-    const w = Math.max(0.5, baseWidth * (pressure * 1.5)); 
-    
+    const w = Math.max(0.5, baseWidth * (pressure * 1.5));
+
     ctx.beginPath();
     ctx.lineWidth = w;
     ctx.moveTo(p0.x, p0.y);
@@ -213,14 +213,14 @@ export function drawBrush(ctx, points, color, baseWidth) {
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   // 增加一点点透明度，让叠加的部分看起来像墨水渗开
-  ctx.globalAlpha = 0.8; 
+  ctx.globalAlpha = 0.8;
 
   for (let i = 1; i < points.length; i++) {
     const p0 = points[i - 1];
     const p1 = points[i];
     const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
-    const w = Math.max(1, baseWidth * (pressure * 2.5)); 
-    
+    const w = Math.max(1, baseWidth * (pressure * 2.5));
+
     // 用二次贝塞尔让毛笔更圆润
     const xc = (p0.x + p1.x) / 2;
     const yc = (p0.y + p1.y) / 2;
@@ -246,15 +246,15 @@ export function drawPencil(ctx, points, color, baseWidth) {
     const p0 = points[i - 1];
     const p1 = points[i];
     const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
-    
+
     // 随机抖动线宽，模拟铅笔的沙沙感
     const jitter = (Math.random() - 0.5) * 0.5;
     const w = Math.max(0.5, baseWidth * 0.8 + jitter);
-    
+
     // 随机偏移一点点位置，产生颗粒感
     const offsetX = (Math.random() - 0.5) * 1.5;
     const offsetY = (Math.random() - 0.5) * 1.5;
-    
+
     ctx.beginPath();
     ctx.lineWidth = w;
     ctx.moveTo(p0.x + offsetX, p0.y + offsetY);

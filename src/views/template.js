@@ -65,7 +65,7 @@ export function renderTemplate() {
     ]),
   ]));
 
-    // 下载按钮组
+  // 下载按钮组
   wrap.appendChild(el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '12px' } }, [
     el('button', {
       class: 'btn btn-primary', text: '📥 下载 PDF 模板',
@@ -112,19 +112,19 @@ function templateText() {
 // ============ 强大的模板下载工具 ============
 async function downloadTemplate(format) {
   const content = `# 第一章 资料分析\n## 第一节 基础概念\n1. 增长率 = (现期 - 基期) / 基期\n2. 比重 = 部分 / 整体\n\n# 第二章 申论\n## 第一节 归纳概括\n- 问题：材料中反映了哪些问题？\n- 对策：提出解决这些问题的建议。`;
-  
+
   let blob, filename, mimeType, ext;
 
   if (format === 'txt') {
     blob = new Blob(['\uFEFF' + content], { type: 'text/plain;charset=utf-8' });
     filename = '资料复习模板.txt'; ext = '.txt'; mimeType = 'text/plain';
-  } 
+  }
   else if (format === 'doc') {
     // 生成 Word 能识别的 HTML 格式，这样打开后就是有排版的 Word
     const docHtml = `<html xmlns:o='urn:schemas-microsoft-com:office:office' xmlns:w='urn:schemas-microsoft-com:office:word' xmlns='http://www.w3.org/TR/REC-html40'><head><meta charset='utf-8'><title>资料复习模板</title></head><body><pre style="font-family: sans-serif; white-space: pre-wrap;">${content}</pre></body></html>`;
     blob = new Blob(['\uFEFF' + docHtml], { type: 'application/msword' });
     filename = '资料复习模板.doc'; ext = '.doc'; mimeType = 'application/msword';
-  } 
+  }
   else if (format === 'pdf') {
     // 生成一个极其精简的 HTML，让浏览器去打印为 PDF
     const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body { font-family: sans-serif; line-height: 1.6; padding: 20px; } h1, h2 { page-break-after: avoid; }</style></head><body><h1>资料复习模板</h1><pre style="white-space: pre-wrap; font-family: inherit;">${content}</pre></body></html>`;

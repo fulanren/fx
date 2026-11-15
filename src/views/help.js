@@ -19,16 +19,16 @@ export function renderHelp() {
   // ================= 核心折叠面板生成器 =================
   function createSection(title, htmlContent) {
     let isOpen = false;
-    
+
     const contentDiv = document.createElement('div');
-    contentDiv.innerHTML = htmlContent; 
+    contentDiv.innerHTML = htmlContent;
     contentDiv.style.display = 'none';
     contentDiv.style.padding = '12px 16px';
     contentDiv.style.fontSize = '14px';
     contentDiv.style.lineHeight = '1.8';
     contentDiv.style.color = 'var(--text-2)';
     contentDiv.style.borderTop = '1px solid rgba(0,0,0,.05)';
-    contentDiv.style.overflowWrap = 'break-word'; 
+    contentDiv.style.overflowWrap = 'break-word';
 
     const arrow = el('span', { text: '▸', style: { color: 'var(--text-2)', fontSize: '12px', transition: 'transform 0.2s' } });
 
@@ -44,8 +44,8 @@ export function renderHelp() {
       arrow
     ]);
 
-    return el('div', { 
-      style: { background: 'var(--card)', borderRadius: '8px', boxShadow: 'var(--shadow)', overflow: 'hidden', marginBottom: '8px' } 
+    return el('div', {
+      style: { background: 'var(--card)', borderRadius: '8px', boxShadow: 'var(--shadow)', overflow: 'hidden', marginBottom: '8px' }
     }, [header, contentDiv]);
   }
 

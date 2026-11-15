@@ -91,7 +91,7 @@ export async function renderResourceOverview() {
     });
     topBar.appendChild(viewToggle);
 
-    // 👇 新增：文件夹过滤
+    // 文件夹过滤
     const allFolders = [...new Set(allFiles.map(f => f.rec.group).filter(Boolean))].sort();
     let currentGroupFilter = 'all';
 
@@ -125,7 +125,7 @@ export async function renderResourceOverview() {
     });
     topBar.appendChild(multiBtn);
 
-    // 👇 新增：全选 / 全不选按钮
+    // 全选 / 全不选按钮
     const selectAllBtn = el('button', {
         class: 'btn btn-sm btn-ghost',
         text: '全选',
@@ -186,7 +186,7 @@ export async function renderResourceOverview() {
         if (searchQuery) {
             filtered = filtered.filter(f => (f.rec.name || f.rec.pdfName || '').toLowerCase().includes(searchQuery) || (f.pointContent || '').toLowerCase().includes(searchQuery));
         }
-        // 👇 新增：文件夹过滤
+        // 文件夹过滤
         if (currentGroupFilter === 'none') {
             filtered = filtered.filter(f => !f.rec.group);
         } else if (currentGroupFilter !== 'all') {
@@ -453,7 +453,7 @@ export async function renderResourceOverview() {
             batchBar.innerHTML = '';
             batchBar.appendChild(el('span', { style: { color: '#fff', fontSize: '13px', fontWeight: 'bold' }, text: `已选 ${selectedIds.size} 项` }));
             batchBar.appendChild(el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.3)' } }));
-            // 👇 新增：批量移动到文件夹
+            // 批量移动到文件夹
             batchBar.appendChild(el('button', {
                 class: 'btn btn-sm btn-primary', text: '📁 移动到...',
                 onClick: () => {

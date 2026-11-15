@@ -24,7 +24,7 @@ export function attachSpeechButton(inputEl) {
 
   btn.addEventListener('click', () => {
     if (recognizing) {
-      try { recognition && recognition.stop(); } catch {}
+      try { recognition && recognition.stop(); } catch { }
       recognizing = false;
       btn.classList.remove('active');
       btn.textContent = '🎤';

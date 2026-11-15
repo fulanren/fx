@@ -3,7 +3,7 @@ import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 import { openExportModal } from './settings.js';
-import { dbPut, dbGet, dbDelete } from '../db.js'; 
+import { dbPut, dbGet, dbDelete } from '../db.js';
 
 export function renderErrorBook() {
   const view = document.getElementById('view');
@@ -28,91 +28,93 @@ export function renderErrorBook() {
   let currentFilter = 'all'; // 错因过滤
   const collapsedChapters = new Set();
 
-    function renderMain() {
+  function renderMain() {
     view.innerHTML = '';
-    
+
     // ================= 1. 顶部工具栏（无论有没有错题，都要先渲染出来） =================
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' } }, [
       el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
         // 👇 这就是你要的新增错题按钮，现在它在最前面
-                // 👇 核心新增：自行添加错题专属弹窗
-        el('button', { class: 'btn btn-sm btn-ghost', text: '➕ 新增错题', onClick: () => {
-          const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
-          const contentInput = el('textarea', { placeholder: '请输入错题内容（题目）...', style: { width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '10px', outline: 'none', resize: 'vertical' } });
-          const explainInput = el('textarea', { placeholder: '请输入解析/答案（可选）...', style: { width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '10px', outline: 'none', resize: 'vertical' } });
-          
-          const box = el('div', { class: 'confirm-box', style: { maxWidth: '450px' } }, [
-            el('h3', { text: '➕ 新增错题' }),
-            el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '错题会自动进入专属收集箱，并打上易错标记。' }),
-            contentInput,
-            explainInput,
-            el('div', { class: 'confirm-actions' }, [
-              el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-              el('button', { 
-                class: 'btn btn-primary', text: '保存到错题本', 
-                onClick: async () => {
-                  const val = contentInput.value.trim(); 
-                  const exp = explainInput.value.trim();
-                  if (!val) return toastError('错题内容不能为空');
-                  
-                  // 1. 自动建任务和章节
-                  let task = store.getTasks().find(t => t.name === '📥 错题收集箱');
-                  if (!task) task = store.createTask({ name: '📥 错题收集箱' });
-                  
-                  let chapter = store.getChapters(task.id)[0];
-                  if (!chapter) chapter = store.createChapter({ name: '默认错题', taskId: task.id });
-                  
-                  // 2. 创建知识点，并标记为易错
-                  const newPoint = store.createPoint({ 
-                    chapterId: chapter.id, 
-                    content: val, 
-                    explanation: exp,
-                    isErrorProne: true, 
-                    errorReason: 'blind' 
-                  });
+        // 👇 核心新增：自行添加错题专属弹窗
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '➕ 新增错题', onClick: () => {
+            const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+            const contentInput = el('textarea', { placeholder: '请输入错题内容（题目）...', style: { width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '10px', outline: 'none', resize: 'vertical' } });
+            const explainInput = el('textarea', { placeholder: '请输入解析/答案（可选）...', style: { width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '10px', outline: 'none', resize: 'vertical' } });
 
-                                    // 👇 核心修复：同步将这道错题生成为“资源总览”里的一个文本文档占位图
-                  try {
-                    const fakeImgId = crypto.randomUUID();
-                    const textContent = `【错题】\n${val}\n\n【解析】\n${exp || '暂无解析'}`;
-                    const blob = new Blob([textContent], { type: 'text/plain' });
-                    
-                    // 存入 IndexedDB（直接调用 dbPut）
-                    await dbPut('images', {
-                      id: fakeImgId,
-                      type: 'text_note', 
-                      name: `错题_${val.slice(0, 10)}...`,
-                      originalBlob: blob,
-                      annotatedBlob: blob,
-                      width: 400, height: 300, dpr: 1,
-                      group: '错题收集箱', 
-                      createdAt: new Date().toISOString()
+            const box = el('div', { class: 'confirm-box', style: { maxWidth: '450px' } }, [
+              el('h3', { text: '➕ 新增错题' }),
+              el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '错题会自动进入专属收集箱，并打上易错标记。' }),
+              contentInput,
+              explainInput,
+              el('div', { class: 'confirm-actions' }, [
+                el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+                el('button', {
+                  class: 'btn btn-primary', text: '保存到错题本',
+                  onClick: async () => {
+                    const val = contentInput.value.trim();
+                    const exp = explainInput.value.trim();
+                    if (!val) return toastError('错题内容不能为空');
+
+                    // 1. 自动建任务和章节
+                    let task = store.getTasks().find(t => t.name === '📥 错题收集箱');
+                    if (!task) task = store.createTask({ name: '📥 错题收集箱' });
+
+                    let chapter = store.getChapters(task.id)[0];
+                    if (!chapter) chapter = store.createChapter({ name: '默认错题', taskId: task.id });
+
+                    // 2. 创建知识点，并标记为易错
+                    const newPoint = store.createPoint({
+                      chapterId: chapter.id,
+                      content: val,
+                      explanation: exp,
+                      isErrorProne: true,
+                      errorReason: 'blind'
                     });
 
-                    // 关联到知识点
-                    store.addImageToPoint(newPoint.id, fakeImgId);
-                  } catch (err) {
-                    console.error('同步到资源总览失败', err);
-                    toastError('错题已保存，但同步资源库失败');
+                    // 👇 核心修复：同步将这道错题生成为“资源总览”里的一个文本文档占位图
+                    try {
+                      const fakeImgId = crypto.randomUUID();
+                      const textContent = `【错题】\n${val}\n\n【解析】\n${exp || '暂无解析'}`;
+                      const blob = new Blob([textContent], { type: 'text/plain' });
+
+                      // 存入 IndexedDB（直接调用 dbPut）
+                      await dbPut('images', {
+                        id: fakeImgId,
+                        type: 'text_note',
+                        name: `错题_${val.slice(0, 10)}...`,
+                        originalBlob: blob,
+                        annotatedBlob: blob,
+                        width: 400, height: 300, dpr: 1,
+                        group: '错题收集箱',
+                        createdAt: new Date().toISOString()
+                      });
+
+                      // 关联到知识点
+                      store.addImageToPoint(newPoint.id, fakeImgId);
+                    } catch (err) {
+                      console.error('同步到资源总览失败', err);
+                      toastError('错题已保存，但同步资源库失败');
+                    }
+
+                    mask.remove();
+                    toastSuccess('已保存到错题本');
+
+                    // 👇 核心改动：不要用 location.reload()，而是重新渲染当前页面数据
+                    renderErrorBook();
                   }
-                  
-                  mask.remove(); 
-                  toastSuccess('已保存到错题本');
-                  
-                  // 👇 核心改动：不要用 location.reload()，而是重新渲染当前页面数据
-                  renderErrorBook(); 
-                }
-              })
-            ])
-          ]);
-          mask.appendChild(box); 
-          document.body.appendChild(mask); 
-          setTimeout(() => contentInput.focus(), 100);
-        }}),
+                })
+              ])
+            ]);
+            mask.appendChild(box);
+            document.body.appendChild(mask);
+            setTimeout(() => contentInput.focus(), 100);
+          }
+        }),
         allPoints.length > 0 ? el('button', { class: 'btn btn-sm btn-primary', text: '🎯 开始重练', onClick: () => startRetrainMode() }) : null,
         allPoints.length > 0 ? el('button', { class: 'btn btn-sm btn-ghost', text: '🖨️ 导出打印', onClick: () => openExportModal(null, null, true) }) : null,
       ]),
-      
+
       // 错因过滤器（如果没有错题，隐藏它）
       allPoints.length > 0 ? el('div', { style: { display: 'flex', gap: '4px', background: 'var(--bg)', padding: '4px', borderRadius: '8px' } }, [
         el('button', { class: 'btn btn-sm ' + (currentFilter === 'all' ? 'btn-primary' : 'btn-ghost'), text: '全部', onClick: () => { currentFilter = 'all'; renderMain(); } }),
@@ -123,11 +125,11 @@ export function renderErrorBook() {
 
     // ================= 2. 空状态处理 =================
     if (allPoints.length === 0) {
-      view.appendChild(el('div', { 
-        style: { 
-          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', 
-          marginTop: '10vh', textAlign: 'center', color: 'var(--text-2)' 
-        } 
+      view.appendChild(el('div', {
+        style: {
+          display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+          marginTop: '10vh', textAlign: 'center', color: 'var(--text-2)'
+        }
       }, [
         el('div', { style: { fontSize: '48px', marginBottom: '16px', opacity: '0.8' }, text: '🎉' }),
         el('div', { style: { fontSize: '16px', fontWeight: '600', color: 'var(--text)' }, text: '太棒了！目前没有错题' }),
@@ -156,11 +158,11 @@ export function renderErrorBook() {
 
     Object.values(grouped).forEach(group => {
       const isCollapsed = collapsedChapters.has(group.chapter);
-      
+
       const section = el('div', { class: 'section', style: { marginBottom: '8px', border: '1px solid rgba(0,0,0,.04)' } });
-      
+
       section.appendChild(el('div', {
-        class: 'section-head', 
+        class: 'section-head',
         style: { cursor: 'pointer', display: 'flex', justifyContent: 'space-between', padding: '10px 14px', minHeight: 'auto' },
         onClick: () => {
           if (isCollapsed) collapsedChapters.delete(group.chapter);
@@ -179,23 +181,23 @@ export function renderErrorBook() {
         });
         section.appendChild(body);
       }
-      
+
       view.appendChild(section);
     });
   }
 
   // ================= 4. 卡片渲染（极度紧凑版） =================
-    // ================= 卡片渲染（错题专属紧凑版） =================
+  // ================= 卡片渲染（错题专属紧凑版） =================
   function renderErrorCard(p) {
     let isExpanded = false;
 
-    const card = el('div', { 
-      class: 'card', 
-      style: { padding: '10px 12px', marginBottom: '0', borderLeft: '3px solid var(--danger)', display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--bg)' } 
+    const card = el('div', {
+      class: 'card',
+      style: { padding: '10px 12px', marginBottom: '0', borderLeft: '3px solid var(--danger)', display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--bg)' }
     });
-    
+
     // 题目内容
-    const titleEl = el('div', { 
+    const titleEl = el('div', {
       style: { fontWeight: '600', fontSize: '14px', cursor: 'pointer', whiteSpace: 'pre-wrap', lineHeight: '1.4' },
       text: p.content,
       onClick: () => {
@@ -206,14 +208,14 @@ export function renderErrorBook() {
     });
 
     // 展开后的解析
-    const expandBox = el('div', { 
-      style: { display: 'none', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(0,0,0,.1)' } 
+    const expandBox = el('div', {
+      style: { display: 'none', marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(0,0,0,.1)' }
     });
-    
+
     if (p.explanation) {
-      expandBox.appendChild(el('div', { 
-        style: { fontSize: '13px', color: 'var(--text-2)', whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.02)', padding: '6px', borderRadius: '6px' }, 
-        text: p.explanation 
+      expandBox.appendChild(el('div', {
+        style: { fontSize: '13px', color: 'var(--text-2)', whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.02)', padding: '6px', borderRadius: '6px' },
+        text: p.explanation
       }));
     } else {
       expandBox.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: '（这道题还没有写解析，可以点下方“编辑”去补充）' }));
@@ -238,13 +240,15 @@ export function renderErrorBook() {
       el('div', { style: { display: 'flex', gap: '4px' } }, [
         // 这里放你之前写的“忘了”和“记得并消除”
         el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😵 忘了', onClick: () => { store.ratePoint(p.id, 'forgot'); toastSuccess('已记录'); } }),
-        el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😎 消除', onClick: () => { 
-          store.ratePoint(p.id, 'remember'); 
-          store.updatePoint(p.id, { isErrorProne: false }); 
-          toastSuccess('已移出错题本'); 
-          allPoints.splice(allPoints.findIndex(item => item.id === p.id), 1);
-          renderMain(); 
-        } })
+        el('button', {
+          class: 'btn btn-sm btn-primary', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😎 消除', onClick: () => {
+            store.ratePoint(p.id, 'remember');
+            store.updatePoint(p.id, { isErrorProne: false });
+            toastSuccess('已移出错题本');
+            allPoints.splice(allPoints.findIndex(item => item.id === p.id), 1);
+            renderMain();
+          }
+        })
       ]),
       // 去详细编辑页（用于补充图片、录音等）
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '✏️ 编辑', onClick: () => navigate(`#/edit-point/${p.id}`) })
@@ -256,7 +260,7 @@ export function renderErrorBook() {
   // ================= 沉浸式重练模式（保持不变） =================
   function startRetrainMode() {
     if (allPoints.length === 0) return;
-    
+
     let idx = 0;
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'var(--bg)' } });
     const container = el('div', { style: { display: 'flex', flexDirection: 'column', width: '100%', height: '100%', padding: '20px', maxWidth: '800px', margin: '0 auto' } });
@@ -274,38 +278,40 @@ export function renderErrorBook() {
       }
 
       const p = allPoints[idx];
-      
+
       container.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px', textAlign: 'center' }, text: `第 ${idx + 1} / ${allPoints.length} 题` }));
-      
+
       container.appendChild(el('div', { class: 'card', style: { flex: '1', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '32px', textAlign: 'center', fontSize: '20px', fontWeight: '600', whiteSpace: 'pre-wrap' }, text: p.content }));
 
       const actionArea = el('div', { style: { marginTop: '20px', display: 'flex', flexDirection: 'column', gap: '12px' } });
       container.appendChild(actionArea);
 
       let isAnswerShown = false;
-      
+
       const showAnswerBtn = el('button', {
         class: 'btn btn-primary', text: '👁️ 显示解析 / 回忆答案',
         style: { padding: '16px', fontSize: '16px' },
         onClick: () => {
           isAnswerShown = true;
           actionArea.innerHTML = '';
-          
+
           if (p.explanation) {
             container.appendChild(el('div', { style: { marginTop: '16px', padding: '16px', background: 'var(--bg)', borderRadius: '8px', fontSize: '15px', whiteSpace: 'pre-wrap' }, text: p.explanation }));
           }
-          
+
           actionArea.appendChild(el('div', { style: { display: 'flex', gap: '10px' } }, [
             el('button', { class: 'btn btn-danger', text: '😵 忘了', style: { flex: '1' }, onClick: () => { store.ratePoint(p.id, 'forgot'); idx++; renderCard(); } }),
-            el('button', { class: 'btn btn-primary', text: '😎 记得并消除', style: { flex: '1' }, onClick: () => { 
-              store.ratePoint(p.id, 'remember'); 
-              store.updatePoint(p.id, { isErrorProne: false }); 
-              idx++; renderCard(); 
-            } })
+            el('button', {
+              class: 'btn btn-primary', text: '😎 记得并消除', style: { flex: '1' }, onClick: () => {
+                store.ratePoint(p.id, 'remember');
+                store.updatePoint(p.id, { isErrorProne: false });
+                idx++; renderCard();
+              }
+            })
           ]));
         }
       });
-      
+
       if (!isAnswerShown) {
         actionArea.appendChild(showAnswerBtn);
       }

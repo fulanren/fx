@@ -54,7 +54,7 @@ export function renderImageList(point, onRefresh) {
   // ============ 顶部操作栏（单行紧凑版） ============
   const topBar = el('div', { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' } }, [
 
-        // 1. 加图片 / 加 PDF
+    // 1. 加图片 / 加 PDF
     activeTab === 'images' ? el('button', {
       class: 'btn btn-sm btn-primary', text: '+ 加图片',
       style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
@@ -64,14 +64,14 @@ export function renderImageList(point, onRefresh) {
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
           if (files.length === 0) return;
-          
+
           // 防止重复触发
           input.onchange = null;
 
           // 👇 核心修复：获取当前知识点里已有的所有图片名，用于比对
-          const pt = store.getPoint(point.id); 
+          const pt = store.getPoint(point.id);
           if (!pt.imageIds) pt.imageIds = [];
-          
+
           const existingRecs = await Promise.all(pt.imageIds.map(id => dbGet('images', id)));
           const usedNames = new Set(existingRecs.map(r => r && r.name).filter(Boolean));
 
@@ -79,7 +79,7 @@ export function renderImageList(point, onRefresh) {
             const img = new Image(); const url = URL.createObjectURL(f);
             await new Promise(r => { img.onload = r; img.src = url; });
             const id = uuid();
-            
+
             // 👇 核心逻辑：自动给重名文件加序号
             let baseName = f.name || '未命名图片';
             let ext = '';
@@ -88,7 +88,7 @@ export function renderImageList(point, onRefresh) {
               ext = '.' + parts.pop();
               baseName = parts.join('.');
             }
-            
+
             let finalName = baseName + ext;
             let counter = 1;
             while (usedNames.has(finalName)) {
@@ -97,22 +97,22 @@ export function renderImageList(point, onRefresh) {
             }
             usedNames.add(finalName); // 加入集合，防止本次上传的多个同名文件也重复
 
-            await dbPut('images', { 
-              id, 
+            await dbPut('images', {
+              id,
               name: finalName, // 👈 存入去重后的名称
-              originalBlob: f, 
-              annotatedBlob: f, 
-              width: img.width, 
-              height: img.height, 
-              dpr: 1, 
-              source: 'upload', 
-              createdAt: new Date().toISOString() 
+              originalBlob: f,
+              annotatedBlob: f,
+              width: img.width,
+              height: img.height,
+              dpr: 1,
+              source: 'upload',
+              createdAt: new Date().toISOString()
             });
-            
-            URL.revokeObjectURL(url); 
+
+            URL.revokeObjectURL(url);
             pt.imageIds.push(id);
           }
-          
+
           // 一次性更新知识点
           store.updatePoint(pt.id, { imageIds: pt.imageIds });
           onRefresh();
@@ -121,7 +121,7 @@ export function renderImageList(point, onRefresh) {
       }
     }) : null,
 
-            // 2. 加 PDF
+    // 2. 加 PDF
     activeTab === 'pdfs' ? el('button', {
       class: 'btn btn-sm btn-primary', text: '+ 加 PDF', style: { background: 'var(--accent)', padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
       onClick: () => {
@@ -130,12 +130,12 @@ export function renderImageList(point, onRefresh) {
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
           if (files.length === 0) return;
-          
+
           // 防止重复触发
           input.onchange = null;
 
           toastSuccess(`正在导入 ${files.length} 个 PDF...`);
-          
+
           const pt = store.getPoint(point.id);
           if (!pt.imageIds) pt.imageIds = [];
           if (!pt.pdfFiles) pt.pdfFiles = [];
@@ -150,7 +150,7 @@ export function renderImageList(point, onRefresh) {
           for (const file of files) {
             const pdfId = uuid();
             await dbPut('pdfs', { id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString() });
-            
+
             const fakeImgId = uuid();
 
             // 👇 核心逻辑：自动给重名 PDF 加序号
@@ -161,7 +161,7 @@ export function renderImageList(point, onRefresh) {
               ext = '.' + parts.pop();
               baseName = parts.join('.');
             }
-            
+
             let finalName = baseName + ext;
             let counter = 1;
             while (usedNames.has(finalName)) {
@@ -171,18 +171,18 @@ export function renderImageList(point, onRefresh) {
             usedNames.add(finalName); // 加入集合，防止本次选中的多个同名文件也重复
 
             await dbPut('images', {
-              id: fakeImgId, 
+              id: fakeImgId,
               type: 'pdf_placeholder',
               name: finalName,       // 👈 存入去重后的名称
               pdfName: finalName,    // 👈 保持两个字段名称同步
-              originalBlob: new Blob([], { type: 'text/plain' }), 
-              annotatedBlob: new Blob([], { type: 'text/plain' }), 
+              originalBlob: new Blob([], { type: 'text/plain' }),
+              annotatedBlob: new Blob([], { type: 'text/plain' }),
               width: 0, height: 0, dpr: 1,
-              pdfId: pdfId, 
-              pdfPages: '?', 
+              pdfId: pdfId,
+              pdfPages: '?',
               createdAt: new Date().toISOString()
             });
-            
+
             newImageIds.push(fakeImgId);
             // 顺便更新一下 pdf 本身的名称存库
             newPdfFiles.push({ id: pdfId, name: finalName, size: file.size });
@@ -191,7 +191,7 @@ export function renderImageList(point, onRefresh) {
           // 一次性全部写入
           pt.imageIds = [...new Set([...pt.imageIds, ...newImageIds])];
           pt.pdfFiles = [...(pt.pdfFiles || []), ...newPdfFiles];
-          
+
           store.updatePoint(pt.id, { imageIds: pt.imageIds, pdfFiles: pt.pdfFiles });
 
           toastSuccess('导入完成');
@@ -206,28 +206,28 @@ export function renderImageList(point, onRefresh) {
     el('button', { class: 'btn btn-sm ' + (viewMode === 'thumb' ? 'btn-primary' : 'btn-ghost'), text: '▦', title: '纯缩略图', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { viewMode = 'thumb'; onRefresh(); } }),
     el('button', { class: 'btn btn-sm ' + (viewMode === 'name' ? 'btn-primary' : 'btn-ghost'), text: '📄', title: '列表模式', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { viewMode = 'name'; onRefresh(); } }),
 
-        el('button', {
-      class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, 
+    el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
       onClick: () => {
         // 强制写死到全局变量
-        window.forceExpandAll = true; 
-        window.forceCollapseAll = false; 
+        window.forceExpandAll = true;
+        window.forceCollapseAll = false;
         // 顺便把本地的折叠状态清空
-        saveCollapsed({}); 
+        saveCollapsed({});
         onRefresh();
       }
     }),
     el('button', {
-      class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, 
+      class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
       onClick: () => {
         // 强制写死到全局变量
-        window.forceCollapseAll = true; 
-        window.forceExpandAll = false; 
+        window.forceCollapseAll = true;
+        window.forceExpandAll = false;
         // 拿到当前所有文件夹，强制全部设为收起
-        const folders = getAllFolders(); 
-        const collapsedAll = {}; 
-        folders.forEach(f => collapsedAll[f] = true); 
-        saveCollapsed(collapsedAll); 
+        const folders = getAllFolders();
+        const collapsedAll = {};
+        folders.forEach(f => collapsedAll[f] = true);
+        saveCollapsed(collapsedAll);
         onRefresh();
       }
     }),
@@ -274,7 +274,7 @@ export function renderImageList(point, onRefresh) {
       style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { isMulti = !isMulti; selected.clear(); onRefresh(); }
     }),
 
-        isMulti ? el('div', {
+    isMulti ? el('div', {
       style: {
         display: 'flex',
         gap: '4px',
@@ -289,226 +289,234 @@ export function renderImageList(point, onRefresh) {
       el('span', { style: { fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)', marginRight: '4px' }, text: `${selected.size}` }),
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '全选', onClick: () => { latestPoint.imageIds.forEach(id => selected.add(id)); onRefresh(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '全不选', onClick: () => { selected.clear(); onRefresh(); } }),
-      
-          // 移动
-    el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '移动', onClick: () => openMoveModal(selected, onRefresh) }),
 
-    // 👇 导出功能（弹窗选择格式与方式）
-    el('button', { 
-      class: 'btn btn-sm btn-ghost', text: '导出', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: async () => {
-        if (selected.size === 0) return toastError('请先选择文件');
-        
-        const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
-        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
-          el('h3', { text: '选择导出方式' }),
-          el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `共选中 ${selected.size} 个文件` }),
-          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
-            el('button', { class: 'btn btn-primary', text: '📦 打包导出为 ZIP', onClick: async () => {
-              mask.remove();
-              toastSuccess('正在打包，请稍候...');
-              const JSZipClass = window.JSZip || (await import('jszip')).default;
-              const zip = new JSZipClass();
-              
-              for (const id of selected) {
-                const rec = await dbGet('images', id);
-                if (rec && rec.annotatedBlob) {
-                  zip.file(rec.name || `图片_${id.slice(0, 6)}.png`, rec.annotatedBlob);
-                } else if (rec && rec.pdfId) {
-                  const pdfRec = await dbGet('pdfs', rec.pdfId);
-                  if (pdfRec) zip.file(pdfRec.name || `文档_${id.slice(0, 6)}.pdf`, pdfRec.blob);
-                }
-              }
-              
-              const content = await zip.generateAsync({ type: 'blob' });
-              
-              // 尝试使用 File System Access API 唤起保存对话框
-              if (window.showSaveFilePicker) {
-                try {
-                  const handle = await window.showSaveFilePicker({
-                    suggestedName: `导出备份_${new Date().getTime()}.zip`,
-                    types: [{ description: 'ZIP 压缩包', accept: { 'application/zip': ['.zip'] } }]
-                  });
-                  const writable = await handle.createWritable();
-                  await writable.write(content);
-                  await writable.close();
-                  toastSuccess('导出成功');
-                  return;
-                } catch (err) { console.log('用户取消或浏览器不支持原生保存'); }
-              }
-              
-              // 降级为普通下载
-              const url = URL.createObjectURL(content);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `导出备份_${new Date().getTime()}.zip`;
-              a.click();
-              setTimeout(() => URL.revokeObjectURL(url), 1000);
-              toastSuccess('已开始下载 ZIP');
-            }}),
-            el('button', { class: 'btn btn-ghost', text: '📂 逐个直接下载', onClick: async () => {
-              mask.remove();
-              for (const id of selected) {
-                const rec = await dbGet('images', id);
-                if (rec && rec.annotatedBlob) {
+      // 移动
+      el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '移动', onClick: () => openMoveModal(selected, onRefresh) }),
+
+      // 👇 导出功能（弹窗选择格式与方式）
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '导出',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: async () => {
+          if (selected.size === 0) return toastError('请先选择文件');
+
+          const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+          const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+            el('h3', { text: '选择导出方式' }),
+            el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `共选中 ${selected.size} 个文件` }),
+            el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
+              el('button', {
+                class: 'btn btn-primary', text: '📦 打包导出为 ZIP', onClick: async () => {
+                  mask.remove();
+                  toastSuccess('正在打包，请稍候...');
+                  const JSZipClass = window.JSZip || (await import('jszip')).default;
+                  const zip = new JSZipClass();
+
+                  for (const id of selected) {
+                    const rec = await dbGet('images', id);
+                    if (rec && rec.annotatedBlob) {
+                      zip.file(rec.name || `图片_${id.slice(0, 6)}.png`, rec.annotatedBlob);
+                    } else if (rec && rec.pdfId) {
+                      const pdfRec = await dbGet('pdfs', rec.pdfId);
+                      if (pdfRec) zip.file(pdfRec.name || `文档_${id.slice(0, 6)}.pdf`, pdfRec.blob);
+                    }
+                  }
+
+                  const content = await zip.generateAsync({ type: 'blob' });
+
+                  // 尝试使用 File System Access API 唤起保存对话框
+                  if (window.showSaveFilePicker) {
+                    try {
+                      const handle = await window.showSaveFilePicker({
+                        suggestedName: `导出备份_${new Date().getTime()}.zip`,
+                        types: [{ description: 'ZIP 压缩包', accept: { 'application/zip': ['.zip'] } }]
+                      });
+                      const writable = await handle.createWritable();
+                      await writable.write(content);
+                      await writable.close();
+                      toastSuccess('导出成功');
+                      return;
+                    } catch (err) { console.log('用户取消或浏览器不支持原生保存'); }
+                  }
+
+                  // 降级为普通下载
+                  const url = URL.createObjectURL(content);
                   const a = document.createElement('a');
-                  a.href = URL.createObjectURL(rec.annotatedBlob);
-                  a.download = rec.name || `导出图片_${id.slice(0, 6)}.png`;
+                  a.href = url;
+                  a.download = `导出备份_${new Date().getTime()}.zip`;
                   a.click();
-                  await new Promise(r => setTimeout(r, 300)); // 防止浏览器拦截
-                } else if (rec && rec.pdfId) {
-                  const pdfRec = await dbGet('pdfs', rec.pdfId);
-                  if (pdfRec) {
-                    const a = document.createElement('a');
-                    a.href = URL.createObjectURL(pdfRec.blob);
-                    a.download = pdfRec.name || `导出文档_${id.slice(0, 6)}.pdf`;
-                    a.click();
-                    await new Promise(r => setTimeout(r, 300));
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                  toastSuccess('已开始下载 ZIP');
+                }
+              }),
+              el('button', {
+                class: 'btn btn-ghost', text: '📂 逐个直接下载', onClick: async () => {
+                  mask.remove();
+                  for (const id of selected) {
+                    const rec = await dbGet('images', id);
+                    if (rec && rec.annotatedBlob) {
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(rec.annotatedBlob);
+                      a.download = rec.name || `导出图片_${id.slice(0, 6)}.png`;
+                      a.click();
+                      await new Promise(r => setTimeout(r, 300)); // 防止浏览器拦截
+                    } else if (rec && rec.pdfId) {
+                      const pdfRec = await dbGet('pdfs', rec.pdfId);
+                      if (pdfRec) {
+                        const a = document.createElement('a');
+                        a.href = URL.createObjectURL(pdfRec.blob);
+                        a.download = pdfRec.name || `导出文档_${id.slice(0, 6)}.pdf`;
+                        a.click();
+                        await new Promise(r => setTimeout(r, 300));
+                      }
+                    }
+                  }
+                  toastSuccess('已触发下载');
+                }
+              }),
+              el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+            ])
+          ]);
+          mask.appendChild(box);
+          document.body.appendChild(mask);
+        }
+      }),
+
+      // 👇 重命名功能
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '重命名',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: () => {
+          if (selected.size === 0) return toastError('请先选择文件');
+          if (selected.size > 1) return toastError('目前仅支持单文件重命名');
+
+          const id = [...selected][0];
+          openInputModal('重命名', '请输入新名称', async (newName) => {
+            if (!newName.trim()) return;
+            const imgRec = await dbGet('images', id);
+            if (imgRec) { imgRec.name = newName.trim(); await dbPut('images', imgRec); }
+            toastSuccess('重命名成功');
+            onRefresh();
+          });
+        }
+      }),
+
+      // 👇 加密
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '加密',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: () => { toastSuccess('密码加密功能正在接入中，敬请期待...'); }
+      }),
+
+      // 👇 复制
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '复制',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: () => {
+          if (selected.size === 0) return toastError('请先选择文件');
+          window._imgClipboard = Array.from(selected);
+          toastSuccess(`已复制 ${selected.size} 个文件到内部剪贴板`);
+        }
+      }),
+
+      // 👇 粘贴（带路径选择）
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '粘贴',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: () => {
+          if (!window._imgClipboard || window._imgClipboard.length === 0) return toastError('剪贴板为空，请先复制文件');
+
+          const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+          const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+            el('h3', { text: '选择粘贴位置' }),
+            el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `剪贴板中有 ${window._imgClipboard.length} 个文件` }),
+            el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
+              el('button', {
+                class: 'btn btn-primary', text: '📁 粘贴到当前文件夹', onClick: async () => {
+                  mask.remove();
+                  await doPasteToPoint(point.id);
+                }
+              }),
+              el('button', {
+                class: 'btn btn-ghost', text: '📂 选择其他文件夹粘贴...', onClick: () => {
+                  mask.remove();
+                  const targetPointId = prompt('请输入目标知识点/卡片的 ID', point.id);
+                  if (targetPointId) {
+                    if (store.getPoint(targetPointId)) {
+                      doPasteToPoint(targetPointId);
+                    } else {
+                      toastError('未找到对应的知识点，粘贴失败');
+                    }
                   }
                 }
+              }),
+              el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+            ])
+          ]);
+          mask.appendChild(box);
+          document.body.appendChild(mask);
+
+          async function doPasteToPoint(targetId) {
+            const targetPt = store.getPoint(targetId);
+            if (!targetPt) return;
+            for (const oldId of window._imgClipboard) {
+              const rec = await dbGet('images', oldId);
+              if (rec) {
+                const newId = uuid();
+                await dbPut('images', { ...rec, id: newId, createdAt: new Date().toISOString() });
+                if (!targetPt.imageIds) targetPt.imageIds = [];
+                targetPt.imageIds.push(newId);
               }
-              toastSuccess('已触发下载');
-            }}),
-            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
-          ])
-        ]);
-        mask.appendChild(box);
-        document.body.appendChild(mask);
-      } 
-    }),
-
-    // 👇 重命名功能
-    el('button', { 
-      class: 'btn btn-sm btn-ghost', text: '重命名', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: () => {
-        if (selected.size === 0) return toastError('请先选择文件');
-        if (selected.size > 1) return toastError('目前仅支持单文件重命名');
-        
-        const id = [...selected][0];
-        openInputModal('重命名', '请输入新名称', async (newName) => {
-          if (!newName.trim()) return;
-          const imgRec = await dbGet('images', id);
-          if (imgRec) { imgRec.name = newName.trim(); await dbPut('images', imgRec); }
-          toastSuccess('重命名成功');
-          onRefresh();
-        });
-      } 
-    }),
-
-    // 👇 加密
-    el('button', { 
-      class: 'btn btn-sm btn-ghost', text: '加密', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: () => { toastSuccess('密码加密功能正在接入中，敬请期待...'); } 
-    }),
-
-    // 👇 复制
-    el('button', { 
-      class: 'btn btn-sm btn-ghost', text: '复制', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: () => {
-        if (selected.size === 0) return toastError('请先选择文件');
-        window._imgClipboard = Array.from(selected);
-        toastSuccess(`已复制 ${selected.size} 个文件到内部剪贴板`);
-      } 
-    }),
-
-    // 👇 粘贴（带路径选择）
-    el('button', { 
-      class: 'btn btn-sm btn-ghost', text: '粘贴', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: () => {
-        if (!window._imgClipboard || window._imgClipboard.length === 0) return toastError('剪贴板为空，请先复制文件');
-        
-        const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
-        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
-          el('h3', { text: '选择粘贴位置' }),
-          el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `剪贴板中有 ${window._imgClipboard.length} 个文件` }),
-          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
-            el('button', { class: 'btn btn-primary', text: '📁 粘贴到当前文件夹', onClick: async () => {
-              mask.remove();
-              await doPasteToPoint(point.id);
-            }}),
-            el('button', { class: 'btn btn-ghost', text: '📂 选择其他文件夹粘贴...', onClick: () => {
-              mask.remove();
-              const targetPointId = prompt('请输入目标知识点/卡片的 ID', point.id);
-              if (targetPointId) {
-                if (store.getPoint(targetPointId)) {
-                  doPasteToPoint(targetPointId);
-                } else {
-                  toastError('未找到对应的知识点，粘贴失败');
-                }
-              }
-            }}),
-            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
-          ])
-        ]);
-        mask.appendChild(box);
-        document.body.appendChild(mask);
-
-        async function doPasteToPoint(targetId) {
-          const targetPt = store.getPoint(targetId);
-          if (!targetPt) return;
-          for (const oldId of window._imgClipboard) {
-            const rec = await dbGet('images', oldId);
-            if (rec) {
-              const newId = uuid();
-              await dbPut('images', { ...rec, id: newId, createdAt: new Date().toISOString() });
-              if (!targetPt.imageIds) targetPt.imageIds = [];
-              targetPt.imageIds.push(newId);
             }
+            store.updatePoint(targetPt.id, { imageIds: targetPt.imageIds });
+            toastSuccess(`成功粘贴 ${window._imgClipboard.length} 个文件`);
+            selected.clear();
+            if (targetId === point.id) onRefresh();
           }
-          store.updatePoint(targetPt.id, { imageIds: targetPt.imageIds });
-          toastSuccess(`成功粘贴 ${window._imgClipboard.length} 个文件`);
-          selected.clear();
-          if (targetId === point.id) onRefresh();
         }
-      } 
-    }),
+      }),
 
-    // 👇 删除功能
-    el('button', { 
-      class: 'btn btn-sm btn-danger', text: '删除', 
-      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
-      onClick: () => { 
-        if (selected.size === 0) return toastError('请先选择文件');
-        if (confirm(`⚠️ 确定删除选中的 ${selected.size} 个文件吗？此操作不可恢复！`)) {
-          const pt = store.getPoint(point.id);
-          pt.imageIds = pt.imageIds.filter(id => !selected.has(id));
-          store.updatePoint(pt.id, { imageIds: pt.imageIds });
-          selected.forEach(id => {
-            dbDelete('images', id).catch(() => {});
-          });
-          selected.clear();
-          toastSuccess('已删除');
-          onRefresh();
+      // 👇 删除功能
+      el('button', {
+        class: 'btn btn-sm btn-danger', text: '删除',
+        style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
+        onClick: () => {
+          if (selected.size === 0) return toastError('请先选择文件');
+          if (confirm(`⚠️ 确定删除选中的 ${selected.size} 个文件吗？此操作不可恢复！`)) {
+            const pt = store.getPoint(point.id);
+            pt.imageIds = pt.imageIds.filter(id => !selected.has(id));
+            store.updatePoint(pt.id, { imageIds: pt.imageIds });
+            selected.forEach(id => {
+              dbDelete('images', id).catch(() => { });
+            });
+            selected.clear();
+            toastSuccess('已删除');
+            onRefresh();
+          }
         }
-      } 
+      })
+    ]) : null,
+
+    // 👇 6. 搜索框
+    el('input', {
+      type: 'text', placeholder: '🔍 搜索文件...',
+      value: searchQuery,
+      style: {
+        flex: '1',
+        minWidth: '140px',
+        maxWidth: '300px',
+        padding: '4px 10px',
+        borderRadius: '20px',
+        border: '1px solid rgba(0,0,0,.1)',
+        fontSize: '13px',
+        outline: 'none',
+        height: '28px',
+        zIndex: '10'
+      },
+      onInput: (e) => { searchQuery = e.target.value.toLowerCase(); onRefresh(); }
     })
-  ]) : null,
-
-  // 👇 6. 搜索框
-  el('input', {
-    type: 'text', placeholder: '🔍 搜索文件...',
-    value: searchQuery,
-    style: {
-      flex: '1',
-      minWidth: '140px',
-      maxWidth: '300px',
-      padding: '4px 10px',
-      borderRadius: '20px',
-      border: '1px solid rgba(0,0,0,.1)',
-      fontSize: '13px',
-      outline: 'none',
-      height: '28px',
-      zIndex: '10'
-    },
-    onInput: (e) => { searchQuery = e.target.value.toLowerCase(); onRefresh(); }
-  })
-]);
-wrap.appendChild(topBar);
+  ]);
+  wrap.appendChild(topBar);
 
   // 👇 核心新增：自动给这个操作栏里的所有按钮加上“长按提示”
   // 延时执行，确保按钮都已经挂载到 DOM 上
@@ -688,7 +696,7 @@ wrap.appendChild(topBar);
           },
           style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 4px', paddingBottom: '4px', borderBottom: groupName === '' ? 'none' : '1px dashed rgba(0,0,0,.1)', paddingLeft: indent + 'px', borderRadius: '4px', transition: 'background 0.2s' }
         }, [
-                    el('div', {
+          el('div', {
             style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)', cursor: groupName === '' ? 'default' : 'pointer', userSelect: 'none' },
             onClick: () => {
               if (groupName === '') return;
@@ -698,14 +706,14 @@ wrap.appendChild(topBar);
                 else if (pwd !== null) { toastError('密码错误'); }
                 return;
               }
-              
+
               // 👇👇👇 核心新增：解除全局强制状态 👇👇👇
               window.forceExpandAll = false;
               window.forceCollapseAll = false;
               // 👆👆👆 ------------------------ 👆👆👆
-              
-              collapsed[groupName] = !isCollapsed; 
-              saveCollapsed(collapsed); 
+
+              collapsed[groupName] = !isCollapsed;
+              saveCollapsed(collapsed);
               onRefresh();
             },
             onDblClick: (e) => {
@@ -1191,19 +1199,19 @@ wrap.appendChild(topBar);
           mask.remove(); URL.revokeObjectURL(url); onRefresh();
         }
       }),
-            // 👇 新增：一键提取文字 (OCR)
+      // 👇 新增：一键提取文字 (OCR)
       el('button', {
-        class: 'btn btn-ghost', text: '🔤 提取文字', 
+        class: 'btn btn-ghost', text: '🔤 提取文字',
         style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },
         onClick: async () => {
           if (!window.Tesseract) { toastError('OCR 库未加载'); return; }
-          
+
           toastSuccess('正在识别文字，请稍候…');
           try {
             // 直接调用全局的 Tesseract 识别
             const result = await window.Tesseract.recognize(blob, 'chi_sim+eng');
             const text = result.data.text.trim();
-            
+
             if (!text) {
               toastError('未识别到文字，请确认图片是否清晰');
               return;
@@ -1231,9 +1239,9 @@ wrap.appendChild(topBar);
                   onClick: () => {
                     const pt = store.getPoint(point.id);
                     if (pt) {
-                      const newPoint = store.createPoint({ 
-                        chapterId: pt.chapterId, 
-                        content: text, 
+                      const newPoint = store.createPoint({
+                        chapterId: pt.chapterId,
+                        content: text,
                         imageIds: [imageId] // 顺便把原图也带上
                       });
                       toastSuccess('已创建新知识点');

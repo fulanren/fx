@@ -5,75 +5,75 @@ import { uuid } from '../utils/id.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 
 export function renderUploadPdf({ params }) {
-  const pointId = params.id;
-  const view = document.getElementById('view');
-  clear(view);
-  document.getElementById('page-title').textContent = '导入 PDF';
-  document.getElementById('btn-back').classList.remove('hidden');
-  document.getElementById('btn-back').onclick = () => history.back();
+    const pointId = params.id;
+    const view = document.getElementById('view');
+    clear(view);
+    document.getElementById('page-title').textContent = '导入 PDF';
+    document.getElementById('btn-back').classList.remove('hidden');
+    document.getElementById('btn-back').onclick = () => history.back();
 
-  const container = el('div', { style: { padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', textAlign: 'center' } });
-  container.appendChild(el('div', { style: { fontSize: '64px' }, text: '📄' }));
-  container.appendChild(el('h2', { text: '请选择要导入的 PDF 文件' }));
-  
-  // 原生 input，绝对不报错
-  const input = el('input', {
-    type: 'file',
-    accept: 'application/pdf',
-    style: { fontSize: '16px', padding: '12px', borderRadius: '8px', border: '2px dashed var(--primary)', background: 'var(--bg)', width: '100%', maxWidth: '300px' },
-    onChange: async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      
-      // 清除 input 的值，方便下次选同一个文件
-      e.target.value = '';
+    const container = el('div', { style: { padding: '40px 20px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '20px', textAlign: 'center' } });
+    container.appendChild(el('div', { style: { fontSize: '64px' }, text: '📄' }));
+    container.appendChild(el('h2', { text: '请选择要导入的 PDF 文件' }));
 
-      if (!window.pdfjsLib) {
-        toastError('PDF.js 库未加载');
-        return;
-      }
+    // 原生 input，绝对不报错
+    const input = el('input', {
+        type: 'file',
+        accept: 'application/pdf',
+        style: { fontSize: '16px', padding: '12px', borderRadius: '8px', border: '2px dashed var(--primary)', background: 'var(--bg)', width: '100%', maxWidth: '300px' },
+        onChange: async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-      toastSuccess('正在解析 PDF…');
-      try {
-        // 1. 存入文件
-        const pdfId = uuid();
-        await dbPut('pdfs', {
-          id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString()
-        });
+            // 清除 input 的值，方便下次选同一个文件
+            e.target.value = '';
 
-        // 2. 解析 PDF
-        const buf = await file.arrayBuffer();
-        const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+            if (!window.pdfjsLib) {
+                toastError('PDF.js 库未加载');
+                return;
+            }
 
-        // 3. 生成占位图
-        const fakeImageId = uuid();
-        await putImageCached({
-          id: fakeImageId,
-          type: 'pdf_placeholder',
-          originalBlob: new Blob([], { type: 'text/plain' }),
-          annotatedBlob: new Blob([], { type: 'text/plain' }),
-          width: 0, height: 0, dpr: 1,
-          pdfId: pdfId,
-          pdfName: file.name,
-          pdfPages: pdf.numPages,
-          createdAt: new Date().toISOString()
-        });
+            toastSuccess('正在解析 PDF…');
+            try {
+                // 1. 存入文件
+                const pdfId = uuid();
+                await dbPut('pdfs', {
+                    id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString()
+                });
 
-        // 4. 写入知识点
-        store.addImageToPoint(pointId, fakeImageId);
+                // 2. 解析 PDF
+                const buf = await file.arrayBuffer();
+                const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
 
-        // 5. 弹出选页弹窗
-        showPagePicker(pdf, pointId);
-        
-      } catch (err) {
-        console.error(err);
-        toastError('解析失败：' + err.message);
-      }
-    }
-  });
-  
-  container.appendChild(input);
-  view.appendChild(container);
+                // 3. 生成占位图
+                const fakeImageId = uuid();
+                await putImageCached({
+                    id: fakeImageId,
+                    type: 'pdf_placeholder',
+                    originalBlob: new Blob([], { type: 'text/plain' }),
+                    annotatedBlob: new Blob([], { type: 'text/plain' }),
+                    width: 0, height: 0, dpr: 1,
+                    pdfId: pdfId,
+                    pdfName: file.name,
+                    pdfPages: pdf.numPages,
+                    createdAt: new Date().toISOString()
+                });
+
+                // 4. 写入知识点
+                store.addImageToPoint(pointId, fakeImageId);
+
+                // 5. 弹出选页弹窗
+                showPagePicker(pdf, pointId);
+
+            } catch (err) {
+                console.error(err);
+                toastError('解析失败：' + err.message);
+            }
+        }
+    });
+
+    container.appendChild(input);
+    view.appendChild(container);
 }
 
 // ============ 选页弹窗（全部写在内部） ============

@@ -301,7 +301,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
   }
 
   // ============ 重绘（同步） ============
-    function redraw() {
+  function redraw() {
     ctx.clearRect(0, 0, W, H);
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
@@ -561,11 +561,11 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
         t.erasedPath = t.erasedPath.slice(-Math.floor(MAX_POINTS / 2));
       }
     });
-    if (changed) { 
-      redrawAsync(); 
+    if (changed) {
+      redrawAsync();
       // 👇 核心修复：只有停手 300 毫秒后，才真正写盘
       if (window.__tapeEraseTimer) clearTimeout(window.__tapeEraseTimer);
-      window.__tapeEraseTimer = setTimeout(() => { save(); }, 300); 
+      window.__tapeEraseTimer = setTimeout(() => { save(); }, 300);
     }
   }
 
@@ -625,7 +625,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
     });
     bar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '宽度' }), widthRange, widthNum]));
 
-        // 形状 + 管理按钮
+    // 形状 + 管理按钮
     bar.appendChild(el('div', { class: 'tape-row' }, [
       el('span', { class: 'tape-label', text: '形状' }),
       ...[
@@ -648,7 +648,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
       el('button', { class: 'tape-chip', text: '➕', title: '添加形状', onClick: () => openCustomShapeUpload() }),
     ]));
 
-        // 👇 补回：花样 + 管理按钮
+    // 👇 补回：花样 + 管理按钮
     bar.appendChild(el('div', { class: 'tape-row' }, [
       el('span', { class: 'tape-label', text: '花样' }),
       ...[

@@ -11,7 +11,7 @@ export function pdfImportModal(pointId, presetFile = null) {
             handleFile(presetFile, pointId, resolve);
             return;
         }
-        
+
         // 如果没传文件（比如是其他旧代码调用的），保留兜底
         const fileInput = el('input', {
             type: 'file', accept: 'application/pdf', style: { display: 'none' },
@@ -43,7 +43,7 @@ async function handleFile(file, pointId, resolve) {
 
         // 3. 保存为附件占位图（让列表里能看到它）
         const fakeImageId = uuid();
-        // 👇 新增：生成第一页封面
+        // 生成第一页封面
         let coverUrl = '';
         try {
             const page1 = await pdf.getPage(1);
@@ -69,10 +69,10 @@ async function handleFile(file, pointId, resolve) {
 
         // 4. 写入知识点
         store.addImageToPoint(pointId, fakeImageId);
-        
+
         // 5. 弹出选页框！
         showPagePicker(pdf, pointId, resolve);
-        
+
     } catch (err) {
         console.error(err);
         toastError('PDF 解析失败');

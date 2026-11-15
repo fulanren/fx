@@ -23,7 +23,7 @@ export async function exportFullBackup() {
   // 2. 处理动态的图片数据 (IndexedDB)
   const imagesMap = {};
   const imgFolder = zip.folder('images');
-  
+
   if (window.indexedDB && dbGet) {
     // 这里假设你有办法获取所有 images 的 id (或者通过遍历 kg_points 找 imageIds)
     const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
@@ -93,12 +93,12 @@ export function importFullBackup() {
       if (imgFolder && window.dbPut) {
         const imgFiles = [];
         imgFolder.forEach((path, file) => { if (!file.dir) imgFiles.push(file); });
-        
+
         for (const file of imgFiles) {
           const id = file.name.replace('.png', '');
           const blob = await file.async('blob');
           const imgMeta = meta.imagesMap[id] || {};
-          
+
           await dbPut('images', {
             id,
             originalBlob: blob,

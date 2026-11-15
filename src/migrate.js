@@ -3,10 +3,10 @@ export function migrate() {
   const stored = Number(localStorage.getItem('kg_schema_version') || 0);
   if (stored === SCHEMA_VERSION) return;
   if (stored < 1) {
-    ['kg_tasks','kg_chapters','kg_points','kg_inbox','kg_recycle_bin',
-     'kg_timer_records','kg_audio_index','kg_patterns'].forEach(k => {
-      if (!localStorage.getItem(k)) localStorage.setItem(k, '[]');
-    });
+    ['kg_tasks', 'kg_chapters', 'kg_points', 'kg_inbox', 'kg_recycle_bin',
+      'kg_timer_records', 'kg_audio_index', 'kg_patterns'].forEach(k => {
+        if (!localStorage.getItem(k)) localStorage.setItem(k, '[]');
+      });
     if (!localStorage.getItem('kg_settings')) {
       localStorage.setItem('kg_settings', JSON.stringify({
         theme: 'system', penOnly: true,

@@ -17,9 +17,9 @@ export function renderInbox() {
   // 渲染列表的函数
   function renderList() {
     view.innerHTML = '';
-    
+
     const items = store.getInbox ? store.getInbox() : [];
-    
+
     if (items.length === 0) {
       view.appendChild(el('div', { class: 'empty', text: '收件箱空空的~' }));
       return;
@@ -60,10 +60,10 @@ export function renderInbox() {
 
     // 👇 列表渲染
     const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 16px' } });
-    
+
     items.forEach(item => {
       const isSelected = selected.has(item.id);
-      
+
       const card = el('div', {
         style: { padding: '12px', background: isSelected ? 'rgba(142,202,230,0.15)' : 'var(--card)', borderRadius: '8px', border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(0,0,0,.05)', display: 'flex', gap: '12px', alignItems: 'flex-start', cursor: 'pointer', transition: 'all 0.2s' },
         onClick: () => {
@@ -77,17 +77,19 @@ export function renderInbox() {
         }
       }, [
         // 多选框
-        isMulti ? el('input', { type: 'checkbox', checked: isSelected, style: { marginTop: '4px' }, onClick: (e) => e.stopPropagation(), onChange: (e) => {
-          if (e.target.checked) selected.add(item.id); else selected.delete(item.id);
-          renderList();
-        }}) : null,
-        
+        isMulti ? el('input', {
+          type: 'checkbox', checked: isSelected, style: { marginTop: '4px' }, onClick: (e) => e.stopPropagation(), onChange: (e) => {
+            if (e.target.checked) selected.add(item.id); else selected.delete(item.id);
+            renderList();
+          }
+        }) : null,
+
         // 内容区
         el('div', { style: { flex: '1' } }, [
           el('div', { style: { fontSize: '14px', whiteSpace: 'pre-wrap', lineHeight: '1.5' }, text: item.content }),
           el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginTop: '8px' }, text: new Date(item.createdAt).toLocaleString() })
         ]),
-        
+
         // 非多选模式下的删除按钮
         !isMulti ? el('button', {
           class: 'btn btn-sm btn-ghost', text: '🗑', style: { color: 'var(--danger)' },
@@ -104,7 +106,7 @@ export function renderInbox() {
     });
 
     view.appendChild(list);
-    
+
     // 底部留白
     view.appendChild(el('div', { style: { height: '80px' } }));
   }

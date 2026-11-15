@@ -119,7 +119,7 @@ function recycleCard(item) {
     el('div', { class: 'card-title', text: name }),
     el('div', { class: 'card-meta', style: { display: 'flex', gap: '12px', alignItems: 'center' } }, [
       // 👇 解析时间并格式化
-      el('span', { 
+      el('span', {
         text: `删除于 ${(() => {
           const d = new Date(item.deletedAt);
           const y = d.getFullYear();
@@ -128,11 +128,11 @@ function recycleCard(item) {
           const h = String(d.getHours()).padStart(2, '0');
           const min = String(d.getMinutes()).padStart(2, '0');
           return `${y}-${m}-${day} ${h}:${min}`;
-        })()}` 
+        })()}`
       }),
-      el('span', { 
-        text: `剩余 ${remain} 天`, 
-        style: remain <= 3 ? { color: 'var(--danger)', fontWeight: '600' } : {} 
+      el('span', {
+        text: `剩余 ${remain} 天`,
+        style: remain <= 3 ? { color: 'var(--danger)', fontWeight: '600' } : {}
       }),
     ]),
     !multiMode ? el('div', { class: 'card-actions' }, [

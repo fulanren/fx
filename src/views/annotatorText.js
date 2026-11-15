@@ -95,14 +95,14 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
         else ctx.rect(0, 0, item.w, item.h);
         ctx.fill();
       }
-          // 绘制文字上的超链接图标
-    if (item.link && !window.__isSavingImage) {
-      ctx.save();
-      ctx.font = '16px sans-serif';
-      // 在文字的右上角画一个小链接图标
-      ctx.fillText('🔗', item.x + item.w - 18, item.y + 16);
-      ctx.restore();
-    }
+      // 绘制文字上的超链接图标
+      if (item.link && !window.__isSavingImage) {
+        ctx.save();
+        ctx.font = '16px sans-serif';
+        // 在文字的右上角画一个小链接图标
+        ctx.fillText('🔗', item.x + item.w - 18, item.y + 16);
+        ctx.restore();
+      }
     }
 
     // 背景
@@ -146,7 +146,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     });
     ctx.restore();
 
-        // 选中框（加了极其严苛的限制）
+    // 选中框（加了极其严苛的限制）
     if (selectedId === item.id && !window.__isSavingImage && window.__showTextSelection !== false) {
       ctx.save();
       ctx.strokeStyle = '#3B82F6';
@@ -189,7 +189,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
   }
 
   // ============ 重绘 ============
-    function redraw() {
+  function redraw() {
     ctx.clearRect(0, 0, W, H);
     items.forEach(item => {
       if (item.visible === false) return;
@@ -305,20 +305,20 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     redraw();
   }
 
-     function removeText(item) {
+  function removeText(item) {
     const idx = items.indexOf(item);
     if (idx >= 0) {
       items.splice(idx, 1);
       if (selectedId === item.id) selectedId = null;
-      
+
       // 👇 核心：关闭选中框显示，并强制重绘！
       window.__showTextSelection = false;
       save();
       redraw();
-      
+
       // 稍微延迟恢复（防止外层的点击事件把它又打开）
       setTimeout(() => { window.__showTextSelection = true; }, 500);
-      
+
       if (typeof window.__updateSubToolbar === 'function') {
         window.__updateSubToolbar();
       }
@@ -416,12 +416,12 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
   load();
   redraw();
 
-    // ============ 文字列表管理 ============
+  // ============ 文字列表管理 ============
   function openTextListManager() {
     const selected = new Set();
     const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } });
 
-        function renderList() {
+    function renderList() {
       list.innerHTML = '';
       if (items.length === 0) {
         list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有文字' }));
@@ -450,7 +450,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
           onClick: (e) => {
             // 如果点的是右边那些按钮，就不触发勾选
             if (e.target.tagName === 'BUTTON') return;
-            
+
             // 切换状态并刷新界面
             if (selected.has(item.id)) selected.delete(item.id);
             else selected.add(item.id);
@@ -459,7 +459,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
         }, [
           checkCircle,
           el('span', { style: { flex: '1', fontSize: '13px', color: 'var(--text)' }, text: `${i + 1}. ${(item.text || '（空）').slice(0, 30)}` }),
-          
+
           // 收藏按钮
           el('button', {
             class: 'tape-chip' + (isFav ? ' active' : ''),
@@ -471,7 +471,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
               renderList();
             },
           }),
-          
+
           // 编辑按钮
           el('button', {
             class: 'tape-chip', text: '✏️ 编辑',
@@ -484,7 +484,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
             },
           }),
         ]);
-        
+
         list.appendChild(row);
       });
     }
@@ -494,43 +494,43 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
         el('h3', { text: '文字列表' }),
         el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
-          el('button', { 
-            class: 'btn btn-sm btn-ghost', 
-            text: '全选', 
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '全选',
             style: { pointerEvents: 'auto' },
-            onClick: (e) => { 
-              e.preventDefault(); 
+            onClick: (e) => {
+              e.preventDefault();
               e.stopPropagation();
-              items.forEach(it => selected.add(it.id)); 
+              items.forEach(it => selected.add(it.id));
               // 核心绝杀：绕过数据渲染，直接暴力勾选所有 DOM 复选框
               list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = true);
-              renderList(); 
-            } 
+              renderList();
+            }
           }),
-          el('button', { 
-            class: 'btn btn-sm btn-ghost', 
-            text: '全不选', 
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '全不选',
             style: { pointerEvents: 'auto' },
-            onClick: (e) => { 
-              e.preventDefault(); 
+            onClick: (e) => {
+              e.preventDefault();
               e.stopPropagation();
-              selected.clear(); 
+              selected.clear();
               // 核心绝杀：绕过数据渲染，直接暴力取消勾选所有 DOM 复选框
               list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = false);
-              renderList(); 
-            } 
+              renderList();
+            }
           }),
         ]),
         list,
         el('div', { class: 'confirm-actions' }, [
-          el('button', { 
-            class: 'btn btn-ghost', 
-            text: '关闭', 
+          el('button', {
+            class: 'btn btn-ghost',
+            text: '关闭',
             style: { pointerEvents: 'auto' },
-            onClick: (e) => { e.stopPropagation(); mask.remove(); } 
+            onClick: (e) => { e.stopPropagation(); mask.remove(); }
           }),
           el('button', {
-            class: 'btn btn-danger', 
+            class: 'btn btn-danger',
             text: '删除选中',
             style: { pointerEvents: 'auto' },
             onClick: (e) => {

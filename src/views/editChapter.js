@@ -10,7 +10,7 @@ export function renderEditChapter({ params, query }) {
   const isNew = params.id === 'new';
   const original = isNew ? { name: '', book: '', part: '', note: '' } : store.getChapter(params.id);
   if (!original) { navigate('#/'); return; }
-    let taskId = isNew ? query.taskId : original.taskId;
+  let taskId = isNew ? query.taskId : original.taskId;
 
   const view = document.getElementById('view');
   clear(view);
@@ -50,15 +50,15 @@ export function renderEditChapter({ params, query }) {
     ]),
   ]));
 
-    // ============ 归档任务选择区 ============
+  // ============ 归档任务选择区 ============
   const folderSection = el('div', { class: 'section', style: { background: 'rgba(142, 202, 230, 0.05)', marginBottom: '16px', borderRadius: '8px', border: '1px solid rgba(142, 202, 230, 0.2)' } });
-  
+
   function renderFolderSelector() {
     folderSection.innerHTML = '';
     const header = el('div', { class: 'section-head', style: { paddingBottom: '8px', borderBottom: 'none' } }, [
       el('span', { text: '📁 归档任务' })
     ]);
-    
+
     const currentTask = taskId ? store.getTask(taskId) : null;
 
     const infoRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', margin: '0 16px 12px' } });
@@ -72,18 +72,18 @@ export function renderEditChapter({ params, query }) {
           const newName = prompt('输入新任务名称（回车即可建好并归入）：', '新任务');
           if (!newName || !newName.trim()) return;
           const newTask = store.createTask({ name: newName.trim() });
-          taskId = newTask.id; 
+          taskId = newTask.id;
           renderFolderSelector();
           toastSuccess(`已新建并放入任务「${newName}」`);
         }
       })
     ]);
-    
+
     folderSection.appendChild(header);
     folderSection.appendChild(infoRow);
     folderSection.appendChild(actionRow);
   }
-  
+
   renderFolderSelector();
   view.appendChild(folderSection);
 
@@ -142,30 +142,30 @@ export function renderEditChapter({ params, query }) {
 
   function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
-    function doSave() {
+  function doSave() {
     if (!form.name.trim()) { setStatus('请填写名称', 'failed'); return; }
-    
+
     let finalTaskId = taskId;
-    
+
     if (isNew) {
-      const newChap = store.createChapter({ 
+      const newChap = store.createChapter({
         taskId: finalTaskId, // 👈 使用最新的归属 ID
-        name: form.name.trim(), 
-        book: form.book.trim(), 
-        part: form.part.trim(), 
-        note: form.note.trim() 
+        name: form.name.trim(),
+        book: form.book.trim(),
+        part: form.part.trim(),
+        note: form.note.trim()
       });
       finalTaskId = newChap.taskId; // 防止因为兜底生成任务而拿不到 id
     } else {
-      store.updateChapter(params.id, { 
+      store.updateChapter(params.id, {
         taskId: finalTaskId, // 也允许编辑时修改任务归属
-        name: form.name.trim(), 
-        book: form.book.trim(), 
-        part: form.part.trim(), 
-        note: form.note.trim() 
+        name: form.name.trim(),
+        book: form.book.trim(),
+        part: form.part.trim(),
+        note: form.note.trim()
       });
     }
-    
+
     clearDraft('chapter', entityId);
     toastSuccess('已保存');
     navigate(`#/chapter-list/${finalTaskId}`); // 跳到最新的任务下

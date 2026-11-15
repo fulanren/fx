@@ -327,7 +327,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
 
   // ============ 选中框 ============
   function drawSelection(ctx, p) {
-    if (window.__isSavingImage) return; 
+    if (window.__isSavingImage) return;
     ctx.save();
     ctx.translate(p.x + p.w / 2, p.y + p.h / 2);
     ctx.rotate((p.rotation || 0) * Math.PI / 180);
