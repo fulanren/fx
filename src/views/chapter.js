@@ -400,17 +400,15 @@ function pointCard(p, chapterId) {
 
   // 卡片主体
   const card = el('div', {
-    class: 'card point-card-content' + (isSelected ? ' selected' : ''), // 👈 加上 point-card-content 类名
+    class: 'card point-card-content' + (isSelected ? ' selected' : ''), 
     style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s', background: 'var(--card)' }
   });
 
   const header = el('div', {
     onClick: (e) => {
-      // 如果点在多选框或按钮上，不触发折叠
       if (e.target.closest('input') || e.target.closest('button')) return;
 
       if (ptMulti) {
-        // 多选模式下点击卡片 = 勾选
         if (isSelected) ptSelected.delete(p.id); else ptSelected.add(p.id);
         renderChapterDetail({ params: { id: chapterId } });
         return;
@@ -421,7 +419,6 @@ function pointCard(p, chapterId) {
     }
   }, [
     el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' } }, [
-
       // 左侧：多选框 + 内容标题
       el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', flex: '1' } }, [
         ptMulti ? el('input', {
@@ -434,7 +431,7 @@ function pointCard(p, chapterId) {
         el('div', { style: { fontSize: '15px', fontWeight: '600', whiteSpace: 'pre-wrap', lineHeight: '1.5' }, text: p.content })
       ]),
 
-      // 👇 右侧：直接挂上标签（不点开也能看到）
+      // 右侧：标签（难记度、背记数）
       (() => {
         const allPts = JSON.parse(localStorage.getItem('kg_points') || '[]');
         const freshP = allPts.find(x => x.id === p.id) || p;
@@ -505,23 +502,18 @@ function pointCard(p, chapterId) {
   card.appendChild(header);
   card.appendChild(contentBox);
 
-  // 👇👇👇 新增：把卡片包进滑动容器中 👇👇👇
-  const btnDelete = el('div', {
-    class: 'swipe-action-btn delete', text: '🗑 删除',
-    onClick: async (e) => {
-      e.stopPropagation();
-      if (await confirmBox({ title: '删除', message: '确定删除？', danger: true, confirmText: '删除' })) {
-        store.deletePoint(p.id);
-        toastSuccess('已删除');
-        renderChapterDetail({ params: { id: chapterId } });
-      }
-    }
-  });
+  // 👇 核心修复：补上外层容器 container，把卡片包起来
+  const container = el('div', { 
+    class: 'point-card-container',
+    style: { marginBottom: '8px' } // 保持一点卡片间距
+  }, [card]);
 
-  // 绑定滑动手势（调用我们刚才在 main.js 写的通用函数）
+  // 如果你以后还要用滑动删除，把这里解开
+  /*
   if (window.attachSwipeAction) {
     window.attachSwipeAction(container, null, null);
   }
+  */
 
   return container;
 }

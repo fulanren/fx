@@ -660,3 +660,77 @@ boot().catch(e => {
   console.error('启动失败', e);
   toastError('启动失败：' + e.message);
 });
+
+// ============ 全局通用：长按 500ms 自动显示功能提示 ============
+(function initGlobalLongPress() {
+  let timer = null;
+  let tooltipEl = null;
+
+  const show = (target, text) => {
+    if (!text) return;
+    if (tooltipEl) tooltipEl.remove();
+
+    const rect = target.getBoundingClientRect();
+    tooltipEl = document.createElement('div');
+    tooltipEl.style.cssText = `
+      position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.bottom + 8}px; 
+      transform: translateX(-50%); background: rgba(43,45,66,.95); color: #fff; 
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; 
+      pointer-events: none; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      animation: slideUp 0.2s ease-out;
+    `;
+    tooltipEl.textContent = text;
+    document.body.appendChild(tooltipEl);
+    if (navigator.vibrate) navigator.vibrate(30); // 手机端震动反馈
+  };
+
+  const hide = () => {
+    if (tooltipEl) {
+      tooltipEl.remove();
+      tooltipEl = null;
+    }
+  };
+
+  // 拦截全站的触摸/鼠标按下
+  document.addEventListener('pointerdown', (e) => {
+    const target = e.target.closest('button, .btn, .tool-btn, .tape-chip, .fab, input[type="checkbox"]');
+    if (!target) return;
+
+    // 尝试获取提示文字：优先找 title 属性，其次找 data-tooltip，最后找按钮内的文字
+    let tipText = target.getAttribute('title') || 
+                  target.getAttribute('data-tooltip') || 
+                  target.getAttribute('aria-label') || 
+                  (target.innerText ? target.innerText.trim() : '') ||
+                  (target.textContent ? target.textContent.trim() : '');
+
+    // 如果按钮里是 SVG/Emoji，提取不到文字，就跳过
+    if (!tipText || tipText.length > 10 || tipText.includes('\n')) {
+      // 针对纯图标按钮，你可以通过特殊类名或 id 手动兜底（可根据实际情况调整）
+      if (target.innerHTML.includes('folder')) tipText = '文件夹';
+      else if (target.innerHTML.includes('trash')) tipText = '删除';
+      else if (target.innerHTML.includes('edit') || target.innerHTML.includes('pen')) tipText = '编辑';
+      else return;
+    }
+
+    // 开始 500ms 倒计时
+    timer = setTimeout(() => {
+      show(target, tipText);
+    }, 500);
+  }, { passive: true });
+
+  // 手指抬起、移动、或者鼠标松开时，取消倒计时并隐藏气泡
+  document.addEventListener('pointerup', () => {
+    clearTimeout(timer);
+    setTimeout(hide, 2000);
+  }, { passive: true });
+
+  document.addEventListener('pointermove', () => {
+    clearTimeout(timer);
+    hide();
+  }, { passive: true });
+
+  document.addEventListener('pointercancel', () => {
+    clearTimeout(timer);
+    hide();
+  }, { passive: true });
+})();
