@@ -620,7 +620,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
     });
     bar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '宽度' }), widthRange, widthNum]));
 
-    // 形状
+        // 形状 + 管理按钮
     bar.appendChild(el('div', { class: 'tape-row' }, [
       el('span', { class: 'tape-label', text: '形状' }),
       ...[
@@ -638,68 +638,12 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
           ev.target.classList.add('active');
         },
       })),
+      // 👇 把管理和添加直接塞到这里
+      el('button', { class: 'tape-chip', text: '⚙️', title: '管理形状', onClick: () => openShapeManager() }),
+      el('button', { class: 'tape-chip', text: '➕', title: '添加形状', onClick: () => openCustomShapeUpload() }),
     ]));
 
-    // 形状管理按钮
-    bar.appendChild(el('div', { class: 'tape-row' }, [
-      el('button', { class: 'tape-chip', text: '⚙️ 管理形状', onClick: () => openShapeManager() }),
-      el('button', { class: 'tape-chip', text: '✏️ 添加形状', onClick: () => openCustomShapeUpload() }),
-    ]));
-
-    // 自定义形状缩略图（只在管理弹窗点了"显示"时渲染）
-    if (showShapeList && store.getPatterns && store.getPatterns().length > 0) {
-      const customShapes = store.getPatterns().filter(p => p.type === 'shape');
-      if (customShapes.length > 0) {
-        const shapeRow = el('div', { class: 'tape-row' });
-        customShapes.forEach(p => {
-          const thumb = el('div', {
-            style: {
-              position: 'relative', width: '56px', height: '56px',
-              borderRadius: '8px', overflow: 'hidden',
-              outline: tapePatternImageId === p.id ? '2px solid var(--primary)' : 'none',
-              outlineOffset: '0px',
-              cursor: 'pointer',
-              background: 'repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 12px 12px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: '4px',
-              boxSizing: 'border-box',
-            },
-            title: p.id.slice(0, 8),
-            onClick: () => { tapeShape = 'custom'; tapePatternImageId = p.id; renderTapeToolbar(); },
-          });
-          if (p.thumbUrl) {
-            thumb.appendChild(el('img', {
-              src: p.thumbUrl,
-              style: {
-                width: '100%', height: '100%',
-                objectFit: 'contain',
-                display: 'block',
-              },
-            }));
-          }
-          thumb.appendChild(el('button', {
-            style: {
-              position: 'absolute', top: '0', right: '0',
-              background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none',
-              borderRadius: '0 0 0 6px', width: '18px', height: '18px',
-              fontSize: '12px', cursor: 'pointer', padding: '0',
-              lineHeight: '1',
-            },
-            text: '×',
-            onClick: (e) => {
-              e.stopPropagation();
-              if (!confirm('删除这个形状？')) return;
-              if (store.removePattern) store.removePattern(p.id);
-              renderTapeToolbar();
-            },
-          }));
-          shapeRow.appendChild(thumb);
-        });
-        bar.appendChild(shapeRow);
-      }
-    }
-
-    // 花样
+        // 👇 补回：花样 + 管理按钮
     bar.appendChild(el('div', { class: 'tape-row' }, [
       el('span', { class: 'tape-label', text: '花样' }),
       ...[
@@ -718,15 +662,11 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
           ev.target.classList.add('active');
         },
       })),
+      el('button', { class: 'tape-chip', text: '⚙️', title: '管理花样', onClick: () => openPatternManager() }),
+      el('button', { class: 'tape-chip', text: '➕', title: '添加花样', onClick: () => openPatternUpload() }),
     ]));
 
-    // 花样管理按钮
-    bar.appendChild(el('div', { class: 'tape-row' }, [
-      el('button', { class: 'tape-chip', text: '⚙️ 管理花样', onClick: () => openPatternManager() }),
-      el('button', { class: 'tape-chip', text: '✏️ 添加花样', onClick: () => openPatternUpload() }),
-    ]));
-
-    // 自定义花样缩略图（只在管理弹窗点了"显示"时渲染）
+    // 👇 补回：自定义花样缩略图
     if (showPatternList && store.getPatterns && store.getPatterns().length > 0) {
       const patterns = store.getPatterns().filter(p => p.type === 'pattern');
       if (patterns.length > 0) {
@@ -750,11 +690,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
           if (p.thumbUrl) {
             thumb.appendChild(el('img', {
               src: p.thumbUrl,
-              style: {
-                width: '100%', height: '100%',
-                objectFit: 'contain',
-                display: 'block',
-              },
+              style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
             }));
           }
           thumb.appendChild(el('button', {
@@ -762,8 +698,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
               position: 'absolute', top: '0', right: '0',
               background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none',
               borderRadius: '0 0 0 6px', width: '18px', height: '18px',
-              fontSize: '12px', cursor: 'pointer', padding: '0',
-              lineHeight: '1',
+              fontSize: '12px', cursor: 'pointer', padding: '0', lineHeight: '1',
             },
             text: '×',
             onClick: (e) => {
@@ -776,6 +711,54 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
           patternRow.appendChild(thumb);
         });
         bar.appendChild(patternRow);
+      }
+    }
+
+    // 自定义形状缩略图
+    if (showShapeList && store.getPatterns && store.getPatterns().length > 0) {
+      const customShapes = store.getPatterns().filter(p => p.type === 'shape');
+      if (customShapes.length > 0) {
+        const shapeRow = el('div', { class: 'tape-row' });
+        customShapes.forEach(p => {
+          const thumb = el('div', {
+            style: {
+              position: 'relative', width: '56px', height: '56px',
+              borderRadius: '8px', overflow: 'hidden',
+              outline: tapePatternImageId === p.id ? '2px solid var(--primary)' : 'none',
+              outlineOffset: '0px',
+              cursor: 'pointer',
+              background: 'repeating-conic-gradient(#f0f0f0 0% 25%, #fff 0% 50%) 50% / 12px 12px',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: '4px',
+              boxSizing: 'border-box',
+            },
+            title: p.id.slice(0, 8),
+            onClick: () => { tapeShape = 'custom'; tapePatternImageId = p.id; renderTapeToolbar(); },
+          });
+          if (p.thumbUrl) {
+            thumb.appendChild(el('img', {
+              src: p.thumbUrl,
+              style: { width: '100%', height: '100%', objectFit: 'contain', display: 'block' },
+            }));
+          }
+          thumb.appendChild(el('button', {
+            style: {
+              position: 'absolute', top: '0', right: '0',
+              background: 'rgba(0,0,0,.6)', color: '#fff', border: 'none',
+              borderRadius: '0 0 0 6px', width: '18px', height: '18px',
+              fontSize: '12px', cursor: 'pointer', padding: '0', lineHeight: '1',
+            },
+            text: '×',
+            onClick: (e) => {
+              e.stopPropagation();
+              if (!confirm('删除这个形状？')) return;
+              if (store.removePattern) store.removePattern(p.id);
+              renderTapeToolbar();
+            },
+          }));
+          shapeRow.appendChild(thumb);
+        });
+        bar.appendChild(shapeRow);
       }
     }
 

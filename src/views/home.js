@@ -3,9 +3,7 @@ import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { toastSuccess } from '../ui/toast.js';
 import { confirmBox } from '../ui/confirm.js';
-import { mergeModal } from '../ui/mergeModal.js';
-import { makeSortable } from '../ui/sortable.js';
-import { pasteData, copyTask } from '../store.js';
+import { dbGet } from '../db.js';
 
 // ============ 文件夹折叠状态 ============
 function getCollapsedFolders() {
@@ -29,50 +27,27 @@ function setInboxCollapsed(val) {
   localStorage.setItem('kg_inbox_collapsed', val);
 }
 
-// ============ 章节展开状态（持久化） ============
-const EXPANDED_KEY = 'kg_expanded_tasks';
-
-function getExpanded() {
-  try { return new Set(JSON.parse(localStorage.getItem(EXPANDED_KEY) || '[]')); }
-  catch { return new Set(); }
-}
-let expandedTasks = getExpanded();
-
-function saveExpanded() {
-  try { localStorage.setItem(EXPANDED_KEY, JSON.stringify([...expandedTasks])); }
-  catch { }
-}
-
 // 全局（文件夹）多选状态
 let multiSelectMode = false;
 const selectedIds = new Set();
 
-// 👇 新增：散落卡片独立的专属多选状态
+// 散落卡片独立的专属多选状态
 let cardMultiMode = false;
 const selectedCardIds = new Set();
-let sortableInstance = null;
 
 export function renderHome() {
   const view = document.getElementById('view');
   clear(view);
+  
+  // 👈 【修复】彻底删掉 view.style.padding，防止在平板上导致滚动死锁
 
-  view.style.padding = '16px'; 
-  
-  // 👇 核心：只有首页增加内边距，让卡片不要贴边
-  view.style.padding = '16px'; 
-  
-  document.getElementById('page-title').textContent = multiSelectMode ? '选择任务' : '资料库';
-  document.getElementById('btn-back').classList.add('hidden');
-  // ... 下面的代码保持不变 ...
   document.getElementById('page-title').textContent = multiSelectMode ? '选择任务' : '资料库';
   document.getElementById('btn-back').classList.add('hidden');
 
   // 1. 今日待复习
   const due = store.getDuePoints();
   if (!multiSelectMode && due.length > 0) {
-    // 读取是否被用户隐藏了
     const isDueHidden = localStorage.getItem('kg_hide_due_banner') === 'true';
-
     if (!isDueHidden) {
       view.appendChild(el('div', { class: 'banner banner-warn', style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '8px' } }, [
         el('span', { text: `📌 今日待复习 ${due.length} 个知识点`, style: { flex: '1', minWidth: '120px' } }),
@@ -168,10 +143,10 @@ export function renderHome() {
           const isSelected = selectedCardIds.has(p.id);
 
           grid.appendChild(el('div', {
-            class: 'card' + (isSelected ? ' selected' : ''),
+            class: 'card', // 直接去掉 selected 状态的判断
             style: {
               position: 'relative', cursor: 'pointer', padding: '16px', margin: '0',
-              border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.05)',
+              border: '1px solid rgba(0,0,0,.05)', // 永远保持默认的极细边框
               display: 'flex', gap: '8px', alignItems: 'flex-start',
               opacity: (cardMultiMode && !isSelected) ? '0.6' : '1'
             },
@@ -186,7 +161,7 @@ export function renderHome() {
               }
             }
           }, [
-            // 👇 专属多选框
+            // 专属多选框
             cardMultiMode ? el('input', {
               type: 'checkbox',
               checked: isSelected,
@@ -232,7 +207,6 @@ export function renderHome() {
       view.appendChild(el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)', margin: '16px 0 8px' }, text: '📁 我的文件夹' }));
       const list = el('div', { id: 'task-list' });
 
-      // 👇 递归渲染函数
       const renderTree = (parentId, depth) => {
         tasks.filter(t => (t.parentId || null) === parentId).forEach(t => {
           const wrapper = el('div', { style: { marginLeft: depth === 0 ? '0' : '24px', position: 'relative' } });
@@ -243,14 +217,13 @@ export function renderHome() {
           wrapper.appendChild(taskCard(t));
           list.appendChild(wrapper);
 
-          // 👇 只有没被折叠的，才去渲染它的子文件夹
           if (!collapsedFolders.has(t.id)) {
             renderTree(t.id, depth + 1);
           }
         });
       };
 
-      renderTree(null, 0); // 从最顶层（parentId 为 null）开始渲染
+      renderTree(null, 0);
       view.appendChild(list);
     }
 
@@ -263,21 +236,32 @@ export function renderHome() {
       ]));
     }
   } else {
-    // 批量模式下的逻辑
+    // 6. 批量模式下的逻辑（补回全选与取消按钮）
     view.appendChild(el('div', { class: 'batch-bar' }, [
       el('span', { text: `已选 ${selectedIds.size} 项` }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { tasks.forEach(t => selectedIds.add(t.id)); renderHome(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { multiSelectMode = false; selectedIds.clear(); renderHome(); } }),
     ]));
-    // (如果你有多选删除逻辑可以保留，这里先省略不影响显示)
+    
+    const list = el('div', { id: 'task-list' });
+    const renderTree = (parentId, depth) => {
+      tasks.filter(t => (t.parentId || null) === parentId).forEach(t => {
+        list.appendChild(taskCard(t));
+        if (!collapsedFolders.has(t.id)) {
+          renderTree(t.id, depth + 1);
+        }
+      });
+    };
+    renderTree(null, 0);
+    view.appendChild(list);
   }
 
-  // 6. 右下角 + 号（新建卡片）
+  // 7. 右下角 + 号（新建卡片）
   if (!multiSelectMode) {
     view.appendChild(el('button', {
       class: 'fab', text: '+', 'aria-label': '新建卡片',
       style: { zIndex: 99999, fontSize: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-      onClick: () => navigate('#/edit-point/new'), // 👈 直接进卡片编辑
+      onClick: () => navigate('#/edit-point/new'),
     }));
   }
 
@@ -286,15 +270,10 @@ export function renderHome() {
 
 function taskCard(task) {
   const isSelected = selectedIds.has(task.id);
-
-  // 查找它的直接子文件夹
   const subFolders = store.getTasks().filter(t => t.parentId === task.id);
   const hasSub = subFolders.length > 0;
-
-  // 判断是否折叠
   const isCollapsed = collapsedFolders.has(task.id);
 
-  // 计算卡片数
   const chapters = store.getChapters(task.id);
   const chapterIds = chapters.map(c => c.id);
   const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
@@ -312,7 +291,6 @@ function taskCard(task) {
         else selectedIds.add(task.id);
         renderHome();
       } else {
-        // 点击进入文件夹
         if (chapters.length > 0) {
           navigate(`#/chapter/${chapters[0].id}?taskName=${encodeURIComponent(task.name)}`);
         } else {
@@ -333,10 +311,8 @@ function taskCard(task) {
       }),
     ]) : null,
 
-    // 标题与操作按钮
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
       el('div', { style: { display: 'flex', alignItems: 'center' } }, [
-        // 调整箭头和文件夹名字的布局
         hasSub && !multiSelectMode ? el('span', {
           class: 'toggle-btn',
           style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '14px', padding: '4px 8px 4px 0', userSelect: 'none' },
@@ -382,6 +358,7 @@ function taskCard(task) {
   ]);
 }
 
+// 👇 【修复】补回了丢失的 swap 函数
 function swap(ids, id, dir) {
   const idx = ids.indexOf(id);
   const target = idx + dir;
@@ -398,26 +375,20 @@ export function renderSidebar() {
   const tree = document.getElementById('sidebar-tree');
   if (!tree) return;
 
-  // 读取展开状态
   let state;
-  try {
-    state = JSON.parse(localStorage.getItem('kg_sidebar_tree_state') || '{}');
-  } catch { state = {}; }
-  if (!state.tasks) state.tasks = []; // 存文件夹的展开状态
+  try { state = JSON.parse(localStorage.getItem('kg_sidebar_tree_state') || '{}'); } catch { state = {}; }
+  if (!state.tasks) state.tasks = [];
 
-  function saveState() {
-    localStorage.setItem('kg_sidebar_tree_state', JSON.stringify(state));
-  }
+  function saveState() { localStorage.setItem('kg_sidebar_tree_state', JSON.stringify(state)); }
   function toggleTask(id) {
     const i = state.tasks.indexOf(id);
     if (i >= 0) state.tasks.splice(i, 1); else state.tasks.push(id);
     saveState();
-    renderSidebar(); // 重新渲染侧边栏
+    renderSidebar();
   }
 
   clear(tree);
 
-  // ============ 错题本入口 ============
   tree.appendChild(el('div', { style: { marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,.06)', paddingBottom: '12px' } }, [
     el('div', {
       style: { padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '8px' },
@@ -433,14 +404,10 @@ export function renderSidebar() {
 
   const tasks = store.getTasks();
   if (tasks.length === 0) {
-    tree.appendChild(el('div', {
-      style: { fontSize: '13px', color: 'var(--text-2)', padding: '12px' },
-      text: '暂无文件夹',
-    }));
+    tree.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', padding: '12px' }, text: '暂无文件夹' }));
     return;
   }
 
-  // 👇 核心：递归渲染文件夹树
   const renderTree = (parentId, depth) => {
     const currentLevel = tasks.filter(t => (t.parentId || null) === parentId);
 
@@ -449,26 +416,19 @@ export function renderSidebar() {
       const subFolders = tasks.filter(t => t.parentId === task.id);
       const hasSub = subFolders.length > 0;
 
-      // 每一行的容器（带缩进）
       const taskRow = el('div', {
         class: 'tree-task-name',
         style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', paddingLeft: (depth * 16) + 'px', paddingTop: '6px', paddingBottom: '6px' },
       }, [
-        // 展开/收起箭头
         el('span', {
           style: { width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '12px' },
           text: hasSub ? (taskOpen ? '▾' : '▸') : '',
-          onClick: (e) => {
-            e.stopPropagation();
-            if (hasSub) toggleTask(task.id);
-          },
+          onClick: (e) => { e.stopPropagation(); if (hasSub) toggleTask(task.id); },
         }),
-        // 文件夹图标和名字
         el('span', {
           style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px' },
           text: `📁 ${task.name}`,
           onClick: () => {
-            // 点击文件夹，直接进入卡片列表
             const chapters = store.getChapters(task.id);
             if (chapters.length > 0) {
               navigate(`#/chapter/${chapters[0].id}?taskName=${encodeURIComponent(task.name)}`);
@@ -483,20 +443,17 @@ export function renderSidebar() {
 
       tree.appendChild(taskRow);
 
-      // 如果展开了，并且有子文件夹，递归渲染下一级
       if (taskOpen && hasSub) {
         renderTree(task.id, depth + 1);
       }
     });
   };
 
-  // 从最顶层（parentId 为 null）开始渲染
   renderTree(null, 0);
 }
 
 function openDueManager(due) {
   const selected = new Set();
-
   const list = el('div', { style: { maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } },
     due.map(p => {
       const ch = store.getChapter(p.chapterId);
@@ -505,10 +462,7 @@ function openDueManager(due) {
       }, [
         el('input', {
           type: 'checkbox',
-          onChange: (e) => {
-            if (e.target.checked) selected.add(p.id);
-            else selected.delete(p.id);
-          },
+          onChange: (e) => { if (e.target.checked) selected.add(p.id); else selected.delete(p.id); },
         }),
         el('div', { style: { flex: '1' } }, [
           el('div', { style: { fontSize: '14px', fontWeight: '600' }, text: p.content.slice(0, 50) }),
@@ -567,21 +521,14 @@ function openDueManager(due) {
               renderHome();
             },
           }),
-
-          // 自定义天数
           (() => {
-            const dayInput = el('input', {
-              type: 'number', min: '1', max: '365', placeholder: '天数',
-              style: { width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid rgba(0,0,0,.1)', fontSize: '13px' }
-            });
-
+            const dayInput = el('input', { type: 'number', min: '1', max: '365', placeholder: '天数', style: { width: '60px', padding: '4px 6px', borderRadius: '6px', border: '1px solid rgba(0,0,0,.1)', fontSize: '13px' } });
             const customBtn = el('button', {
               class: 'btn btn-sm btn-ghost', text: '推迟',
               onClick: () => {
                 if (selected.size === 0) { alert('请先勾选'); return; }
                 const days = parseInt(dayInput.value);
                 if (!days || days < 1 || days > 365) { alert('请输入 1-365 之间的天数'); return; }
-
                 const d = new Date();
                 d.setDate(d.getDate() + days);
                 d.setHours(0, 0, 0, 0);
@@ -591,17 +538,13 @@ function openDueManager(due) {
                 renderHome();
               }
             });
-
-            return el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg)', padding: '2px 6px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } }, [
-              dayInput, customBtn
-            ]);
+            return el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--bg)', padding: '2px 6px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } }, [dayInput, customBtn]);
           })(),
-
           el('button', {
             class: 'btn btn-sm btn-danger', text: '永久排除',
             onClick: () => {
               if (selected.size === 0) { alert('请先勾选'); return; }
-              if (!confirm(`永久排除 ${selected.size} 个知识点，不再出现在待复习里？可在「复习 → 全部」里恢复。`)) return;
+              if (!confirm(`永久排除 ${selected.size} 个知识点，不再出现在待复习里？`)) return;
               selected.forEach(id => store.excludePoint(id));
               mask.remove();
               toastSuccess(`已排除 ${selected.size} 个知识点`);
@@ -618,7 +561,7 @@ function openDueManager(due) {
   document.body.appendChild(mask);
 }
 
-// ============ 复制 / 粘贴面板 ============
+// 👇 【修复】补回了丢失的复制粘贴面板
 function openCopyPasteModal() {
   const clipboardRaw = localStorage.getItem('kg_clipboard_copy');
   let clipboardName = '';
@@ -633,8 +576,6 @@ function openCopyPasteModal() {
     el('div', { class: 'confirm-box', style: { maxWidth: '340px' } }, [
       el('h3', { text: '📋 复制与粘贴' }),
       el('p', { style: { fontSize: '12px', color: 'var(--text-2)', margin: '8px 0 16px' }, text: '你可以复制当前任务列表里的某一个，或者把剪贴板里刚复制的内容粘贴出来。' }),
-
-      // 粘贴按钮
       el('button', {
         class: 'btn btn-primary', text: '📥 粘贴剪贴板内容', style: { width: '100%', marginBottom: '8px' },
         onClick: () => {
@@ -650,11 +591,7 @@ function openCopyPasteModal() {
           }
         },
       }),
-
-      // 如果剪贴板有东西，展示一下
       clipboardName ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '16px', textAlign: 'center' }, text: `剪贴板当前内容：${clipboardName}` }) : null,
-
-      // 复制按钮
       el('div', { style: { borderTop: '1px solid rgba(0,0,0,.06)', paddingTop: '16px', marginTop: '8px' } }, [
         el('button', {
           class: 'btn btn-ghost', text: '📋 复制指定任务', style: { width: '100%' },
@@ -674,7 +611,6 @@ function openCopyPasteModal() {
           },
         }),
       ]),
-
       el('div', { style: { marginTop: '16px', textAlign: 'center' } }, [
         el('button', { class: 'btn btn-sm btn-ghost', text: '关闭', onClick: () => mask.remove() })
       ])
@@ -683,43 +619,31 @@ function openCopyPasteModal() {
   document.body.appendChild(mask);
 }
 
-// ============ 快速预览图片 ============
+// 👇 【修复】补回了丢失的快速预览图片方法
 async function openQuickImagePreview(imageIds, title) {
   if (!imageIds || imageIds.length === 0) return;
-
   const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.9)' } });
   const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });
-
   mask.appendChild(el('h3', { text: title + ' - 附件预览', style: { color: '#fff', textAlign: 'center', marginTop: '20px' } }));
   mask.appendChild(imgWrap);
-
   for (const id of imageIds) {
-    const rec = await dbGet('images', id);
+    const rec = await store.dbGet('images', id);
     if (rec && (rec.annotatedBlob || rec.originalBlob)) {
       const url = URL.createObjectURL(rec.annotatedBlob || rec.originalBlob);
-      imgWrap.appendChild(el('img', {
-        src: url,
-        style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px', objectFit: 'contain' },
-        onLoad: () => URL.revokeObjectURL(url)
-      }));
+      imgWrap.appendChild(el('img', { src: url, style: { maxWidth: '100%', maxHeight: '60vh', borderRadius: '8px', objectFit: 'contain' }, onLoad: () => URL.revokeObjectURL(url) }));
     }
   }
-
   const closeBtn = el('button', { class: 'btn btn-primary', text: '关闭', style: { position: 'fixed', bottom: '30px', left: '50%', transform: 'translateX(-50%)' }, onClick: () => mask.remove() });
   mask.appendChild(closeBtn);
-
-  // 点击背景关闭
   mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
-
   document.body.appendChild(mask);
 }
 
- // ============ 移入文件夹弹窗 ============
+// 👇 移入文件夹弹窗
 function openMoveToFolderModal(selectedCardIds, onSuccess) {
   if (selectedCardIds.size === 0) return;
 
   const allFolders = store.getTasks();
-  
   const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
   const box = el('div', { class: 'confirm-box', style: { maxWidth: '360px', display: 'flex', flexDirection: 'column' } }, [
     el('h3', { text: `移动 ${selectedCardIds.size} 张卡片` }),
@@ -729,23 +653,21 @@ function openMoveToFolderModal(selectedCardIds, onSuccess) {
 
   const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto', marginBottom: '16px' } });
 
-  // 渲染已有文件夹列表
   if (allFolders.length === 0) {
     list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '暂无已有文件夹' }));
   } else {
+    const folderContainer = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } });
     allFolders.forEach(folder => {
-      list.appendChild(el('div', {
-        style: { padding: '10px 12px', background: 'var(--bg)', borderRadius: '8px', cursor: 'pointer', border: '1px solid rgba(0,0,0,.05)', fontSize: '14px', display: 'flex', alignItems: 'center', gap: '8px' },
-        onClick: () => {
-          executeMove(folder);
-        }
+      folderContainer.appendChild(el('div', {
+        style: { padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', border: '1px solid rgba(0,0,0,.04)', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' },
+        onClick: () => executeMove(folder)
       }, [
-        el('span', { text: '📁' }),
-        el('span', { text: folder.name, style: { fontWeight: '600' } })
+                el('span', { text: '📁', style: { fontSize: '16px' } }),
+        el('span', { text: folder.name, style: { fontWeight: '500' } })
       ]));
     });
+    list.appendChild(folderContainer);
   }
-
   box.appendChild(list);
 
   // 底部操作区
@@ -765,7 +687,7 @@ function openMoveToFolderModal(selectedCardIds, onSuccess) {
     el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
   ]));
 
-  // 真正的执行移动逻辑（不显示默认子模块）
+  // 真正的执行移动逻辑
   function executeMove(targetTask) {
     let chapters = store.getChapters(targetTask.id);
     let targetChapterId = chapters.length > 0 ? chapters[0].id : store.createChapter({ name: '默认子模块', taskId: targetTask.id }).id;

@@ -1,18 +1,12 @@
-const CACHE_NAME = 'kaogong-v1';
-const ASSETS = [
-  './',
-  './index.html',
-  './assets/styles/main.css'
-];
-
-// 安装时缓存基础资源
+// 极简 Service Worker，仅用于启用 PWA 安装，不做任何复杂缓存
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE_NAME).then(cache => cache.addAll(ASSETS)));
+  self.skipWaiting();
 });
 
-// 拦截请求，优先返回缓存
+self.addEventListener('activate', (e) => {
+  e.waitUntil(clients.claim());
+});
+
 self.addEventListener('fetch', (e) => {
-  e.respondWith(
-    caches.match(e.request).then(res => res || fetch(e.request))
-  );
+  // 直接放行所有网络请求，不做拦截，彻底告别 Failed to fetch
 });

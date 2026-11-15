@@ -70,19 +70,3 @@ export function goBack() {
 
 // ============ 底部导航高亮（预留） ============
 function updateNav() {}
-
-window.addEventListener('hashchange', async () => {
-    const hash = window.location.hash;
-    // 如果当前跳转的是标注页，并且路径是合法的
-    if (hash.startsWith('#/annotate/')) {
-        // 调用当前页面的渲染函数
-        const { renderAnnotator } = await import('./views/annotator.js');
-        const pathParts = hash.split('?')[0].split('/');
-        const imageId = pathParts[pathParts.length - 1];
-        const queryParams = {};
-        new URLSearchParams(hash.split('?')[1] || '').forEach((val, key) => {
-            queryParams[key] = val;
-        });
-        await renderAnnotator({ params: { id: imageId }, query: queryParams });
-    }
-});

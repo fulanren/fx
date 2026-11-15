@@ -33,7 +33,7 @@ export function renderComposer({ params, query }) {
   let bg = '#FFFFFF';
   let showIndex = true;
 
-  // 👇 核心修复 1：合并数据源，防止漏掉普通图片、合成图或 PDF
+  //  1：合并数据源，防止漏掉普通图片、合成图或 PDF
   const allIds = [
     ...(point.imageIds || []),
     ...(point.compositeImageIds || []),
@@ -65,7 +65,7 @@ export function renderComposer({ params, query }) {
   const itemStates = new Map();
   const selectionStatus = el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: 'auto' } });
 
-  // 👇 核心修复 2：筛选按钮统一尺寸
+  //  2：筛选按钮统一尺寸
   const btnStyle = { padding: '4px 12px', fontSize: '12px', minHeight: '28px', borderRadius: '6px', fontWeight: '500' };
 
   filterBar.appendChild(el('button', {

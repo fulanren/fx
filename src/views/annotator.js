@@ -51,6 +51,7 @@ function getModeBarConfig() {
 const DEFAULT_LAYER_ORDER = ['base', 'shape', 'stroke', 'text', 'tape', 'paper', 'paperStroke'];
 
 const imageCache = new Map();
+let lastTextClickTime = 0; let lastTextClickId = null;
 let paperStrokeSelected = null;
 let paperStrokeSelectedList = [];
 let paperTapeSelected = null;
@@ -135,11 +136,13 @@ function hideLoading() {
 }
 
 export async function renderAnnotator({ params, query }) {
+  // 👇 核心修复：每次渲染前，强行清空之前的残留，且只声明一次 view
+  const view = document.getElementById('view');
+  if (view) view.innerHTML = '';
+
   let baseUrl = '';
   let imageId = params.id;
   const pointId = query ? query.pointId : null;
-  const view = document.getElementById('view');
-  clear(view);
 
   document.getElementById('page-title').textContent = '标注';
   document.getElementById('btn-back').classList.remove('hidden');
@@ -147,54 +150,75 @@ export async function renderAnnotator({ params, query }) {
   const { dbGet, dbPut, dbAll } = await import('../db.js');
   let img = await dbGet('images', imageId);
 
-  // 👇 核心修复：如果是 PDF 进来的，且数据库里没有这个 ID，去库里找带有该 source 标签的图
+  // ============ 👇 强力兜底：如果直接查不到，开启多重搜图 ============
   if (!img && query && query.pdfId) {
     try {
       const allImages = await dbAll('images');
       const pageTag = `pdf_${query.pdfId}_page_${query.page || 1}`;
-      const matched = allImages.find(i => i.source === pageTag || i.name === pageTag || (i.source && i.source.includes(pageTag)));
+
+      // 1. 优先找 id、source 或 name 完全匹配的
+      let matched = allImages.find(i => i.id === pageTag || i.source === pageTag || i.name === pageTag);
+
+      // 2. 如果没找到，再找包含 pageTag 的
+      if (!matched) {
+        matched = allImages.find(i => (i.source && i.source.includes(pageTag)) || (i.name && i.name.includes(pageTag)));
+      }
 
       if (matched) {
         img = matched;
-        // 强行把路径的 imageId 纠正为匹配到的正确 ID
-        imageId = img.id;
+        imageId = img.id; // 强行把当前图片 ID 纠正为匹配到的正确 ID
       }
     } catch (err) {
       console.warn('PDF 溯源查找失败', err);
     }
   }
 
-  // 👇 如果是新建的 PDF 页面，数据库里没有，就从 sessionStorage 拿底图并现场建库
+   // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
   if (!img && query && query.isPdf === 'true') {
-    const tempBase64 = sessionStorage.getItem('temp_pdf_image');
-    if (tempBase64) {
+    const pageTag = `pdf_${query.pdfId || 'unknown'}_page_${query.page || 1}`;
+    
+    // 1. 先尝试从数据库拿（如果有旧数据的话）
+    try {
+      img = await dbGet('images', pageTag);
+    } catch (e) { }
+
+    // 2. 如果数据库也没有，那就现场从 PDF 重新渲染！
+    if (!img && query.pdfId && query.page) {
       try {
-        const blob = await (await fetch(tempBase64)).blob();
-        const tempImg = new Image();
-        const objUrl = URL.createObjectURL(blob);
-        tempImg.src = objUrl;
-        await new Promise(r => { tempImg.onload = r; });
+        const pdfRec = await dbGet('pdfs', query.pdfId);
+        if (pdfRec && pdfRec.blob) {
+          const buf = await pdfRec.blob.arrayBuffer();
+          const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+          const page = await pdfDoc.getPage(parseInt(query.page));
+          const vp = page.getViewport({ scale: 1.5 });
+          
+          const canvas = document.createElement('canvas');
+          canvas.width = vp.width; canvas.height = vp.height;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+          await page.render({ canvasContext: ctx, viewport: vp }).promise;
 
-        const pageTag = `pdf_${query.pdfId || 'unknown'}_page_${query.page || 1}`;
+          const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
 
-        img = {
-          id: imageId,
-          originalBlob: blob,
-          annotatedBlob: blob,
-          strokeBlob: null,
-          paperStrokeBlob: null,
-          width: tempImg.width,
-          height: tempImg.height,
-          dpr: window.devicePixelRatio || 1,
-          source: pageTag,
-          name: pageTag,
-          createdAt: new Date().toISOString()
-        };
-        URL.revokeObjectURL(objUrl);
-        await dbPut('images', img);
-        sessionStorage.removeItem('temp_pdf_image');
+          img = {
+            id: pageTag,
+            originalBlob: blob,
+            annotatedBlob: blob,
+            strokeBlob: null,
+            paperStrokeBlob: null,
+            width: canvas.width,
+            height: canvas.height,
+            dpr: window.devicePixelRatio || 1,
+            source: pageTag,
+            name: pageTag,
+            createdAt: new Date().toISOString()
+          };
+
+          // 尝试存进去，存不进去就算了
+          try { await dbPut('images', img); } catch (e) {}
+        }
       } catch (e) {
-        console.error('读取临时 PDF 底图失败', e);
+        console.error('现场重绘 PDF 失败', e);
       }
     }
   }
@@ -210,7 +234,6 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 2. 加载底图（永远只加载原图） ============
   const baseImg = new Image();
-  // 如果有 originalBlob 就用它，没有才用 annotatedBlob（兜底）
   baseUrl = URL.createObjectURL(img.originalBlob || img.annotatedBlob);
   await new Promise((resolve) => {
     baseImg.onload = resolve;
@@ -296,7 +319,7 @@ export async function renderAnnotator({ params, query }) {
   wrap.appendChild(modeBar);
 
   function openTopBarConfigPanel() {
-    // 👇 1. 强制从本地存储读取最新配置，解决“没记忆”的问题
+    // 👇 1. 强制从本地存储读取最新配置
     let topConfig = {};
     let modeConfig = {};
     try {
@@ -306,6 +329,10 @@ export async function renderAnnotator({ params, query }) {
       topConfig = { ...DEFAULT_TOP_BAR_CONFIG };
       modeConfig = { ...DEFAULT_MODE_BAR_CONFIG };
     }
+
+    // 👇 核心补丁：强行覆盖全局变量，防止底下渲染时读取旧的默认配置
+    window.__CURRENT_TOP_CONFIG = topConfig;
+    window.__CURRENT_MODE_CONFIG = modeConfig;
 
     const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } });
 
@@ -319,7 +346,6 @@ export async function renderAnnotator({ params, query }) {
       'pen-first': '✍️ 触控笔优先', 'finger-draw': '👆 手指也可画', 'pen-only': '🖊 仅触控笔绘制'
     };
 
-    // 👇 2. 全量刷新列表函数（每次全选/全不选都直接精准修改 DOM 和状态）
     const renderList = () => {
       list.innerHTML = '';
 
@@ -354,7 +380,6 @@ export async function renderAnnotator({ params, query }) {
           el('input', {
             type: 'checkbox',
             'data-type': 'top',
-            // 👇 只要不是明确为 false，就默认打勾
             checked: topConfig[key] !== false,
             onChange: (e) => {
               topConfig[key] = e.target.checked;
@@ -409,7 +434,6 @@ export async function renderAnnotator({ params, query }) {
 
     renderList();
 
-    // 弹窗 UI
     const mask = el('div', { class: 'confirm-mask' }, [
       el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
         el('h3', { text: '工具栏管理' }),
@@ -419,7 +443,7 @@ export async function renderAnnotator({ params, query }) {
           el('button', {
             class: 'btn btn-primary', text: '应用并刷新',
             onClick: () => {
-              // 强行读取 DOM 上的最终状态（防漏）
+              // 强行读取 DOM 上的最终状态防漏
               const currentTopCbs = list.querySelectorAll('input[data-type="top"]');
               let idx = 0;
               Object.keys(allLabels).forEach(key => {
@@ -434,11 +458,9 @@ export async function renderAnnotator({ params, query }) {
                 idx++;
               });
 
-              // 双保险写入 localStorage
               localStorage.setItem('kg_topbar_config', JSON.stringify(topConfig));
               localStorage.setItem('kg_modebar_config', JSON.stringify(modeConfig));
 
-              // 暴力刷新页面，让所有设置彻底生效
               window.location.reload();
             }
           })
@@ -559,6 +581,7 @@ export async function renderAnnotator({ params, query }) {
   textCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;`;
   canvasWrap.appendChild(textCanvas);
   const textLayer = createTextLayer({ canvas: textCanvas, width: W, height: H, imageId, store });
+  window.__textLayer = textLayer;
 
   // ============ 胶带层 ============
   const tapeCanvas = document.createElement('canvas');
@@ -720,8 +743,12 @@ export async function renderAnnotator({ params, query }) {
   applyLayerOrder(currentLayerOrder);
   // ============ 状态变量 ============
   let currentTool = 'pen';
+  let waitForTextClick = false;
+  let isTextEditing = false; // 👈 新增：标记当前是否处于“输入文字”状态
+  let justCreatedTextId = null;
+  let isManuallyCollapsed = false; // 👈 核心新增：记录用户是否手动收起了面板
   let currentColor = '#EF476F';
-  let currentWidth = 3;
+  let currentWidth = 0.5;
   let inlineEditorEl = null;
   let waveAmplitude = 8;
   let drawing = false;
@@ -737,7 +764,7 @@ export async function renderAnnotator({ params, query }) {
   let textDragOffset = null;
   let tapeDragOffset = null;
   const pointers = new Map();
-  const toolWidths = { pen: 3, eraser: 5, 'circle-erase': 5, shape: 2 };
+  const toolWidths = { pen: 0.5, eraser: 5, 'circle-erase': 5, shape: 2 };
   let undoStack = [];
   let panelVisible = false;
   let clipboard = null;
@@ -1119,14 +1146,32 @@ export async function renderAnnotator({ params, query }) {
       text: tool.label,
       title: tool.name,
       onClick: () => {
-        // 如果点的是当前工具，就切换面板的显示/隐藏
+        // 👇 核心修复：点的是当前已激活的工具
         if (currentTool === tool.id) {
+          // 切换面板的显示与隐藏
           panelVisible = !panelVisible;
           if (settingPanel) settingPanel.style.display = panelVisible ? 'flex' : 'none';
+
+          // 如果被收起了，打上“手动锁”
+          isManuallyCollapsed = !panelVisible;
+
+          // 收起时，顺便清理掉画布上的选中蓝框
+          if (isManuallyCollapsed) {
+            if (window.__textLayer) window.__textLayer.select(null);
+            if (window.__tapeLayer) window.__tapeLayer.clearSelection();
+            if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
+          }
+
+          updateSubToolbar();
           return;
         }
-        // 如果点的是新工具，就展开它
+
+        // 👇 如果点的是新工具，解开锁，切换工具并强制弹出面板
+        isManuallyCollapsed = false;
         setActiveTool(tool.id);
+        panelVisible = true;
+        if (settingPanel) settingPanel.style.display = 'flex';
+        updateSubToolbar();
       },
     });
     toolBtns.push(btn);
@@ -1156,24 +1201,27 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 粗细行 ============
   const widthRange = el('input', {
-    type: 'range', min: '1', max: '100', value: String(currentWidth),
+    type: 'range', min: '0.1', max: '50', step: '0.1', value: String(currentWidth),
     style: { flex: '1' },
     onInput: (e) => { currentWidth = Number(e.target.value); widthNum.value = currentWidth; },
   });
   const widthNum = el('input', {
-    type: 'number', min: '1', max: '100', value: String(currentWidth),
+    type: 'number', min: '0.1', max: '50', step: '0.1', value: String(currentWidth),
     style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
-    onInput: (e) => { const v = Math.max(1, Math.min(100, Number(e.target.value) || 1)); currentWidth = v; widthRange.value = v; },
+    // 👇 修复：把 1 和 100 换成 0.1 和 50
+    onInput: (e) => { const v = Math.max(0.1, Math.min(50, Number(e.target.value) || 0.1)); currentWidth = v; widthRange.value = v; },
   });
   const widthMinus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '−',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    onClick: () => { currentWidth = Math.max(1, currentWidth - 1); widthRange.value = currentWidth; widthNum.value = currentWidth; },
+    // 👇 修复：每次减 0.1，并且用 toFixed(1) 防止出现 0.300000000004 这种鬼数字
+    onClick: () => { currentWidth = Math.max(0.1, Number((currentWidth - 0.1).toFixed(1))); widthRange.value = currentWidth; widthNum.value = currentWidth; },
   });
   const widthPlus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '+',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    onClick: () => { currentWidth = Math.min(100, currentWidth + 1); widthRange.value = currentWidth; widthNum.value = currentWidth; },
+    // 👇 修复：每次加 0.1
+    onClick: () => { currentWidth = Math.min(50, Number((currentWidth + 0.1).toFixed(1))); widthRange.value = currentWidth; widthNum.value = currentWidth; },
   });
   const widthRow = el('div', { class: 'annotator-widthrow' }, [
     el('span', { text: '粗细', style: { fontSize: '13px', color: 'var(--text-2)' } }),
@@ -1188,6 +1236,14 @@ export async function renderAnnotator({ params, query }) {
   // ============ 工具切换 ============
   function setActiveTool(toolId) {
     currentTool = toolId;
+
+    // 👇 新增：如果切到了“文字”工具，标记为等待新建
+    if (toolId === 'text') {
+      window.__waitingForTextCreate = true;
+    } else {
+      window.__waitingForTextCreate = false;
+    }
+
 
     // 1. 刷新按钮高亮状态
     toolBtns.forEach((btn, i) => {
@@ -1484,7 +1540,7 @@ export async function renderAnnotator({ params, query }) {
           }),
         ]));
 
-        subBar.appendChild(el('div', { class: 'tape-row' }, [
+        /* subBar.appendChild(el('div', { class: 'tape-row' }, [
           el('button', {
             class: 'tape-chip', text: '全选',
             onClick: () => {
@@ -1578,7 +1634,7 @@ export async function renderAnnotator({ params, query }) {
               updateSubToolbar();
             }
           }),
-        ]));
+        ])); */
       }
       // 原有的工具栏
       subBar.appendChild(tapeLayer.renderTapeToolbar());
@@ -1696,6 +1752,21 @@ export async function renderAnnotator({ params, query }) {
           subBar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '颜色' }), cw]));
         } else {
           const btnStyle = { padding: '6px 10px', fontSize: '13px', minHeight: '36px', borderRadius: '8px' };
+
+          // 👇 辅助函数：自动生成带 title 的按钮，并拦截冒泡
+          const createToolBtn = (text, title, onClick, isDanger = false, isActive = false) => {
+            const btn = el('button', {
+              class: `btn ${isDanger ? 'btn-danger' : (isActive ? 'btn-primary' : 'btn-ghost')}`,
+              text: text, title: title, style: btnStyle,
+              onClick: (e) => {
+                e.stopPropagation(); // 👈 核心：阻止事件穿透到画布
+                onClick();
+              }
+            });
+            btn.dataset.tooltip = title; // 供平板长按提示使用
+            return btn;
+          };
+
           subBar.appendChild(el('div', { class: 'tape-row' }, [
             el('span', { class: 'tape-label', text: '预设' }),
             ...[
@@ -1705,7 +1776,8 @@ export async function renderAnnotator({ params, query }) {
               { name: '重点', fontSize: 20, color: '#EF476F', bgColor: '#FFD166', noBg: false },
             ].map(p => el('button', {
               class: 'tape-chip', text: p.name,
-              onClick: () => {
+              onClick: (e) => {
+                e.stopPropagation(); // 👈 核心
                 sel.fontSize = p.fontSize; sel.color = p.color; sel.bgColor = p.bgColor; sel.noBg = p.noBg;
                 const lines = sel.text.split('\n');
                 sel.h = Math.max(40, lines.length * p.fontSize * (sel.lineHeight || 1.5) + 8);
@@ -1715,17 +1787,17 @@ export async function renderAnnotator({ params, query }) {
           ]));
 
           subBar.appendChild(el('div', { class: 'tape-row', style: { gap: '4px' } }, [
-            el('button', { class: 'btn btn-ghost', text: '📝', title: '编辑', style: btnStyle, onClick: () => openInlineTextEditor(sel) }),
-            el('button', { class: 'btn btn-ghost', text: '📋', title: '复制', style: btnStyle, onClick: () => { clipboard = { type: 'text', data: JSON.parse(JSON.stringify(sel)) }; toastSuccess('已复制'); } }),
-            el('button', { class: 'btn btn-ghost', text: '🔤', title: '复制文字内容', style: btnStyle, onClick: async () => { try { await navigator.clipboard.writeText(sel.text || ''); toastSuccess('文字内容已复制'); } catch { toastError('复制失败'); } } }),
-            el('button', { class: 'btn btn-ghost', text: '🖌', title: '格式刷', style: btnStyle, onClick: () => { formatClipboard = { fontSize: sel.fontSize, fontFamily: sel.fontFamily, lineHeight: sel.lineHeight, align: sel.align, color: sel.color, bgColor: sel.bgColor, noBg: sel.noBg }; toastSuccess('格式已复制'); } }),
-            el('button', { class: 'btn btn-ghost', text: '⬆️', title: '置顶', style: btnStyle, onClick: () => { textLayer.bringToFront(sel); } }),
-            el('button', { class: 'btn btn-ghost', text: '⬇️', title: '置底', style: btnStyle, onClick: () => { textLayer.sendToBack(sel); } }),
-            el('button', { class: 'btn btn-ghost', text: sel.locked ? '🔒' : '🔓', title: sel.locked ? '已锁定' : '锁定', style: btnStyle, onClick: () => { const cur = textLayer.getSelected(); if (!cur) return; cur.locked = !cur.locked; textLayer.save(); textLayer.redraw(); updateSubToolbar(); } }),
-            el('button', { class: 'btn btn-ghost', text: '📥', title: '粘贴', style: btnStyle, onClick: () => pasteClipboard() }),
-            el('button', { class: 'btn btn-ghost', text: '📜', title: '文字列表', style: btnStyle, onClick: () => textLayer.openTextListManager() }),
-            el('button', { class: 'btn btn-danger', text: '🗑', title: '删除', style: btnStyle, onClick: () => { pushUndo(); textLayer.removeText(sel); textLayer.select(null); textLayer.save(); textLayer.redraw(); updateSubToolbar(); } }),
-            el('button', { class: 'btn btn-ghost', text: '🔗', title: '创建连接', style: btnStyle, onClick: () => openTextLinkModal(sel) }),
+            createToolBtn('📝', '编辑', () => openInlineTextEditor(sel)),
+            createToolBtn('📋', '复制', () => { clipboard = { type: 'text', data: JSON.parse(JSON.stringify(sel)) }; toastSuccess('已复制'); }),
+            createToolBtn('🔤', '复制文字内容', async () => { try { await navigator.clipboard.writeText(sel.text || ''); toastSuccess('文字内容已复制'); } catch { toastError('复制失败'); } }),
+            createToolBtn('🖌', '格式刷', () => { formatClipboard = { fontSize: sel.fontSize, fontFamily: sel.fontFamily, lineHeight: sel.lineHeight, align: sel.align, color: sel.color, bgColor: sel.bgColor, noBg: sel.noBg }; toastSuccess('格式已复制'); }),
+            createToolBtn('⬆️', '置顶', () => { textLayer.bringToFront(sel); }),
+            createToolBtn('⬇️', '置底', () => { textLayer.sendToBack(sel); }),
+            createToolBtn(sel.locked ? '🔒' : '🔓', sel.locked ? '已锁定' : '锁定', () => { const cur = textLayer.getSelected(); if (!cur) return; cur.locked = !cur.locked; textLayer.save(); textLayer.redraw(); updateSubToolbar(); }),
+            createToolBtn('📥', '粘贴', () => pasteClipboard()),
+            createToolBtn('📜', '文字列表', () => textLayer.openTextListManager()),
+            createToolBtn('🔗', '创建连接', () => openTextLinkModal(sel), false, !!sel.link),
+            createToolBtn('🗑', '删除', () => { pushUndo(); textLayer.removeText(sel); textLayer.select(null); textLayer.save(); textLayer.redraw(); updateSubToolbar(); }, true),
           ]));
 
           subBar.appendChild(el('div', { class: 'tape-row' }, [
@@ -1985,21 +2057,47 @@ export async function renderAnnotator({ params, query }) {
         list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有自定义形状' }));
         return;
       }
+
       shapes.forEach(p => {
         const checked = selected.has(p.id);
         const isUsing = window.__shapeImageId === p.id;
         const isFav = p.favorited === true;
         const isLocked = p.locked === true;
-        list.appendChild(el('div', {
+
+        // 👇 核心：放弃原生 checkbox，用自定义 div 画！
+        const cb = el('div', {
+          class: 'custom-shape-cb',
+          style: {
+            width: '20px', height: '20px', borderRadius: '4px',
+            border: '2px solid var(--primary)',
+            background: checked ? 'var(--primary)' : '#fff',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: '14px', fontWeight: 'bold',
+            cursor: 'pointer', transition: 'all 0.2s'
+          },
+          text: checked ? '✔' : ''
+        });
+
+        const row = el('div', {
           style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
+          onClick: (e) => {
+            // 如果点的是右侧的按钮，不触发勾选
+            if (e.target.tagName === 'BUTTON') return;
+
+            // 点击整行切换勾选状态
+            if (selected.has(p.id)) selected.delete(p.id);
+            else selected.add(p.id);
+            renderList(); // 重新渲染立刻刷新界面
+          }
         }, [
-          el('input', { type: 'checkbox', checked, onChange: (e) => { if (e.target.checked) selected.add(p.id); else selected.delete(p.id); } }),
+          cb,
           p.thumbUrl ? el('img', { src: p.thumbUrl, style: { width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: '#fff' } }) : null,
           el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: p.id.slice(0, 8) }),
           el('button', {
             class: 'tape-chip' + (isFav ? ' active' : ''),
             text: isFav ? '⭐' : '☆',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               p.favorited = !isFav;
               if (store.getPatterns) {
                 const all = store.getPatterns();
@@ -2013,7 +2111,8 @@ export async function renderAnnotator({ params, query }) {
           el('button', {
             class: 'tape-chip' + (isLocked ? ' active' : ''),
             text: isLocked ? '🔒' : '🔓',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               p.locked = !isLocked;
               if (store.getPatterns) {
                 const all = store.getPatterns();
@@ -2027,7 +2126,8 @@ export async function renderAnnotator({ params, query }) {
           el('button', {
             class: 'tape-chip' + (isUsing ? ' active' : ''),
             text: isUsing ? '✅ 使用中' : '使用',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               if (isLocked && !isUsing) { toastError('已锁定，先解锁'); return; }
               if (isUsing) { window.__shapeImageId = null; shapeType = 'arrow'; }
               else { shapeType = 'custom-image'; window.__shapeImageId = p.id; }
@@ -2035,7 +2135,9 @@ export async function renderAnnotator({ params, query }) {
               mask.remove();
             },
           }),
-        ]));
+        ]);
+
+        list.appendChild(row);
       });
     }
     renderList();
@@ -2044,8 +2146,54 @@ export async function renderAnnotator({ params, query }) {
       el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
         el('h3', { text: '管理自定义形状' }),
         el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { shapes.forEach(p => selected.add(p.id)); renderList(); } }),
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selected.clear(); renderList(); } }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '全选',
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => {
+              e.preventDefault(); e.stopPropagation();
+              items.forEach(it => selected.add(it.id));
+              renderList();
+            }
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: '全不选',
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => {
+              e.preventDefault(); e.stopPropagation();
+              selected.clear();
+              renderList();
+            }
+          }),
+        ]),
+        list,
+        el('div', { class: 'confirm-actions' }, [
+          el('button', {
+            class: 'btn btn-ghost',
+            text: '关闭',
+            onClick: () => mask.remove()
+          }),
+          el('button', {
+            class: 'btn btn-danger',
+            text: '删除选中',
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => {
+              e.stopPropagation();
+              if (selected.size === 0) { alert('请先勾选'); return; }
+              if (!confirm(`删除 ${selected.size} 个形状？`)) return;
+
+              // 执行删除
+              const all = store.getPatterns ? store.getPatterns() : [];
+              const newAll = all.filter(p => !selected.has(p.id));
+              localStorage.setItem('kg_patterns', JSON.stringify(newAll));
+
+              // 刷新界面
+              selected.clear();
+              mask.remove();
+              if (typeof updateSubToolbar === 'function') updateSubToolbar();
+            },
+          }),
         ]),
         list,
         el('div', { class: 'confirm-actions' }, [
@@ -2114,24 +2262,33 @@ export async function renderAnnotator({ params, query }) {
     sel.removeAllRanges();
     sel.addRange(range);
 
+    // 👇 核心修复：增加一个状态标记，记录是否通过外部按钮主动关闭
+    let isClosedByButton = false;
+
     function saveInlineText() {
       if (!inlineEditorEl) return;
-      textItem.text = editor.textContent || '';
 
-      // ：如果文字为空，直接删掉这个空文本框
+      textItem.text = editor.textContent || '';
+      textItem.visible = true; // 恢复显示
+
       if (textItem.text.trim() === '') {
+        // 如果是空文字，只有在真正触发结束（比如失焦）且用户没主动保存时才删除
+        // 这里如果你希望空文字保留，可以将下面这行改为直接保存
         textLayer.removeText(textItem);
         textLayer.select(null);
-        textLayer.save();
-        textLayer.redraw();
       } else {
         const fs = textItem.fontSize || 20;
         const lines = textItem.text.split('\n');
         textItem.h = Math.max(40, lines.length * fs * (textItem.lineHeight || 1.5) + 8);
-        textLayer.save();
-        textLayer.redraw();
       }
-      closeInlineTextEditor();
+
+      textLayer.save();
+      textLayer.redraw();
+
+      // 只有不是通过外部按钮（比如点工具栏的“完成”）关闭的，才内部销毁编辑器
+      if (!isClosedByButton) {
+        closeInlineTextEditor();
+      }
       updateSubToolbar();
     }
 
@@ -2149,22 +2306,43 @@ export async function renderAnnotator({ params, query }) {
     editor.addEventListener('input', onInput);
 
     editor.addEventListener('blur', () => {
+      // 放弃使用延时，直接在失焦时保存，并且把临时标记置空
       setTimeout(() => {
-        if (inlineEditorEl !== editor) return;
-        const text = editor.textContent || '';
-        if (text.trim() === '') return;
-        saveInlineText();
-      }, 500);
+        if (inlineEditorEl === editor && !isClosedByButton) {
+          saveInlineText();
+        }
+      }, 200);
     });
 
     editor.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' || (e.key === 'Enter' && e.ctrlKey)) {
         e.preventDefault();
+        isClosedByButton = true;
         saveInlineText();
+        closeInlineTextEditor();
       }
     });
 
     editor._saveInlineText = saveInlineText;
+    editor._setCloseByButton = () => { isClosedByButton = true; };
+  }
+
+  function closeInlineTextEditor() {
+    if (inlineEditorEl) {
+      const e = inlineEditorEl;
+      // 👇 核心修复：关闭前，强制帮它保存一下，防止文字丢失
+      if (e._saveInlineText) {
+        e._saveInlineText();
+      }
+      inlineEditorEl = null;
+      e.remove();
+    }
+    // 确保当前选中文字可见
+    const sel = textLayer.getSelected();
+    if (sel && sel.visible === false) {
+      sel.visible = true;
+      textLayer.redraw();
+    }
   }
 
   function closeInlineTextEditor() {
@@ -2194,78 +2372,84 @@ export async function renderAnnotator({ params, query }) {
     const listWrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } });
 
     function renderList() {
-      listWrap.innerHTML = '';
-      const currentPapers = paperLayer.getPapers();
+      // 👈 终极暴力清空：清空所有子节点
+      while (list.firstChild) {
+        list.removeChild(list.firstChild);
+      }
 
-      if (currentPapers.length === 0) {
-        listWrap.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '13px', padding: '20px' }, text: '当前没有添加任何纸张' }));
+      if (shapes.length === 0) {
+        list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有自定义形状' }));
         return;
       }
 
-      // 倒序遍历，最新添加的在最上面
-      for (let i = currentPapers.length - 1; i >= 0; i--) {
-        const p = currentPapers[i];
-        const isSelected = p === paperLayer.getSelected();
+      shapes.forEach(p => {
+        const checked = selected.has(p.id);
+        const isUsing = window.__shapeImageId === p.id;
+        const isFav = p.favorited === true;
+        const isLocked = p.locked === true;
 
-        // 定义纸张名称
-        let typeName = '📄 纸张';
-        if (p.style === 'blank') typeName = '⬜ 空白纸';
-        else if (p.style === 'lined') typeName = '📝 横线纸';
-        else if (p.style === 'grid') typeName = '🗒 方格纸';
-        else if (p.style === 'sticky') typeName = '🟨 便利贴';
-        else if (p.style === 'answer_sheet') typeName = '📝 申论答题卡';
-
-        const row = el('div', {
-          style: {
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '8px 12px', background: isSelected ? 'rgba(142, 202, 230, 0.15)' : 'var(--bg)',
-            border: isSelected ? '1px solid var(--primary)' : '1px solid rgba(0,0,0,.05)',
-            borderRadius: '8px', cursor: 'pointer'
-          },
-          onClick: () => {
-            // 点击列表项，把画布平移并选中
-            paperLayer.select(p);
-            updateSubToolbar();
-
-            // 自动把屏幕中心移动到这个纸张上
-            const cx = p.x + p.w / 2;
-            const cy = p.y + p.h / 2;
-            offsetX = window.innerWidth / 2 - cx * scale;
-            offsetY = window.innerHeight / 2 - cy * scale;
-            updateTransform();
-
-            mask.remove();
+        // 核心修复：给 checkbox 加上专属 class 和 data 属性
+        const cb = el('input', {
+          type: 'checkbox',
+          class: 'shape-list-checkbox', // 👈 打上标记，方便全选时精准定位
+          checked: checked,
+          onChange: (e) => {
+            if (e.target.checked) selected.add(p.id);
+            else selected.delete(p.id);
           }
+        });
+
+        list.appendChild(el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
         }, [
-          el('div', { style: { flex: '1', fontSize: '13px', fontWeight: isSelected ? '600' : '400', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }, [
-            el('span', { text: typeName }),
-            el('span', { style: { color: 'var(--text-2)', fontSize: '11px', marginLeft: '8px' }, text: `(位置: ${Math.round(p.x)}, ${Math.round(p.y)})` })
-          ]),
-
+          cb,
+          p.thumbUrl ? el('img', { src: p.thumbUrl, style: { width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: '#fff' } }) : null,
+          el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: p.id.slice(0, 8) }),
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '🗑',
-            style: { color: 'var(--danger)', padding: '2px 8px' },
+            class: 'tape-chip' + (isFav ? ' active' : ''),
+            text: isFav ? '⭐' : '☆',
             onClick: (e) => {
-              e.stopPropagation(); // 阻止触发选中
-              if (confirm('确定删除这张纸张吗？（上面的笔迹也会一并删除）')) {
-                pushUndo();
-                const papers = paperLayer.getPapers();
-                const idx = papers.indexOf(p);
-                if (idx > -1) papers.splice(idx, 1);
-                if (paperLayer.getSelected() === p) paperLayer.select(null);
-                paperLayer.save();
-                paperLayer.redraw();
-                renderList(); // 刷新列表
-                updateSubToolbar();
-                dirty = true;
+              e.preventDefault(); e.stopPropagation(); // 防止事件穿透
+              p.favorited = !isFav;
+              if (store.getPatterns) {
+                const all = store.getPatterns();
+                const idx = all.findIndex(x => x.id === p.id);
+                if (idx >= 0) { all[idx].favorited = p.favorited; }
+                localStorage.setItem('kg_patterns', JSON.stringify(all));
               }
-            }
-          })
-        ]);
-        listWrap.appendChild(row);
-      }
+              renderList();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip' + (isLocked ? ' active' : ''),
+            text: isLocked ? '🔒' : '🔓',
+            onClick: (e) => {
+              e.preventDefault(); e.stopPropagation();
+              p.locked = !isLocked;
+              if (store.getPatterns) {
+                const all = store.getPatterns();
+                const idx = all.findIndex(x => x.id === p.id);
+                if (idx >= 0) { all[idx].locked = p.locked; }
+                localStorage.setItem('kg_patterns', JSON.stringify(all));
+              }
+              renderList();
+            },
+          }),
+          el('button', {
+            class: 'tape-chip' + (isUsing ? ' active' : ''),
+            text: isUsing ? '✅ 使用中' : '使用',
+            onClick: (e) => {
+              e.preventDefault(); e.stopPropagation();
+              if (isLocked && !isUsing) { toastError('已锁定，先解锁'); return; }
+              if (isUsing) { window.__shapeImageId = null; shapeType = 'arrow'; }
+              else { shapeType = 'custom-image'; window.__shapeImageId = p.id; }
+              updateSubToolbar();
+              mask.remove();
+            },
+          }),
+        ]));
+      });
     }
-
     renderList();
 
     const box = el('div', { class: 'confirm-box', style: { maxWidth: '340px' } }, [
@@ -2532,7 +2716,7 @@ export async function renderAnnotator({ params, query }) {
     try { topConfig = JSON.parse(localStorage.getItem('kg_topbar_config') || '{}'); } catch { }
     topConfig = { ...DEFAULT_TOP_BAR_CONFIG, ...topConfig };
 
-        // 👇 2. 补回 PDF 翻页条
+    // 👇 2. 补回 PDF 翻页条
     if (query && query.pdfId && query.page) {
       const currentPdfId = query.pdfId;
       const currentPageNum = parseInt(query.page);
@@ -2559,7 +2743,7 @@ export async function renderAnnotator({ params, query }) {
             ev.stopPropagation();
             if (window.showLoading) window.showLoading('正在保存并加载上一页...');
             await saveAll(false);
-            
+
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const pdfId = urlParams.get('pdfId');
             const returnUrl = urlParams.get('returnUrl') || '';
@@ -2581,7 +2765,7 @@ export async function renderAnnotator({ params, query }) {
           ev.stopPropagation();
           if (window.showLoading) window.showLoading('正在保存并加载下一页...');
           await saveAll(false);
-          
+
           const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
           const pdfId = urlParams.get('pdfId');
           const returnUrl = urlParams.get('returnUrl') || '';
@@ -2618,7 +2802,7 @@ export async function renderAnnotator({ params, query }) {
             if (currentPageNum > 1) {
               if (window.showLoading) window.showLoading('正在加载...');
               await saveAll(false);
-              
+
               const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
               const pdfId = urlParams.get('pdfId');
               const returnUrl = urlParams.get('returnUrl') || '';
@@ -2660,7 +2844,7 @@ export async function renderAnnotator({ params, query }) {
             ev.preventDefault();
             if (window.showLoading) window.showLoading('正在加载...');
             await saveAll(false);
-            
+
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const pdfId = urlParams.get('pdfId');
             const returnUrl = urlParams.get('returnUrl') || '';
@@ -3360,60 +3544,34 @@ export async function renderAnnotator({ params, query }) {
     // ============ 文字 ============
     if (currentTool === 'text') {
       const hit = textLayer.hitTest(pt.x, pt.y);
-      if (hit) {
-        // 👇 核心拦截：如果文字有链接，弹窗让用户选择如何操作
-        if (hit.link) {
-          const linkMask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } }, [
-            el('div', { class: 'confirm-box', style: { maxWidth: '300px', textAlign: 'center' } }, [
-              el('h3', { text: '🔗 发现连接' }),
-              el('p', {
-                style: { fontSize: '13px', color: 'var(--text-2)', margin: '12px 0', wordBreak: 'break-all' },
-                text: hit.link.type === 'url' ? `网页：${hit.link.value}` : `文档：第 ${hit.link.page} 页`
-              }),
-              el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
-                el('button', {
-                  class: 'btn btn-primary', text: '🚀 前往目标',
-                  onClick: () => {
-                    linkMask.remove();
-                    if (hit.link.type === 'url') {
-                      window.open(hit.link.value, '_blank');
-                    } else {
-                      window.location.hash = `#/pdf-viewer/${hit.link.value}?page=${hit.link.page || 1}&pointId=${pointId}`;
-                    }
-                  }
-                }),
-                el('button', {
-                  class: 'btn btn-ghost', text: '✏️ 重置连接（修改）',
-                  onClick: () => { linkMask.remove(); openTextLinkModal(hit); }
-                }),
-                el('button', {
-                  class: 'btn btn-ghost', text: '🗑 删除此连接', style: { color: 'var(--danger)' },
-                  onClick: () => {
-                    hit.link = null;
-                    textLayer.save();
-                    textLayer.redraw();
-                    linkMask.remove();
-                    toastSuccess('已删除连接');
-                  }
-                }),
-                el('button', {
-                  class: 'btn btn-ghost', text: '取消',
-                  onClick: () => linkMask.remove()
-                })
-              ])
-            ])
-          ]);
-          document.body.appendChild(linkMask);
-          return; // 拦截，不进入拖动逻辑
-        }
 
+      if (hit) {
+        // ============ 情况 1：点中了已有的文字框 ============
+        // 👇 1. 判断双击，进入编辑
+        const now = Date.now();
+        if (now - lastTextClickTime < 300 && lastTextClickId === hit.id) {
+          pushUndo();
+          textLayer.select(hit);
+          openInlineTextEditor(hit);
+          panelVisible = true;
+          if (settingPanel) settingPanel.style.display = 'flex';
+          updateSubToolbar();
+          lastTextClickTime = 0; // 重置
+          return;
+        }
+        lastTextClickTime = now;
+        lastTextClickId = hit.id;
+
+        // 👇 2. 单击选中、面板显示与拖拽
         const wasSelected = textLayer.getSelected() === hit;
         textLayer.select(hit);
 
-        // 👇 显示底部工具栏（包含🔗按钮）
-        panelVisible = true;
-        if (settingPanel) settingPanel.style.display = 'flex';
-        updateSubToolbar(); // 刷新底栏，让🔗按钮出现
+        // 👇 只有没有被手动收起，才弹面板
+        if (!isManuallyCollapsed) {
+          panelVisible = true;
+          if (settingPanel) settingPanel.style.display = 'flex';
+        }
+        updateSubToolbar();
 
         if (wasSelected) {
           const handle = textLayer.hitHandle(pt.x, pt.y);
@@ -3432,14 +3590,34 @@ export async function renderAnnotator({ params, query }) {
         drawing = 'text-drag';
         textDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, item: hit };
         strokeCanvas.setPointerCapture(e.pointerId);
+
       } else {
+        // ============ 情况 2：点中了画布空白处 ============
+        // 👇 核心修复：就是在这里新建！
+        // 如果之前有选中的文字，说明用户想“取消选中”，此时不新建
+        const currentSelected = textLayer.getSelected();
+        if (currentSelected) {
+          textLayer.select(null);
+          if (settingPanel) settingPanel.style.display = 'none';
+          panelVisible = false;
+          updateSubToolbar();
+          return;
+        }
+
+        // 如果之前没有选中的文字，说明用户是想“新建文字”
         pushUndo();
-        const newItem = textLayer.addText({ x: pt.x, y: pt.y, text: '', fontSize: 20, fontFamily: 'sans-serif', lineHeight: 1.5, align: 'left', color: currentColor, bgColor: '#FFFFFF', noBg: true, w: 160, h: 40 });
+        const newItem = textLayer.addText({
+          x: pt.x, y: pt.y, text: '', fontSize: 20, fontFamily: 'sans-serif',
+          lineHeight: 1.5, align: 'left', color: currentColor, bgColor: '#FFFFFF', noBg: true, w: 160, h: 40
+        });
+
+        // 建完之后，立刻选中它，弹出输入框，并显示面板
         textLayer.select(newItem);
         openInlineTextEditor(newItem);
         panelVisible = true;
         if (settingPanel) settingPanel.style.display = 'flex';
         updateSubToolbar();
+        return;
       }
       return;
     }
@@ -4545,27 +4723,43 @@ export async function renderAnnotator({ params, query }) {
   };
   window.addEventListener('keydown', keyHandler);
 
-    // 页面加载完毕，强行关掉所有加载遮罩
+  // 页面加载完毕，强行关掉所有加载遮罩
   if (window.hideLoading) window.hideLoading();
   // 如果你前面写的是普通函数，直接写 hideLoading(); 即可
 
+  // ============ 彻底清理标注页 ============
   window.__annotatorCleanup = () => {
-    window.removeEventListener('keydown', keyHandler);
-    hideTooltip();
-    if (baseUrl) URL.revokeObjectURL(baseUrl);
+    // 1. 取消所有定时器
+    if (window.__penRaf) { cancelAnimationFrame(window.__penRaf); window.__penRaf = null; }
+    if (window.__eraserRaf) { cancelAnimationFrame(window.__eraserRaf); window.__eraserRaf = null; }
+    if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
+    if (window.__paperPenRaf) { cancelAnimationFrame(window.__paperPenRaf); window.__paperPenRaf = null; }
+    if (window.__paperShapeDragRaf) { cancelAnimationFrame(window.__paperShapeDragRaf); window.__paperShapeDragRaf = null; }
+    if (autoSaveTimer) { clearTimeout(autoSaveTimer); autoSaveTimer = null; }
 
-    // 👇 核心清理：把动态插入的顶栏按钮全部删干净
-    const doneBtn = document.getElementById('btn-done');
-    const prevBtn = document.getElementById('pdf-nav-prev');
-    const nextBtn = document.getElementById('pdf-nav-next');
-    const pageLabel = document.getElementById('pdf-nav-label');
+    // 2. 解除全局按键监听
+    if (window.__annotatorKeyHandler) {
+      window.removeEventListener('keydown', window.__annotatorKeyHandler);
+      window.__annotatorKeyHandler = null;
+    }
 
-    if (doneBtn) doneBtn.remove();
-    if (prevBtn) prevBtn.remove();
-    if (nextBtn) nextBtn.remove();
-    if (pageLabel) pageLabel.remove();
+    // 3. 👇 核心修复：清空所有全局图层引用（防止第二次进入读到脏实例）
+    window.__tapeLayer = null;
+    window.__textLayer = null;
+    window.__paperLayer = null;
+    window.__img = null;
 
-    // 解除返回按钮的绑定
+    // 清空全局的图层选择状态
+    window.__paperShapeSelectedList = [];
+    window.__paperTapeSelectedList = [];
+    window._paperShapeSelectedList = [];
+    window._paperTapeSelectedList = [];
+
+    // 4. 解除 Topbar 动态按钮
+    const dyn = document.getElementById('topbar-dynamic');
+    if (dyn) dyn.innerHTML = '';
+
+    // 5. 解除返回按钮的绑定
     const btnBack = document.getElementById('btn-back');
     if (btnBack) btnBack.onclick = null;
   };

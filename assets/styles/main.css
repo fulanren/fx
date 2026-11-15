@@ -30,23 +30,6 @@
   padding: 0;
 }
 
-html, body {
-  height: 100%;
-  background: var(--bg);
-  color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
-  font-size: 15px;
-  line-height: 1.6;
-  -webkit-font-smoothing: antialiased;
-  -webkit-tap-highlight-color: transparent;
-  overscroll-behavior: contain;
-}
-
-#app {
-  display: flex;
-  min-height: 100vh;
-}
-
 #sidebar {
   width: var(--sidebar-w, 280px);
   flex-shrink: 0;
@@ -149,12 +132,34 @@ html, body {
   background: rgba(142, 202, 230, 0.2);
 }
 
+#app {
+  display: flex !important;
+  height: 100vh !important; /* 视口高度 */
+  width: 100vw !important;
+  overflow: hidden !important; 
+}
+
 #main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  padding-bottom: 0;
+  flex: 1 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  width: 100% !important;
+  height: 100vh !important; /* 一定要填满屏幕 */
+  min-width: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important; /* 中间层不准滚 */
+}
+
+#view {
+  flex: 1 !important;
+  min-height: 0 !important; /* 核心：允许它在 flex 容器里收缩 */
+  width: 100% !important;
+  overflow-y: auto !important; /* 👈 只有这里出滚动条！ */
+  overflow-x: hidden !important;
+  padding: 16px !important;
+  box-sizing: border-box !important;
+  -webkit-overflow-scrolling: touch !important;
 }
 
 #topbar {
@@ -227,15 +232,6 @@ html, body {
   align-items: center;
 }
 
-#view {
-  height: auto !important;
-  min-height: calc(100vh - 56px) !important;
-  overflow-y: auto !important;
-  padding: 0 !important;
-  margin: 0 !important;
-  width: 100%;
-}
-
 @media (min-width: 1024px) {
   #main { padding-bottom: 0; }
   #sidebar.hidden { display: block !important; }
@@ -254,18 +250,15 @@ html, body {
 /* ============ 卡片 ============ */
 .card {
   background: var(--card);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 16px;
-  margin-bottom: 12px;
+  border-radius: 10px;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: none;
+  padding: 14px 16px;
+  margin-bottom: 8px;
   cursor: pointer;
-  transition: box-shadow .2s;
+  transition: all .2s;
+  overflow: hidden; /* 防止子元素顶破圆角 */
 }
-.card:active { box-shadow: var(--shadow-lg); }
-.card-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-.card-meta { font-size: 13px; color: var(--text-2); display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
-.card-actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.card.selected { outline: 2px solid var(--primary); background: rgba(142, 202, 230, .08); }
 
 /* ============ 按钮 ============ */
 .btn {
@@ -503,37 +496,10 @@ html, body {
 /* ============ 工具类 ============ */
 .hidden { display: none !important; }
 
-/* ============ 强行消除所有缝隙和居中偏移 ============ */
-#app {
-  gap: 0 !important;
-  padding: 0 !important;
-  margin: 0 !important;
-}
-
-#main {
-  padding: 0 !important;
-  margin: 0 !important;
-  border-left: none !important;
-  width: 100% !important;
-  display: flex !important;
-  flex-direction: column !important;
-}
-
 #sidebar {
   margin-right: 0 !important;
   padding-right: 16px !important; 
   border-right: 1px solid rgba(0,0,0,.05) !important; 
-}
-
-#view {
-  padding: 0 !important;
-  margin: 0 !important;
-  width: 100% !important;
-  flex: 1 !important;
-  position: relative !important;
-  display: flex !important;
-  flex-direction: column !important;
-  overflow-y: auto !important;
 }
 
 /* PDF 顶栏 */
@@ -647,23 +613,6 @@ input, textarea {
   }
 }
 
-/* 👇 封印平板的橡皮筋回弹效果 */
-html, body {
-  overflow: hidden !important; /* 锁死最外层，不准网页整体上下拽 */
-  overscroll-behavior: none !important; /* 禁止回弹和下拉刷新 */
-  position: fixed; /* 彻底固定住外层屏幕 */
-  width: 100%;
-  height: 100%;
-}
-
-/* 放开内部内容的滚动权 */
-#view {
-  height: 100% !important;
-  overflow-y: auto !important;
-  -webkit-overflow-scrolling: touch; /* 让 iOS 内部滚动保持丝滑惯性 */
-  overscroll-behavior-y: contain !important; /* 滚到底部时，绝不影响外层 */
-}
-
 /* 👇 知识点滑动样式 */
 .point-card-container {
   position: relative;
@@ -681,27 +630,38 @@ html, body {
   touch-action: pan-y; /* 允许上下滑动，但横向滑动由 JS 接管 */
 }
 
-.swipe-action-btn {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 80px;
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+#app {
   display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #fff;
-  font-size: 14px;
-  font-weight: bold;
-  z-index: 1;
+  height: 100vh;
 }
 
-.swipe-action-btn.delete {
-  right: 0;
-  background: var(--danger);
+#main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
 }
 
-.swipe-action-btn.star {
-  left: 0;
-  background: var(--warn);
-  color: #333;
+#view {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+/* 👇 彻底干掉漏出来的滑动背景 */
+.swipe-action-btn,
+.point-card-container {
+  overflow: hidden !important;
+}
+.swipe-action-btn {
+  display: none !important; /* 强行隐藏左右两侧的滑动按钮 */
 }

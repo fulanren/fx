@@ -44,20 +44,6 @@ export function renderSettings() {
           }
         }
       }),
-      // 👇 新增：悬浮火箭开关
-      el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' } }, [
-        el('input', { 
-          type: 'checkbox', 
-          checked: localStorage.getItem('kg_hide_back_to_top') !== '1',
-          onChange: (e) => {
-            localStorage.setItem('kg_hide_back_to_top', e.target.checked ? '0' : '1');
-            toastSuccess(e.target.checked ? '已开启悬浮火箭' : '已关闭悬浮火箭');
-            // 触发一次滚动事件更新状态
-            window.dispatchEvent(new Event('scroll'));
-          }
-        }),
-        el('span', { text: '显示“🚀 回到顶部”悬浮按钮' })
-      ])
     ])
   ]));
 
@@ -83,10 +69,10 @@ export function renderSettings() {
     ])
   ]));
 
-  // ============ 4. 自定义顶栏快捷按钮 ============
+    // ============ 4. 自定义顶栏快捷按钮 ============
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '🧩 自定义顶栏快捷按钮' })]),
-    el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
+    el('div', { class: 'section-body', style: { paddingTop: '12px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start' } }, [
       el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '勾选需要的按钮，保存后生效。' }),
 
       (() => {
@@ -109,54 +95,107 @@ export function renderSettings() {
           { id: 'trash', label: '🗑 回收站' },
           { id: 'help', label: '❓ 帮助' },
           { id: 'settings', label: '⚙️ 设置页' },
+          { id: 'backToTop', label: '🚀 回到顶部' }
         ];
 
-        // 渲染复选框列表
-        const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-          checkboxes.map(tool => el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px' } }, [
-            el('input', {
-              type: 'checkbox',
-              class: 'topbar-pref-cb',
-              value: tool.id,
-              checked: prefs.includes(tool.id)
-            }),
-            el('span', { text: tool.label })
-          ]))
-        );
+        const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: '12px' } });
 
-        // 全选 / 全不选 按钮
-        const selectAllRow = el('div', { style: { display: 'flex', gap: '8px', marginTop: '16px' } }, [
-          el('button', {
-            class: 'btn btn-sm btn-ghost',
-            text: '全选',
-            onClick: () => {
-              document.querySelectorAll('.topbar-pref-cb').forEach(cb => cb.checked = true);
-            }
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost',
-            text: '全不选',
-            onClick: () => {
-              document.querySelectorAll('.topbar-pref-cb').forEach(cb => cb.checked = false);
-            }
-          })
-        ]);
+        checkboxes.forEach(tool => {
+          const isChecked = prefs.includes(tool.id);
 
-                // 在列表下方加上全宽的保存按钮
-        const saveBtn = el('button', {
-          class: 'btn btn-primary btn-sm',
-          text: '💾 保存并应用',
-          style: { marginTop: '16px', padding: '4px 16px', fontSize: '13px' }, 
-          onClick: () => {
-            const checkedCbs = document.querySelectorAll('.topbar-pref-cb:checked');
-            const newPrefs = Array.from(checkedCbs).map(cb => cb.value);
-            localStorage.setItem('kg_topbar_prefs', JSON.stringify(newPrefs));
-            toastSuccess('已保存，正在刷新...');
-            setTimeout(() => location.reload(), 500);
-          }
+          // 用纯 DOM 方式创建，避开 el 函数
+          const label = document.createElement('label');
+          label.style.cssText = 'display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; user-select: none; margin: 0; padding: 0;';
+          
+          const cb = document.createElement('input');
+          cb.type = 'checkbox';
+          cb.className = 'topbar-pref-cb';
+          cb.value = tool.id;
+          cb.checked = isChecked;
+          cb.style.cssText = 'width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer; margin: 0; padding: 0;';
+
+          const span = document.createElement('span');
+          span.textContent = tool.label;
+          span.style.pointerEvents = 'none'; // 关键：让点击穿透文字，直接打在 checkbox 上
+
+          label.appendChild(cb);
+          label.appendChild(span);
+
+          // 点击 Label 时，强行触发 checkbox 的状态改变
+          label.addEventListener('click', (e) => {
+            // 如果点的是 checkbox 本身，交给原生处理；
+            // 如果点的是文字，我们手动控制，防止被全局事件拦截
+            if (e.target !== cb) {
+              e.preventDefault();
+              cb.checked = !cb.checked;
+              // 手动同步数据
+              let current = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
+              if (cb.checked) {
+                if (!current.includes(tool.id)) current.push(tool.id);
+              } else {
+                current = current.filter(id => id !== tool.id);
+              }
+              localStorage.setItem('kg_topbar_prefs', JSON.stringify(current));
+            }
+          });
+
+          // 直接给 checkbox 绑定 input 事件，绕过 change
+          cb.addEventListener('input', (e) => {
+            let current = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
+            if (e.target.checked) {
+              if (!current.includes(tool.id)) current.push(tool.id);
+            } else {
+              current = current.filter(id => id !== tool.id);
+            }
+            localStorage.setItem('kg_topbar_prefs', JSON.stringify(current));
+          });
+
+          list.appendChild(label);
         });
 
-        return el('div', {}, [list, selectAllRow, saveBtn]);
+        // 全选/全不选按钮组
+        const selectAllRow = document.createElement('div');
+        selectAllRow.style.cssText = 'display: flex; gap: 8px; margin-top: 8px;';
+
+        const btnAll = document.createElement('button');
+        btnAll.className = 'btn btn-sm btn-ghost';
+        btnAll.textContent = '全选';
+        btnAll.onclick = (e) => {
+          e.preventDefault();
+          const allIds = checkboxes.map(t => t.id);
+          localStorage.setItem('kg_topbar_prefs', JSON.stringify(allIds));
+          list.querySelectorAll('input').forEach(inp => inp.checked = true);
+        };
+
+        const btnNone = document.createElement('button');
+        btnNone.className = 'btn btn-sm btn-ghost';
+        btnNone.textContent = '全不选';
+        btnNone.onclick = (e) => {
+          e.preventDefault();
+          localStorage.setItem('kg_topbar_prefs', JSON.stringify([]));
+          list.querySelectorAll('input').forEach(inp => inp.checked = false);
+        };
+
+        selectAllRow.appendChild(btnAll);
+        selectAllRow.appendChild(btnNone);
+
+        // 保存按钮，绝对靠左对齐
+        const saveBtn = document.createElement('button');
+        saveBtn.className = 'btn btn-primary btn-sm';
+        saveBtn.textContent = '💾 保存并应用';
+        saveBtn.style.cssText = 'margin-top: 16px; padding: 6px 16px; font-size: 14px; width: auto;';
+        saveBtn.onclick = () => {
+          toastSuccess('已保存，正在刷新...');
+          setTimeout(() => location.reload(), 500);
+        };
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = 'display: flex; flex-direction: column; align-items: flex-start; width: 100%;';
+        wrapper.appendChild(list);
+        wrapper.appendChild(selectAllRow);
+        wrapper.appendChild(saveBtn);
+
+        return wrapper;
       })()
     ])
   ]));
@@ -178,14 +217,14 @@ export function renderSettings() {
 
   // ================= 👇 云同步面板 加在这里 =================
   const davSettings = JSON.parse(localStorage.getItem('kg_webdav_settings') || '{}');
-  
+
   view.appendChild(el('div', { class: 'section' }, [
     el('div', { class: 'section-head' }, [el('span', { text: '☁️ WebDAV 云同步' })]),
     el('div', { class: 'section-body', style: { paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' } }, [
       el('div', { style: { fontSize: '13px', color: 'var(--text-2)' } }, [
         '支持坚果云等 WebDAV 网盘，建议使用应用密码。',
       ]),
-      
+
       el('div', { class: 'field' }, [
         el('label', { text: 'WebDAV 地址' }),
         el('input', { id: 'dav-url', type: 'text', placeholder: '例如 https://dav.jianguoyun.com/dav/', value: davSettings.url || '' })
@@ -201,8 +240,8 @@ export function renderSettings() {
 
       // 👇 在按钮组的上面加自动同步勾选框
       el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', marginTop: '4px' } }, [
-        el('input', { 
-          type: 'checkbox', 
+        el('input', {
+          type: 'checkbox',
           checked: localStorage.getItem('kg_webdav_autosync') === '1',
           onChange: (e) => {
             localStorage.setItem('kg_webdav_autosync', e.target.checked ? '1' : '0');
@@ -213,25 +252,27 @@ export function renderSettings() {
       ]),
 
       el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
-        el('button', { class: 'btn btn-ghost btn-sm', text: '保存配置', onClick: () => {
-          const url = document.getElementById('dav-url').value.trim();
-          const user = document.getElementById('dav-user').value.trim();
-          const pass = document.getElementById('dav-pass').value.trim();
-          localStorage.setItem('kg_webdav_settings', JSON.stringify({ url, user, pass }));
-          toastSuccess('配置已保存');
-        } }),
+        el('button', {
+          class: 'btn btn-ghost btn-sm', text: '保存配置', onClick: () => {
+            const url = document.getElementById('dav-url').value.trim();
+            const user = document.getElementById('dav-user').value.trim();
+            const pass = document.getElementById('dav-pass').value.trim();
+            localStorage.setItem('kg_webdav_settings', JSON.stringify({ url, user, pass }));
+            toastSuccess('配置已保存');
+          }
+        }),
         el('button', { class: 'btn btn-primary btn-sm', text: '⬆️ 上传备份', onClick: () => syncWebDAV('upload') }),
         el('button', { class: 'btn btn-danger btn-sm', text: '⬇️ 下载覆盖', onClick: () => syncWebDAV('download') }),
-         // 👇 新增：安全恢复按钮
-        el('button', { 
-          class: 'btn btn-ghost btn-sm', 
-          text: '🛡️ 恢复安全快照', 
+        // 👇 新增：安全恢复按钮
+        el('button', {
+          class: 'btn btn-ghost btn-sm',
+          text: '🛡️ 恢复安全快照',
           style: { color: 'var(--primary-dark)' },
           onClick: () => {
             const safety = localStorage.getItem('kg_sync_safety_backup');
             if (!safety) { toastError('没有找到可用的安全快照'); return; }
             if (!confirm('⚠️ 确定要恢复到上次上传前的状态吗？')) return;
-            
+
             const data = JSON.parse(safety);
             localStorage.setItem('kg_tasks', data.kg_tasks);
             localStorage.setItem('kg_chapters', data.kg_chapters);
@@ -300,8 +341,8 @@ async function syncWebDAV(action) {
       console.error(err);
       toastError('上传失败，可能是跨域(CORS)限制或网络断开。');
     }
-  } 
-  
+  }
+
   else if (action === 'download') {
     toastSuccess('正在获取云端信息...');
     try {
@@ -1085,7 +1126,7 @@ async function buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNam
         // 1. 先渲染知识点卡片外壳和标题
         htmlContent += `<div class="point">`;
         htmlContent += `<div class="point-title">${p.content}</div>`;
-        
+
         // 2. 渲染解释
         if (p.explanation) {
           htmlContent += `<div class="explanation">${p.explanation.replace(/\n/g, '<br>')}</div>`;
@@ -1095,7 +1136,7 @@ async function buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNam
         const allImageIds = [...(p.imageIds || []), ...(p.compositeImageIds || [])];
         if (allImageIds.length > 0) {
           htmlContent += `<div class="attachment-gallery">`;
-          
+
           for (const imgId of allImageIds) {
             const rec = await dbGet('images', imgId);
             if (!rec) continue;
@@ -1112,7 +1153,7 @@ async function buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNam
                   canvas.width = vp.width; canvas.height = vp.height;
                   await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
                   const base64 = canvas.toDataURL('image/jpeg', 0.85);
-                  
+
                   htmlContent += `<div class="attachment-item">
                     <div class="attachment-title">📄 ${rec.pdfName || 'PDF'}</div>
                     <img src="${base64}">
@@ -1126,17 +1167,17 @@ async function buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNam
                 reader.onloadend = () => resolve(reader.result);
                 reader.readAsDataURL(blob);
               });
-              
+
               htmlContent += `<div class="attachment-item">
                 <div class="attachment-title">🖼 图片</div>
                 <img src="${base64}">
               </div>`;
             }
           }
-          
+
           htmlContent += `</div>`; // 闭合相册容器
         }
-        
+
         htmlContent += `</div>\n`; // 闭合知识点卡片
       }
     }

@@ -421,7 +421,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     const selected = new Set();
     const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0', maxHeight: '300px', overflowY: 'auto' } });
 
-    function renderList() {
+        function renderList() {
       list.innerHTML = '';
       if (items.length === 0) {
         list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有文字' }));
@@ -430,37 +430,62 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       items.forEach((item, i) => {
         const checked = selected.has(item.id);
         const isFav = (item.favorited === true);
-        list.appendChild(el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
+
+        // 👇 核心：自定义的高对比度圆形勾选框
+        const checkCircle = el('div', {
+          style: {
+            width: '22px', height: '22px', borderRadius: '50%', // 圆形
+            border: checked ? 'none' : '2px solid #ccc', // 未选中时是灰色空心圈
+            background: checked ? 'var(--primary)' : 'transparent', // 选中时变成主题蓝
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: '14px', fontWeight: 'bold',
+            flexShrink: '0'
+          },
+          text: checked ? '✔' : ''
+        });
+
+        // 行容器
+        const row = el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px', cursor: 'pointer' },
+          onClick: (e) => {
+            // 如果点的是右边那些按钮，就不触发勾选
+            if (e.target.tagName === 'BUTTON') return;
+            
+            // 切换状态并刷新界面
+            if (selected.has(item.id)) selected.delete(item.id);
+            else selected.add(item.id);
+            renderList();
+          }
         }, [
-          el('input', {
-            type: 'checkbox',
-            checked: checked,
-            onChange: (e) => {
-              if (e.target.checked) selected.add(item.id);
-              else selected.delete(item.id);
-            },
-          }),
-          el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: `${i + 1}. ${(item.text || '（空）').slice(0, 20)}` }),
+          checkCircle,
+          el('span', { style: { flex: '1', fontSize: '13px', color: 'var(--text)' }, text: `${i + 1}. ${(item.text || '（空）').slice(0, 30)}` }),
+          
+          // 收藏按钮
           el('button', {
             class: 'tape-chip' + (isFav ? ' active' : ''),
             text: isFav ? '⭐ 已收藏' : '☆ 收藏',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               item.favorited = !item.favorited;
               save();
               renderList();
             },
           }),
+          
+          // 编辑按钮
           el('button', {
             class: 'tape-chip', text: '✏️ 编辑',
-            onClick: () => {
+            onClick: (e) => {
+              e.stopPropagation();
               select(item);
               redraw();
               mask.remove();
               if (typeof window.__openTextEditor === 'function') window.__openTextEditor(item);
             },
           }),
-        ]));
+        ]);
+        
+        list.appendChild(row);
       });
     }
     renderList();
@@ -469,15 +494,47 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
         el('h3', { text: '文字列表' }),
         el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { items.forEach(it => selected.add(it.id)); renderList(); } }),
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selected.clear(); renderList(); } }),
+          el('button', { 
+            class: 'btn btn-sm btn-ghost', 
+            text: '全选', 
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => { 
+              e.preventDefault(); 
+              e.stopPropagation();
+              items.forEach(it => selected.add(it.id)); 
+              // 核心绝杀：绕过数据渲染，直接暴力勾选所有 DOM 复选框
+              list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = true);
+              renderList(); 
+            } 
+          }),
+          el('button', { 
+            class: 'btn btn-sm btn-ghost', 
+            text: '全不选', 
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => { 
+              e.preventDefault(); 
+              e.stopPropagation();
+              selected.clear(); 
+              // 核心绝杀：绕过数据渲染，直接暴力取消勾选所有 DOM 复选框
+              list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = false);
+              renderList(); 
+            } 
+          }),
         ]),
         list,
         el('div', { class: 'confirm-actions' }, [
-          el('button', { class: 'btn btn-ghost', text: '关闭', onClick: () => mask.remove() }),
+          el('button', { 
+            class: 'btn btn-ghost', 
+            text: '关闭', 
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => { e.stopPropagation(); mask.remove(); } 
+          }),
           el('button', {
-            class: 'btn btn-danger', text: '删除选中',
-            onClick: () => {
+            class: 'btn btn-danger', 
+            text: '删除选中',
+            style: { pointerEvents: 'auto' },
+            onClick: (e) => {
+              e.stopPropagation();
               if (selected.size === 0) { alert('请先勾选'); return; }
               if (!confirm(`删除 ${selected.size} 个文字？`)) return;
               selected.forEach(id => {

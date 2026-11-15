@@ -28,7 +28,7 @@ export function renderEditPoint({ params, query }) {
   const original = isNew
     ? { content: '', explanation: '', difficulty: 5, isErrorProne: false, reviewCount: 0, nextReviewAt: '' }
     : store.getPoint(params.id);
-    
+
   if (!original) { navigate('#/'); return; }
   const chapterId = isNew ? query.chapterId : original.chapterId;
   // 记录各个模块的折叠状态（默认全收起）
@@ -39,6 +39,7 @@ export function renderEditPoint({ params, query }) {
   let isReviewCollapsed = true; // 👈 复习设置也默认收起
   let isUnlocked = isNew;      // 编辑时锁定，新建时解锁
   let showDifficultyBeforeExpand = original?.showDifficultyBeforeExpand || false;
+  let isDraftResolved = false; // 👈 新增：是否已经处理过草稿弹窗
 
   const view = document.getElementById('view');
   clear(view);
@@ -192,11 +193,23 @@ export function renderEditPoint({ params, query }) {
     },
   });
 
-    const draft = loadDraft('point', entityId);
+  // 👇👇👇 强行拦截缓存，无论有什么草稿，进页面直接销毁！
+  localStorage.removeItem(`kg_draft_point_${entityId}`);
+  clearDraft('point', entityId);
+  
+  // 然后才是加载
+  const draft = loadDraft('point', entityId);
   if (draft && hasChanges(original, draft.data)) {
     setTimeout(async () => {
-      if (await confirmBox({ title: '恢复草稿', message: '检测到未保存的草稿，是否恢复？', confirmText: '恢复', cancelText: '放弃' })) {
-        // 👇 1. 恢复数据到表单
+      const restore = await confirmBox({ 
+        title: '恢复草稿', 
+        message: '检测到未保存的草稿，是否恢复？', 
+        confirmText: '恢复', 
+        cancelText: '放弃' 
+      });
+      
+      if (restore) {
+        // 恢复数据
         form = { ...form, ...draft.data };
         contentInput.value = form.content;
         explainInput.value = form.explanation;
@@ -210,22 +223,30 @@ export function renderEditPoint({ params, query }) {
           manualRow.style.display = 'flex';
           manualBtn.textContent = '隐藏手动设置';
         }
-        
-        // 👇 2. 暴力修复：直接强行清理所有可能的草稿缓存
-        clearDraft('point', entityId); 
-        localStorage.removeItem(`kg_draft_point_${entityId}`);
-        localStorage.removeItem(`kg_draft_${entityId}`);
-        
       } else {
-        // 如果点放弃，同样强行清理
-        clearDraft('point', entityId);
-        localStorage.removeItem(`kg_draft_point_${entityId}`);
-        localStorage.removeItem(`kg_draft_${entityId}`);
+        // 👇 如果点了放弃，强行把表单恢复成原始状态，防止污染
+        form.content = original ? original.content : '';
+        form.explanation = original ? original.explanation : '';
+        if (contentInput) contentInput.value = form.content;
+        if (explainInput) explainInput.value = form.explanation;
       }
+      
+      // 1. 锁死标志位
+      isDraftResolved = true;
+
+      // 2. 👇 终极杀招：直接暴力销毁草稿，而不是存原数据！
+      clearDraft('point', entityId); 
+      
     }, 300);
   }
 
-  const queueSave = debounce(() => { saveDraft('point', entityId, form); setStatus('已保存草稿', 'saved'); }, 300);
+      const queueSave = debounce(() => {
+    // 如果已经处理过弹窗（恢复了或者放弃了），就不准再自动存草稿了！
+    if (isDraftResolved) return; 
+    
+    saveDraft('point', entityId, form); 
+    setStatus('已保存草稿', 'saved'); 
+  }, 300);
   const status = el('div', { class: 'save-status' });
   function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
@@ -284,50 +305,50 @@ export function renderEditPoint({ params, query }) {
     body.appendChild(infoRow);
 
     const actionRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } }, [
- // 新建文件夹
-el('button', {
-  class: 'btn btn-sm btn-ghost',
-  text: '+ 新建文件夹并归入',
-  onClick: () => {
-    const folderName = prompt('新建文件夹名称：');
-    if (!folderName || !folderName.trim()) return;
-    
-    const finalName = folderName.trim();
-    
-    // 1. 把新文件夹加入系统的文件夹列表 (注意 key 是 kg_all_folders)
-    let folders = [];
-    try { folders = JSON.parse(localStorage.getItem('kg_all_folders') || '[]'); } catch {}
-    if (!folders.includes(finalName)) {
-      folders.push(finalName);
-      localStorage.setItem('kg_all_folders', JSON.stringify(folders));
-    }
+      // 新建文件夹
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        text: '+ 新建文件夹并归入',
+        onClick: () => {
+          const folderName = prompt('新建文件夹名称：');
+          if (!folderName || !folderName.trim()) return;
 
-    // 2. 把当前散落卡片里的图片归入文件夹
-    const pt = store.getPoint(point.id);
-    if (pt && pt.imageIds && pt.imageIds.length > 0) {
-      toastSuccess(`正在将图片移入「${finalName}」...`);
-      
-      Promise.all(pt.imageIds.map(id => dbGet('images', id))).then(async recs => {
-        for (const rec of recs) {
-          if (rec) {
-            rec.group = finalName;
-            await dbPut('images', rec);
+          const finalName = folderName.trim();
+
+          // 1. 把新文件夹加入系统的文件夹列表 (注意 key 是 kg_all_folders)
+          let folders = [];
+          try { folders = JSON.parse(localStorage.getItem('kg_all_folders') || '[]'); } catch { }
+          if (!folders.includes(finalName)) {
+            folders.push(finalName);
+            localStorage.setItem('kg_all_folders', JSON.stringify(folders));
+          }
+
+          // 2. 把当前散落卡片里的图片归入文件夹
+          const pt = store.getPoint(point.id);
+          if (pt && pt.imageIds && pt.imageIds.length > 0) {
+            toastSuccess(`正在将图片移入「${finalName}」...`);
+
+            Promise.all(pt.imageIds.map(id => dbGet('images', id))).then(async recs => {
+              for (const rec of recs) {
+                if (rec) {
+                  rec.group = finalName;
+                  await dbPut('images', rec);
+                }
+              }
+              toastSuccess(`已成功归入「${finalName}」`);
+              if (typeof onRefresh === 'function') {
+                onRefresh();
+              } else {
+                window.location.reload();
+              }
+            });
+          } else {
+            toastSuccess(`文件夹「${finalName}」已创建`);
+            if (typeof onRefresh === 'function') onRefresh();
+            else window.location.reload();
           }
         }
-        toastSuccess(`已成功归入「${finalName}」`);
-        if (typeof onRefresh === 'function') {
-          onRefresh();
-        } else {
-          window.location.reload(); 
-        }
-      });
-    } else {
-      toastSuccess(`文件夹「${finalName}」已创建`);
-      if (typeof onRefresh === 'function') onRefresh();
-      else window.location.reload();
-    }
-  }
-}),
+      }),
       // 选择已有文件夹
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '🔍 选择已有文件夹',
@@ -396,20 +417,20 @@ el('button', {
     view.appendChild(linksWrap);
   }
 
-    // ============ 图文附件（可折叠） ============
+  // ============ 图文附件（可折叠） ============
   let isImgRendered = false; // 👈 记录是否已经渲染过内容
   const imgSection = el('div', { class: 'section' });
-  
+
   function renderImgSection() {
     imgSection.innerHTML = '';
-    
+
     // 头部
-    imgSection.appendChild(el('div', { 
-      class: 'section-head', 
+    imgSection.appendChild(el('div', {
+      class: 'section-head',
       style: { cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: isImgCollapsed ? 'none' : '1px solid rgba(0,0,0,.06)' },
-      onClick: () => { 
-        isImgCollapsed = !isImgCollapsed; 
-        renderImgSection(); 
+      onClick: () => {
+        isImgCollapsed = !isImgCollapsed;
+        renderImgSection();
       }
     }, [
       el('span', { text: '🖼 图文附件' }),
@@ -437,7 +458,7 @@ el('button', {
       }
     }
   }
-  
+
   renderImgSection();
   view.appendChild(imgSection);
 
@@ -517,14 +538,14 @@ el('button', {
   });
 
   // 组装 UI 容器
-    const reviewSection = el('div', { class: 'section' });
+  const reviewSection = el('div', { class: 'section' });
 
-    function renderReviewSection() {
+  function renderReviewSection() {
     reviewSection.innerHTML = '';
-    
+
     // 头部（点击折叠）
-    const head = el('div', { 
-      class: 'section-head', 
+    const head = el('div', {
+      class: 'section-head',
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: isReviewCollapsed ? 'none' : '1px solid rgba(0,0,0,.06)' },
       onClick: () => {
         isReviewCollapsed = !isReviewCollapsed;
@@ -540,60 +561,60 @@ el('button', {
     reviewSection.appendChild(head);
 
     // 👇 下面是新增的展开内容区（含错因下拉框）
-      if (!isReviewCollapsed) {
-        const body = el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '12px' } });
-        
-        // 1. 原有的难记度、已背遍数、下次复习
-        const row1 = el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } }, [
-          el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
-            el('label', { text: '难记度 (1-10)' }),
-            el('input', { 
-              type: 'number', min: '1', max: '10', value: String(form.difficulty || 5), 
-              disabled: !isUnlocked,
-              style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-              oninput: (e) => { form.difficulty = Number(e.target.value); queueSave(); }
-            })
-          ]),
-          el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
-            el('label', { text: '已背遍数' }),
-            el('input', { 
-              type: 'number', min: '0', value: String(form.reviewCount || 0), 
-              disabled: !isUnlocked,
-              style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-              oninput: (e) => { form.reviewCount = Number(e.target.value); form.manualReviewCount = true; queueSave(); }
-            })
-          ]),
-          el('div', { class: 'field', style: { flex: '1', minWidth: '120px' } }, [
-            el('label', { text: '下次复习' }),
-            el('input', { 
-              type: 'date', 
-              value: form.nextReviewAt ? form.nextReviewAt.slice(0, 10) : new Date().toISOString().slice(0, 10), 
-              disabled: !isUnlocked,
-              style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-              oninput: (e) => { form.nextReviewAt = e.target.value ? new Date(e.target.value).toISOString() : ''; form.manualNextReviewAt = true; queueSave(); }
-            })
-          ])
-        ]);
-        body.appendChild(row1);
+    if (!isReviewCollapsed) {
+      const body = el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '12px' } });
 
-        // 2. 错因选择下拉框
-        const row2 = el('div', { class: 'field' }, [
-          el('label', { text: '错题原因 (错题本统计用)' }),
-          el('select', { 
-            value: form.errorReason || '',
+      // 1. 原有的难记度、已背遍数、下次复习
+      const row1 = el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } }, [
+        el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
+          el('label', { text: '难记度 (1-10)' }),
+          el('input', {
+            type: 'number', min: '1', max: '10', value: String(form.difficulty || 5),
             disabled: !isUnlocked,
-            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', background: 'var(--bg)' },
-            onchange: (e) => { form.errorReason = e.target.value; queueSave(); }
-          }, [
-            el('option', { value: '', text: '未分类' }),
-            el('option', { value: 'blind', text: '📚 知识盲区' }),
-            el('option', { value: 'careful', text: '✏️ 粗心大意' })
-          ])
-        ]);
-        body.appendChild(row2);
+            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
+            oninput: (e) => { form.difficulty = Number(e.target.value); queueSave(); }
+          })
+        ]),
+        el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
+          el('label', { text: '已背遍数' }),
+          el('input', {
+            type: 'number', min: '0', value: String(form.reviewCount || 0),
+            disabled: !isUnlocked,
+            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
+            oninput: (e) => { form.reviewCount = Number(e.target.value); form.manualReviewCount = true; queueSave(); }
+          })
+        ]),
+        el('div', { class: 'field', style: { flex: '1', minWidth: '120px' } }, [
+          el('label', { text: '下次复习' }),
+          el('input', {
+            type: 'date',
+            value: form.nextReviewAt ? form.nextReviewAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
+            disabled: !isUnlocked,
+            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
+            oninput: (e) => { form.nextReviewAt = e.target.value ? new Date(e.target.value).toISOString() : ''; form.manualNextReviewAt = true; queueSave(); }
+          })
+        ])
+      ]);
+      body.appendChild(row1);
 
-        reviewSection.appendChild(body);
-      }
+      // 2. 错因选择下拉框
+      const row2 = el('div', { class: 'field' }, [
+        el('label', { text: '错题原因 (错题本统计用)' }),
+        el('select', {
+          value: form.errorReason || '',
+          disabled: !isUnlocked,
+          style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', background: 'var(--bg)' },
+          onchange: (e) => { form.errorReason = e.target.value; queueSave(); }
+        }, [
+          el('option', { value: '', text: '未分类' }),
+          el('option', { value: 'blind', text: '📚 知识盲区' }),
+          el('option', { value: 'careful', text: '✏️ 粗心大意' })
+        ])
+      ]);
+      body.appendChild(row2);
+
+      reviewSection.appendChild(body);
+    }
 
     // 展开的内容区
     if (!isReviewCollapsed) {
@@ -602,7 +623,7 @@ el('button', {
       const showCount = original?.showReviewCountBeforeExpand || false;
 
       reviewSection.appendChild(el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' } }, [
-        
+
         // 第一排：三个输入框
         el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } }, [
           el('div', { class: 'field' }, [el('label', { text: '难记度 (1-10)' }), diffInput]),
@@ -610,16 +631,16 @@ el('button', {
           el('div', { class: 'field' }, [el('label', { text: '下次复习' }), dateInput]),
         ]),
 
-                   // 第二排：勾选开关
+        // 第二排：勾选开关
         el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' } }, [
           // 👇 显示难记度开关
           el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
-            el('input', { 
-              type: 'checkbox', 
+            el('input', {
+              type: 'checkbox',
               'data-key': 'showDiff', // 👈 关键标识
               checked: original?.showDifficultyBeforeExpand || false,
               style: { width: '16px', height: '16px' },
-              onChange: (e) => { 
+              onChange: (e) => {
                 if (!isUnlocked) {
                   isUnlocked = true;
                   unlockBtn.textContent = '🔓 已解锁';
@@ -632,15 +653,15 @@ el('button', {
             }),
             el('span', { text: '在复习时，展开解释前显示难记度', style: { fontSize: '14px' } })
           ]),
-          
+
           // 👇 显示已背遍数开关
           el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
-            el('input', { 
-              type: 'checkbox', 
+            el('input', {
+              type: 'checkbox',
               'data-key': 'showCount', // 👈 关键标识
               checked: original?.showReviewCountBeforeExpand || false,
               style: { width: '16px', height: '16px' },
-              onChange: (e) => { 
+              onChange: (e) => {
                 if (!isUnlocked) {
                   isUnlocked = true;
                   unlockBtn.textContent = '🔓 已解锁';
@@ -709,13 +730,13 @@ el('button', {
     el('button', { class: 'btn btn-primary', text: '保存', onClick: () => doSave() }),
   ]));
 
-    function doSave() {
+  function doSave() {
     if (!form.content.trim()) { setStatus('请填写内容', 'failed'); contentInput.focus(); return; }
 
     // 直接从 DOM 读取勾选框状态，不依赖 form 缓存
     const diffCheckbox = document.querySelector('input[type="checkbox"][data-key="showDiff"]');
     const countCheckbox = document.querySelector('input[type="checkbox"][data-key="showCount"]');
-    
+
     const finalShowDiff = diffCheckbox ? diffCheckbox.checked : false;
     const finalShowCount = countCheckbox ? countCheckbox.checked : false;
 
@@ -746,9 +767,9 @@ el('button', {
       });
       toastSuccess('已保存');
     }
-    
+
     clearDraft('point', entityId);
-    
+
     // 跳转逻辑
     if (chapterId) {
       const chapter = store.getChapter(chapterId);
@@ -761,12 +782,12 @@ el('button', {
   }
 
     async function goBack() {
-    // 1. 如果有修改，自动存草稿
-    if (hasChanges(original, form)) {
+    // 👇 核心修复：如果已经处理过草稿弹窗，或者没有任何修改，绝对不准再存草稿！
+    if (!isDraftResolved && hasChanges(original, form)) {
       saveDraft('point', entityId, form);
     }
     
-    // 2. 跳转回上一级
+    // 跳转回上一级
     if (chapterId) {
       const chapter = store.getChapter(chapterId);
       const task = chapter ? store.getTask(chapter.taskId) : null;
