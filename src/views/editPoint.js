@@ -68,6 +68,27 @@ export function renderEditPoint({ params, query }) {
   }
   contentInput.value = form.content;
 
+    // 👇 核心新增：搜索高亮与自动定位功能
+  const highlightWord = query.highlight;
+  if (highlightWord) {
+    setTimeout(() => {
+      // 1. 自动把光标聚焦到内容框
+      contentInput.focus();
+      
+      // 2. 平滑滚动到屏幕中央
+      if (!window.__hasScrolledToSearch) {
+        window.__hasScrolledToSearch = true; // 防止多次刷新重复乱滚
+        contentInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        
+        // 3. 如果输入框里真的有这个词，就把它选中（视觉效果更好）
+        const pos = contentInput.value.indexOf(highlightWord);
+        if (pos !== -1) {
+          contentInput.setSelectionRange(pos, pos + highlightWord.length);
+        }
+      }
+    }, 200); // 稍微延迟 200ms 等页面渲染完毕再滚
+  }
+
   // ============ 拍照识别按钮 ============
   const ocrBtn = el('button', {
     class: 'btn btn-ghost', title: '拍题识别',
@@ -818,15 +839,19 @@ function openFolderSelectModal(onSelect) {
 
   box.appendChild(list);
 
-  box.appendChild(el('div', { class: 'confirm-actions', style: { justifyContent: 'flex-end' } }, [
+    box.appendChild(el('div', { class: 'confirm-actions', style: { justifyContent: 'flex-end' } }, [
     el('button', {
       class: 'btn btn-primary', text: '➕ 新建文件夹',
       onClick: () => {
         const newName = prompt('新建文件夹名称：', '未命名文件夹');
         if (!newName || !newName.trim()) return;
+        
         // 建文件夹并自动生成子模块
         const newTask = store.createTask({ name: newName.trim() });
-        const newChap = store.createChapter({ name: '默认子模块', taskId: newTask.id });
+        
+        // 👇 核心修改：把 '默认子模块' 改成 '📁'，这样界面上就像是一个图标，不再显示文字
+        const newChap = store.createChapter({ name: '📁', taskId: newTask.id });
+        
         mask.remove();
         onSelect(newChap.id);
         toastSuccess(`已新建并归入「${newName}」`);

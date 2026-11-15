@@ -561,7 +561,12 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
         t.erasedPath = t.erasedPath.slice(-Math.floor(MAX_POINTS / 2));
       }
     });
-    if (changed) { save(); redrawAsync(); }
+    if (changed) { 
+      redrawAsync(); 
+      // 👇 核心修复：只有停手 300 毫秒后，才真正写盘
+      if (window.__tapeEraseTimer) clearTimeout(window.__tapeEraseTimer);
+      window.__tapeEraseTimer = setTimeout(() => { save(); }, 300); 
+    }
   }
 
   // ============ 点击切换显隐 ============

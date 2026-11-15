@@ -741,3 +741,15 @@ html, body {
   pointer-events: auto !important;
   cursor: pointer !important;
 }
+
+/* PWA 沉浸式安全区适配 */
+#app {
+  padding-top: env(safe-area-inset-top) !important;
+  padding-bottom: env(safe-area-inset-bottom) !important;
+  background: var(--bg);
+}
+
+/* 消除 iPad 点击时的灰色闪烁方块 */
+* {
+  -webkit-tap-highlight-color: transparent;
+}

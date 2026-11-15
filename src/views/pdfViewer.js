@@ -941,18 +941,17 @@ export async function renderPdfViewer({ params, query }) {
                 // 👈 挂载设置里勾选的工具
                 ...visibleTools,
 
-                el('button', {
+                                el('button', {
                     class: 'btn btn-sm btn-ghost', text: '⛶', title: '全屏',
                     style: { width: '32px', height: '32px', padding: 0, fontSize: '16px' },
                     onClick: () => {
                         isFullscreen = !isFullscreen;
-
                         const viewEl = document.getElementById('view');
                         const topbar = document.getElementById('topbar');
 
                         if (isFullscreen) {
                             // 进入全屏模式
-                            if (topbar) topbar.style.display = 'none'; // 隐藏系统的顶栏
+                            if (topbar) topbar.style.display = 'none';
                             if (viewEl) {
                                 viewEl.style.setProperty('padding', '0', 'important');
                                 viewEl.style.setProperty('height', '100vh', 'important');
@@ -960,14 +959,14 @@ export async function renderPdfViewer({ params, query }) {
                             }
                         } else {
                             // 退出全屏模式
-                            if (topbar) topbar.style.display = ''; // 恢复系统的顶栏
+                            if (topbar) topbar.style.display = '';
                             if (viewEl) {
-                                viewEl.style.cssText = ''; // 清空内联样式，交还给 CSS 控制
-                                viewEl.style.padding = '0';
-                                viewEl.style.overflowY = 'auto';
+                                // 👇 核心修复：不用 cssText = '' 暴力清除，而是精准清空我们加的内联样式
+                                viewEl.style.removeProperty('padding');
+                                viewEl.style.removeProperty('height');
+                                viewEl.style.removeProperty('overflow');
                             }
                         }
-
                         renderUI();
                     }
                 }),

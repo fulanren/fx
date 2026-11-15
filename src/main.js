@@ -35,6 +35,7 @@ if (window.pdfjsLib) {
 
 async function boot() {
   migrate();
+    store.autoCleanRecycleBin();
   await migrateImageNames();
 
   const check = await storageSelfCheck();
@@ -255,6 +256,36 @@ async function boot() {
       else navigate('#/');
     }
   };
+
+  // ============ 全局快捷键监听 ============
+window.addEventListener('keydown', (e) => {
+  // 如果正在输入框里打字，不触发快捷键
+  if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
+
+  // 1. 按 `N` 快捷新建卡片
+  if (e.key === 'n' || e.key === 'N') {
+    e.preventDefault();
+    // 根据当前页面上下文判断新建类型
+    if (location.hash.startsWith('#/chapter/')) {
+      const chapterId = location.hash.split('/')[2];
+      window.location.hash = `#/edit-point/new?chapterId=${chapterId}`;
+    } else {
+      window.location.hash = '#/edit-task/new';
+    }
+  }
+
+  // 2. 按 `Ctrl + K` 或 `/` 全局搜索
+  if ((e.ctrlKey && e.key === 'k') || e.key === '/') {
+    e.preventDefault();
+    window.location.hash = '#/search';
+  }
+
+  // 3. 按 `Esc` 关闭弹窗
+  if (e.key === 'Escape') {
+    const masks = document.querySelectorAll('.confirm-mask');
+    masks.forEach(m => m.remove());
+  }
+});
 
   initShortcuts();
   initSidebar();
@@ -523,7 +554,7 @@ document.addEventListener('click', () => {
   if (body.style.overflow === 'hidden') body.style.overflow = 'auto';
 });
 
-// ============ 全局防连点机制 ============
+/* // ============ 全局防连点机制 ============
 let lastClickTime = 0;
 let lastClickTarget = null;
 document.addEventListener('click', (e) => {
@@ -535,7 +566,7 @@ document.addEventListener('click', (e) => {
     if (btn === lastClickTarget && now - lastClickTime < 400) { e.preventDefault(); e.stopPropagation(); return; }
     lastClickTime = now; lastClickTarget = btn;
   }
-});
+}); */
 
 // ============ 通用手势 ============
 window.attachSwipeAction = function (container, onDelete, onStar) {
@@ -655,11 +686,63 @@ window.addEventListener('hashchange', () => {
 // 启动全局 Emoji 替换魔法
 initEmojiReplacer();
 
+// ============ 数据保命机制 ============
+function checkBackupSafety() {
+  const lastBackup = localStorage.getItem('kg_last_backup_at');
+  const now = Date.now();
+  const daysSince = lastBackup ? (now - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24) : 999;
+
+  if (daysSince > 7) {
+    // 如果超过 7 天没备份，在页面顶部弹出一个警告条
+    const warningBar = document.createElement('div');
+    warningBar.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#FFF4D6;color:#8A6D1B;padding:8px;text-align:center;font-size:13px;z-index:999999;box-shadow:0 2px 8px rgba(0,0,0,.1);cursor:pointer;';
+    warningBar.innerHTML = `⚠️ 已经 ${Math.floor(daysSince)} 天没有备份了！点击这里去「设置 -> 导出数据」把数据存到电脑里，防止丢失。`;
+    warningBar.onclick = () => { window.location.hash = '#/settings'; warningBar.remove(); };
+    document.body.appendChild(warningBar);
+    
+    // 3秒后自动消失，不碍事
+    setTimeout(() => warningBar.remove(), 5000);
+  }
+}
+
+// 在启动时调用
+setTimeout(checkBackupSafety, 2000);
+
 // ============ 启动应用 ============
 boot().catch(e => {
   console.error('启动失败', e);
   toastError('启动失败：' + e.message);
 });
+
+// ============ 多标签页防冲突机制 ============
+(function initMultiTabGuard() {
+  // 生成一个唯一的标签页 ID
+  const tabId = Math.random().toString(36).substring(2, 9);
+  
+  // 页面加载时，广播自己的存在
+  localStorage.setItem('kg_active_tab', JSON.stringify({ tabId, time: Date.now() }));
+
+  // 监听 storage 变化（当其他标签页写入时触发）
+  window.addEventListener('storage', (e) => {
+    // 如果检测到其他标签页刚发了心跳，且当前页面不是最新活跃的
+    if (e.key === 'kg_active_tab') {
+      try {
+        const data = JSON.parse(e.newValue);
+        if (data && data.tabId !== tabId && Date.now() - data.time < 3000) {
+          // 显示一个持久化警告条
+          let warn = document.getElementById('kg-multitab-warn');
+          if (!warn) {
+            warn = document.createElement('div');
+            warn.id = 'kg-multitab-warn';
+            warn.style.cssText = 'position:fixed;top:0;left:0;right:0;background:var(--danger);color:#fff;padding:8px;text-align:center;font-size:13px;z-index:999999;font-weight:bold;';
+            warn.textContent = '⚠️ 警告：检测到您在其他标签页打开了本系统，同时编辑可能会导致数据相互覆盖！请关闭多余的标签页。';
+            document.body.appendChild(warn);
+          }
+        }
+      } catch (err) {}
+    }
+  });
+})();
 
 // ============ 全局通用：长按 500ms 自动显示功能提示 ============
 (function initGlobalLongPress() {

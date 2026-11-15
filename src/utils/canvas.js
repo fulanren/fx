@@ -123,8 +123,41 @@ export function eraseRect(ctx, x1, y1, x2, y2) {
   ctx.restore();
 }
 
-// ============ 压感笔迹绘制 ============
-// points 数组每项带 pressure（0~1），没有则默认 0.5
+// ============ 笔迹平滑（二次贝塞尔） ============
+export function drawSmoothCurve(ctx, points, color, width, scaleFactor = 1) {
+  if (points.length < 2) return;
+
+  ctx.save();
+  ctx.strokeStyle = color;
+  // 👇 核心：不再强制 Math.max(1, ...) 限制最小粗细，允许极细
+  ctx.lineWidth = width / scaleFactor;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.beginPath();
+
+  if (points.length === 2) {
+    ctx.moveTo(points[0].x, points[0].y);
+    ctx.lineTo(points[1].x, points[1].y);
+    ctx.stroke();
+    ctx.restore();
+    return;
+  }
+
+  // 曲线平滑核心：计算中点和二次贝塞尔曲线
+  ctx.moveTo(points[0].x, points[0].y);
+  for (let i = 1; i < points.length - 1; i++) {
+    const midX = (points[i].x + points[i + 1].x) / 2;
+    const midY = (points[i].y + points[i + 1].y) / 2;
+    ctx.quadraticCurveTo(points[i].x, points[i].y, midX, midY);
+  }
+  // 连到最后一个点
+  const last = points[points.length - 1];
+  ctx.lineTo(last.x, last.y);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// 如果你有压感函数 drawPressurePath，也把里面的 Math.max(1, ...) 改掉
 export function drawPressurePath(ctx, points, color, baseWidth, scaleFactor = 1) {
   if (points.length < 2) return;
   ctx.save();
@@ -135,7 +168,8 @@ export function drawPressurePath(ctx, points, color, baseWidth, scaleFactor = 1)
     const p0 = points[i - 1];
     const p1 = points[i];
     const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
-    const w = Math.max(1, baseWidth * scaleFactor * (0.5 + pressure * 0.5));
+    // 👇 核心：允许极细线条
+    const w = Math.max(0.1, baseWidth * scaleFactor * (0.5 + pressure * 0.5));
     ctx.lineWidth = w;
     ctx.beginPath();
     ctx.moveTo(p0.x, p0.y);
@@ -145,27 +179,87 @@ export function drawPressurePath(ctx, points, color, baseWidth, scaleFactor = 1)
   ctx.restore();
 }
 
-// ============ 笔迹平滑（二次贝塞尔） ============
-// ============ 笔迹平滑（二次贝塞尔） ============
-export function drawSmoothCurve(ctx, points, color, width, scaleFactor = 1) {
-  if (points.length < 3) {
-    drawSmoothPath(ctx, points, color, width / scaleFactor);
-    return;
-  }
+// ============ 笔刷特效渲染 ============
+
+// 钢笔（Fountain Pen）：粗细随压感剧烈变化
+export function drawFountainPen(ctx, points, color, baseWidth) {
+  if (points.length < 2) return;
   ctx.save();
   ctx.strokeStyle = color;
-  ctx.lineWidth = width / scaleFactor;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
-  ctx.beginPath();
-  ctx.moveTo(points[0].x, points[0].y);
-  for (let i = 1; i < points.length - 1; i++) {
-    const xc = (points[i].x + points[i + 1].x) / 2;
-    const yc = (points[i].y + points[i + 1].y) / 2;
-    ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+  
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1];
+    const p1 = points[i];
+    // 压感越轻，线越细
+    const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
+    const w = Math.max(0.5, baseWidth * (pressure * 1.5)); 
+    
+    ctx.beginPath();
+    ctx.lineWidth = w;
+    ctx.moveTo(p0.x, p0.y);
+    ctx.lineTo(p1.x, p1.y);
+    ctx.stroke();
   }
-  const last = points[points.length - 1];
-  ctx.lineTo(last.x, last.y);
-  ctx.stroke();
+  ctx.restore();
+}
+
+// 毛笔（Brush）：边缘模糊，且压感极强
+export function drawBrush(ctx, points, color, baseWidth) {
+  if (points.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  // 增加一点点透明度，让叠加的部分看起来像墨水渗开
+  ctx.globalAlpha = 0.8; 
+
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1];
+    const p1 = points[i];
+    const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
+    const w = Math.max(1, baseWidth * (pressure * 2.5)); 
+    
+    // 用二次贝塞尔让毛笔更圆润
+    const xc = (p0.x + p1.x) / 2;
+    const yc = (p0.y + p1.y) / 2;
+    ctx.beginPath();
+    ctx.lineWidth = w;
+    ctx.moveTo(p0.x, p0.y);
+    ctx.quadraticCurveTo(p0.x, p0.y, xc, yc);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+// 铅笔（Pencil）：带有轻微噪点，且半透明
+export function drawPencil(ctx, points, color, baseWidth) {
+  if (points.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.globalAlpha = 0.4; // 铅笔比较浅
+
+  for (let i = 1; i < points.length; i++) {
+    const p0 = points[i - 1];
+    const p1 = points[i];
+    const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
+    
+    // 随机抖动线宽，模拟铅笔的沙沙感
+    const jitter = (Math.random() - 0.5) * 0.5;
+    const w = Math.max(0.5, baseWidth * 0.8 + jitter);
+    
+    // 随机偏移一点点位置，产生颗粒感
+    const offsetX = (Math.random() - 0.5) * 1.5;
+    const offsetY = (Math.random() - 0.5) * 1.5;
+    
+    ctx.beginPath();
+    ctx.lineWidth = w;
+    ctx.moveTo(p0.x + offsetX, p0.y + offsetY);
+    ctx.lineTo(p1.x + offsetX, p1.y + offsetY);
+    ctx.stroke();
+  }
   ctx.restore();
 }

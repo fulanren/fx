@@ -54,7 +54,7 @@ export function renderImageList(point, onRefresh) {
   // ============ 顶部操作栏（单行紧凑版） ============
   const topBar = el('div', { style: { display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '6px', marginBottom: '8px' } }, [
 
-    // 1. 加图片 / 加 PDF
+        // 1. 加图片 / 加 PDF
     activeTab === 'images' ? el('button', {
       class: 'btn btn-sm btn-primary', text: '+ 加图片',
       style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
@@ -64,14 +64,56 @@ export function renderImageList(point, onRefresh) {
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
           if (files.length === 0) return;
-          const pt = store.getPoint(point.id); if (!pt.imageIds) pt.imageIds = [];
+          
+          // 防止重复触发
+          input.onchange = null;
+
+          // 👇 核心修复：获取当前知识点里已有的所有图片名，用于比对
+          const pt = store.getPoint(point.id); 
+          if (!pt.imageIds) pt.imageIds = [];
+          
+          const existingRecs = await Promise.all(pt.imageIds.map(id => dbGet('images', id)));
+          const usedNames = new Set(existingRecs.map(r => r && r.name).filter(Boolean));
+
           for (const f of files) {
             const img = new Image(); const url = URL.createObjectURL(f);
             await new Promise(r => { img.onload = r; img.src = url; });
             const id = uuid();
-            await dbPut('images', { id, originalBlob: f, annotatedBlob: f, width: img.width, height: img.height, dpr: 1, source: 'upload', createdAt: new Date().toISOString() });
-            URL.revokeObjectURL(url); pt.imageIds.push(id);
+            
+            // 👇 核心逻辑：自动给重名文件加序号
+            let baseName = f.name || '未命名图片';
+            let ext = '';
+            if (baseName.includes('.')) {
+              const parts = baseName.split('.');
+              ext = '.' + parts.pop();
+              baseName = parts.join('.');
+            }
+            
+            let finalName = baseName + ext;
+            let counter = 1;
+            while (usedNames.has(finalName)) {
+              finalName = `${baseName} (${counter})${ext}`;
+              counter++;
+            }
+            usedNames.add(finalName); // 加入集合，防止本次上传的多个同名文件也重复
+
+            await dbPut('images', { 
+              id, 
+              name: finalName, // 👈 存入去重后的名称
+              originalBlob: f, 
+              annotatedBlob: f, 
+              width: img.width, 
+              height: img.height, 
+              dpr: 1, 
+              source: 'upload', 
+              createdAt: new Date().toISOString() 
+            });
+            
+            URL.revokeObjectURL(url); 
+            pt.imageIds.push(id);
           }
+          
+          // 一次性更新知识点
           store.updatePoint(pt.id, { imageIds: pt.imageIds });
           onRefresh();
         };
@@ -79,6 +121,7 @@ export function renderImageList(point, onRefresh) {
       }
     }) : null,
 
+            // 2. 加 PDF
     activeTab === 'pdfs' ? el('button', {
       class: 'btn btn-sm btn-primary', text: '+ 加 PDF', style: { background: 'var(--accent)', padding: '4px 8px', minHeight: '28px', flexShrink: '0' },
       onClick: () => {
@@ -87,18 +130,70 @@ export function renderImageList(point, onRefresh) {
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
           if (files.length === 0) return;
+          
+          // 防止重复触发
+          input.onchange = null;
+
           toastSuccess(`正在导入 ${files.length} 个 PDF...`);
+          
+          const pt = store.getPoint(point.id);
+          if (!pt.imageIds) pt.imageIds = [];
+          if (!pt.pdfFiles) pt.pdfFiles = [];
+
+          // 👇 核心修复：先查出当前已有的 PDF 名字
+          const existingRecs = await Promise.all(pt.imageIds.map(id => dbGet('images', id)));
+          const usedNames = new Set(existingRecs.map(r => r && r.pdfName).filter(Boolean));
+
+          const newImageIds = [];
+          const newPdfFiles = [];
+
           for (const file of files) {
             const pdfId = uuid();
             await dbPut('pdfs', { id: pdfId, blob: file, name: file.name, createdAt: new Date().toISOString() });
+            
             const fakeImgId = uuid();
+
+            // 👇 核心逻辑：自动给重名 PDF 加序号
+            let baseName = file.name || '未命名文档';
+            let ext = '';
+            if (baseName.includes('.')) {
+              const parts = baseName.split('.');
+              ext = '.' + parts.pop();
+              baseName = parts.join('.');
+            }
+            
+            let finalName = baseName + ext;
+            let counter = 1;
+            while (usedNames.has(finalName)) {
+              finalName = `${baseName} (${counter})${ext}`;
+              counter++;
+            }
+            usedNames.add(finalName); // 加入集合，防止本次选中的多个同名文件也重复
+
             await dbPut('images', {
-              id: fakeImgId, type: 'pdf_placeholder',
-              originalBlob: new Blob([], { type: 'text/plain' }), annotatedBlob: new Blob([], { type: 'text/plain' }), width: 0, height: 0, dpr: 1,
-              pdfId: pdfId, pdfName: file.name, pdfPages: '?', createdAt: new Date().toISOString()
+              id: fakeImgId, 
+              type: 'pdf_placeholder',
+              name: finalName,       // 👈 存入去重后的名称
+              pdfName: finalName,    // 👈 保持两个字段名称同步
+              originalBlob: new Blob([], { type: 'text/plain' }), 
+              annotatedBlob: new Blob([], { type: 'text/plain' }), 
+              width: 0, height: 0, dpr: 1,
+              pdfId: pdfId, 
+              pdfPages: '?', 
+              createdAt: new Date().toISOString()
             });
-            store.addImageToPoint(point.id, fakeImgId);
+            
+            newImageIds.push(fakeImgId);
+            // 顺便更新一下 pdf 本身的名称存库
+            newPdfFiles.push({ id: pdfId, name: finalName, size: file.size });
           }
+
+          // 一次性全部写入
+          pt.imageIds = [...new Set([...pt.imageIds, ...newImageIds])];
+          pt.pdfFiles = [...(pt.pdfFiles || []), ...newPdfFiles];
+          
+          store.updatePoint(pt.id, { imageIds: pt.imageIds, pdfFiles: pt.pdfFiles });
+
           toastSuccess('导入完成');
           setTimeout(() => onRefresh(), 300);
         };
@@ -111,15 +206,29 @@ export function renderImageList(point, onRefresh) {
     el('button', { class: 'btn btn-sm ' + (viewMode === 'thumb' ? 'btn-primary' : 'btn-ghost'), text: '▦', title: '纯缩略图', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { viewMode = 'thumb'; onRefresh(); } }),
     el('button', { class: 'btn btn-sm ' + (viewMode === 'name' ? 'btn-primary' : 'btn-ghost'), text: '📄', title: '列表模式', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { viewMode = 'name'; onRefresh(); } }),
 
-    // 3. 文件夹操作（⬇️ ⬆️ 📁+）
-    el('button', {
-      class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
-        forceExpandAll = !forceExpandAll; if (forceExpandAll) forceCollapseAll = false; saveCollapsed({}); onRefresh();
+        el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⬇️', title: '全部展开', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, 
+      onClick: () => {
+        // 强制写死到全局变量
+        window.forceExpandAll = true; 
+        window.forceCollapseAll = false; 
+        // 顺便把本地的折叠状态清空
+        saveCollapsed({}); 
+        onRefresh();
       }
     }),
     el('button', {
-      class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => {
-        forceCollapseAll = !forceCollapseAll; if (forceCollapseAll) forceExpandAll = false; const folders = getAllFolders(); const collapsedAll = {}; folders.forEach(f => collapsedAll[f] = true); saveCollapsed(collapsedAll); onRefresh();
+      class: 'btn btn-sm btn-ghost', text: '⬆️', title: '全部收起', style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, 
+      onClick: () => {
+        // 强制写死到全局变量
+        window.forceCollapseAll = true; 
+        window.forceExpandAll = false; 
+        // 拿到当前所有文件夹，强制全部设为收起
+        const folders = getAllFolders(); 
+        const collapsedAll = {}; 
+        folders.forEach(f => collapsedAll[f] = true); 
+        saveCollapsed(collapsedAll); 
+        onRefresh();
       }
     }),
     el('button', {
@@ -536,7 +645,16 @@ wrap.appendChild(topBar);
       // 未分组且没文件，直接跳过
       if (groupName === '' && groupFiles.length === 0) return;
 
-      const isCollapsed = !!collapsed[groupName];
+      // 👇 核心替换位置：优先判断全局的“强制展开/收起”开关
+      let isCollapsed = false;
+      if (window.forceExpandAll) {
+        isCollapsed = false;
+      } else if (window.forceCollapseAll) {
+        isCollapsed = true;
+      } else {
+        // 如果没强制，才读取你原本的本地折叠记忆
+        isCollapsed = !!collapsed[groupName];
+      }
       const isLocked = !!locked[groupName];
       const level = (groupName.match(/\//g) || []).length;
       const indent = level * 16;
@@ -570,7 +688,7 @@ wrap.appendChild(topBar);
           },
           style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '4px 0 4px', paddingBottom: '4px', borderBottom: groupName === '' ? 'none' : '1px dashed rgba(0,0,0,.1)', paddingLeft: indent + 'px', borderRadius: '4px', transition: 'background 0.2s' }
         }, [
-          el('div', {
+                    el('div', {
             style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)', cursor: groupName === '' ? 'default' : 'pointer', userSelect: 'none' },
             onClick: () => {
               if (groupName === '') return;
@@ -580,7 +698,15 @@ wrap.appendChild(topBar);
                 else if (pwd !== null) { toastError('密码错误'); }
                 return;
               }
-              collapsed[groupName] = !isCollapsed; saveCollapsed(collapsed); onRefresh();
+              
+              // 👇👇👇 核心新增：解除全局强制状态 👇👇👇
+              window.forceExpandAll = false;
+              window.forceCollapseAll = false;
+              // 👆👆👆 ------------------------ 👆👆👆
+              
+              collapsed[groupName] = !isCollapsed; 
+              saveCollapsed(collapsed); 
+              onRefresh();
             },
             onDblClick: (e) => {
               e.stopPropagation();

@@ -389,15 +389,32 @@ export function renderSidebar() {
 
   clear(tree);
 
-  tree.appendChild(el('div', { style: { marginBottom: '12px', borderBottom: '1px solid rgba(0,0,0,.06)', paddingBottom: '12px' } }, [
+    tree.appendChild(el('div', { 
+    style: { 
+      marginTop: '24px', // 👈 往下推开，和主文件夹拉开距离
+      paddingTop: '12px', 
+      borderTop: '1px dashed rgba(0,0,0,.08)' // 👈 用极淡的虚线作为分割
+    } 
+  }, [
     el('div', {
-      style: { padding: '10px 12px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: '8px' },
+      style: { 
+        padding: '6px 10px', 
+        borderRadius: '6px', 
+        cursor: 'pointer', 
+        color: 'var(--danger)', // 👈 保留红色
+        fontSize: '12px', // 👈 字体变小
+        fontWeight: '500', // 👈 不再加粗，降低攻击性
+        display: 'flex', 
+        alignItems: 'center', 
+        gap: '6px',
+        opacity: 0.85 // 👈 稍微降低透明度，显得低调
+      },
       onClick: () => {
         navigate('#/error-book');
         if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
       }
     }, [
-      el('span', { text: '❗' }),
+      el('span', { text: '❗', style: { fontSize: '10px' } }), // 👈 感叹号也缩小一点
       el('span', { text: '错题本' })
     ])
   ]));
@@ -408,10 +425,11 @@ export function renderSidebar() {
     return;
   }
 
-  const renderTree = (parentId, depth) => {
+    const renderTree = (parentId, depth) => {
     const currentLevel = tasks.filter(t => (t.parentId || null) === parentId);
 
     currentLevel.forEach(task => {
+      // 👇 核心修复：确保 state.tasks 这个数组存在，且包含当前任务 ID
       const taskOpen = state.tasks.includes(task.id);
       const subFolders = tasks.filter(t => t.parentId === task.id);
       const hasSub = subFolders.length > 0;
@@ -420,11 +438,16 @@ export function renderSidebar() {
         class: 'tree-task-name',
         style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', paddingLeft: (depth * 16) + 'px', paddingTop: '6px', paddingBottom: '6px' },
       }, [
+        // 折叠/展开箭头
         el('span', {
           style: { width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '12px' },
           text: hasSub ? (taskOpen ? '▾' : '▸') : '',
-          onClick: (e) => { e.stopPropagation(); if (hasSub) toggleTask(task.id); },
+          onClick: (e) => { 
+            e.stopPropagation(); 
+            if (hasSub) toggleTask(task.id); 
+          },
         }),
+        // 文件夹名字
         el('span', {
           style: { flex: '1', minWidth: '0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: '14px' },
           text: `📁 ${task.name}`,
@@ -443,6 +466,7 @@ export function renderSidebar() {
 
       tree.appendChild(taskRow);
 
+      // 👇 核心渲染：只有 taskOpen 为 true 且有子文件夹时，才递归渲染子级
       if (taskOpen && hasSub) {
         renderTree(task.id, depth + 1);
       }

@@ -1,6 +1,23 @@
 import { uuid } from './utils/id.js';
 import { now, addDays, todayStart, isDue } from './utils/date.js';
 
+// 在 store.js 的 init 函数里（或者文件顶部）调用
+export function autoCleanRecycleBin() {
+  const bin = read(K.recycle);
+  const now = Date.now();
+  const keep = bin.filter(item => {
+    const expire = new Date(item.expireAt).getTime();
+    return expire > now; // 保留没过期的
+  });
+
+  if (keep.length !== bin.length) {
+    console.log(`[自动清理] 彻底删除了 ${bin.length - keep.length} 个过期回收站文件`);
+    write(K.recycle, keep);
+    // 顺便调用之前的垃圾清理引擎
+    cleanOrphanImages();
+  }
+}
+
 const K = {
   tasks: 'kg_tasks',
   chapters: 'kg_chapters',
@@ -168,8 +185,12 @@ export function restoreRecycle(id) {
 }
 export function purgeRecycle(id) {
   write(K.recycle, read(K.recycle).filter(x => x.id !== id));
+  cleanOrphanImages(); // 👈 彻底删除时顺便清理垃圾
 }
-export function emptyRecycle() { write(K.recycle, []); }
+export function emptyRecycle() {
+  write(K.recycle, []);
+  cleanOrphanImages(); // 👈 清空回收站时顺便清理垃圾
+}
 
 // ============ 任务 ============
 export function getTasks() {
@@ -338,12 +359,12 @@ export function deleteChapter(id) {
 // ============ 知识点 ============
 export function getPoints(chapterId) {
   const allPoints = read(K.points).filter(p => !p.deletedAt);
-  
+
   // 👇 如果传了 chapterId，就按章节过滤
   if (chapterId !== undefined) {
     return allPoints.filter(p => p.chapterId === chapterId).sort((a, b) => a.order - b.order);
   }
-  
+
   // 👇 如果没传参数，就返回所有未删除的卡片（用于首页散落卡片展示）
   return allPoints.sort((a, b) => a.order - b.order);
 }
@@ -1016,4 +1037,49 @@ export function pasteData(targetId = null) {
   }
 
   return { success: false, msg: '未知的数据类型' };
+}
+
+// ============ 垃圾清理引擎 ============
+export async function cleanOrphanImages() {
+  try {
+    const { dbAll, dbDelete } = await import('./db.js'); // 动态引入避免循环依赖
+
+    // 1. 获取所有有效的知识点
+    const points = read(K.points).filter(p => !p.deletedAt);
+    const activeImageIds = new Set();
+    const activePdfIds = new Set();
+
+    points.forEach(p => {
+      if (p.imageIds) p.imageIds.forEach(id => activeImageIds.add(id));
+      if (p.pdfFiles) p.pdfFiles.forEach(f => activePdfIds.add(f.id));
+    });
+
+    // 2. 扫描 IndexedDB 里的 images
+    const allImages = await dbAll('images');
+    let deletedCount = 0;
+
+    for (const img of allImages) {
+      // 如果是 PDF 占位图，根据 pdfId 校验；如果是普通图片，根据 id 校验
+      const isPdf = img.type === 'pdf_placeholder';
+      const isActive = isPdf ? activePdfIds.has(img.pdfId) : activeImageIds.has(img.id);
+
+      if (!isActive) {
+        await dbDelete('images', img.id);
+        if (isPdf && img.pdfId) {
+          await dbDelete('pdfs', img.pdfId); // 顺便把真实的 PDF 文件也删了
+        }
+        // 顺便清理关联的胶带和纸张本地存储
+        localStorage.removeItem(`kg_tape_${img.id}`);
+        localStorage.removeItem(`kg_paper_${img.id}`);
+        localStorage.removeItem(`kg_text_${img.id}`);
+        deletedCount++;
+      }
+    }
+
+    console.log(`[清理] 成功清除了 ${deletedCount} 个废弃图片/PDF`);
+    return deletedCount;
+  } catch (e) {
+    console.error('清理垃圾图片失败:', e);
+    return 0;
+  }
 }

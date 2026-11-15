@@ -2,14 +2,20 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <!-- 锁定屏幕缩放，开启全屏沉浸 -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#FAFAFB" />
-    <!-- 👇 PWA 配置 -->
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  
+  <!-- 👇 核心 PWA 配置 -->
   <link rel="manifest" href="./manifest.json">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="资料复习">
+  
+  <!-- 👇 苹果专属图标 -->
+  <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
+  
   <title>资料复习</title>
-  <!-- 消除 favicon.ico 的 404 报错 -->
   <link rel="icon" href="data:,">
   <link rel="stylesheet" href="./assets/styles/main.css" />
 </head>

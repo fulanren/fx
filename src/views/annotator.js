@@ -9,9 +9,10 @@ import { dbGet, dbPut } from '../db.js';
 import { createTapeLayer } from './annotatorTape.js';
 import { createPaperLayer } from './annotatorPaper.js';
 import { createTextLayer } from './annotatorText.js';
+// 确保这里只有一行，且包含了所有需要的函数
 import {
   drawSmoothPath, drawSmoothCurve, drawPressurePath, drawArrow, drawRect, drawLine, drawWave,
-  eraseCircle, eraseSquare, eraseRect,
+  eraseCircle, eraseSquare, eraseRect, drawFountainPen, drawBrush, drawPencil
 } from '../utils/canvas.js';
 import { renderColorPicker } from '../ui/colorPicker.js';
 window.__isEditingText = false;
@@ -562,39 +563,51 @@ export async function renderAnnotator({ params, query }) {
   });
   canvasWrap.appendChild(base);
 
-  // ============ 3. 加载透明的笔迹层 ============
+    // ============ 3. 加载透明的笔迹层（高清 Retina 适配） ============
+  const dpr = window.devicePixelRatio || 1; // 获取设备像素比（比如 iPad 是 2）
+  
   const strokeCanvas = el('canvas', { class: 'annotator-stroke' });
-  strokeCanvas.width = W;
-  strokeCanvas.height = H;
+  // 1. 真实画布分辨率乘以 DPR
+  strokeCanvas.width = W * dpr;
+  strokeCanvas.height = H * dpr;
+  // 2. CSS 视觉尺寸不变
   strokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;touch-action:none;z-index:2;`;
+  
   const ctx = strokeCanvas.getContext('2d');
+  // 3. 核心：把画笔缩放 DPR 倍，这样你的坐标完全不用改，但底层是高清渲染
+  ctx.scale(dpr, dpr);
+  // 4. 开启极致的抗锯齿
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
 
-  // 如果数据库里有笔迹图，就把它透明地叠加在底图上
+  // 如果数据库里有笔迹图，叠加时也要按 W 和 H 正常缩放
   if (img.strokeBlob) {
     const strokeUrl = URL.createObjectURL(img.strokeBlob);
     const strokeDrawImg = new Image();
     await new Promise((resolve) => { strokeDrawImg.onload = resolve; strokeDrawImg.src = strokeUrl; });
-    ctx.drawImage(strokeDrawImg, 0, 0);
+    ctx.drawImage(strokeDrawImg, 0, 0, W, H);
     URL.revokeObjectURL(strokeUrl);
-  } else if (img.annotatedBlob && !img.strokeBlob) {
-    // 兼容老数据：如果只有 annotatedBlob 却没有 strokeBlob，说明是之前烧死的老图，直接把图当底图画上
-    // （新生成的图不会有这个问题）
   }
   canvasWrap.appendChild(strokeCanvas);
 
-  // ============ 纸张笔迹层 ============
+  // ============ 纸张笔迹层（高清 Retina 适配） ============
   const paperStrokeCanvas = document.createElement('canvas');
   paperStrokeCanvas.className = 'annotator-paper-stroke';
-  paperStrokeCanvas.width = W;
-  paperStrokeCanvas.height = H;
+  // 1. 同样放大物理分辨率
+  paperStrokeCanvas.width = W * dpr;
+  paperStrokeCanvas.height = H * dpr;
   paperStrokeCanvas.style.cssText = `position:absolute;top:0;left:0;width:${W}px;height:${H}px;pointer-events:none;z-index:3;`;
+  
   const paperStrokeCtx = paperStrokeCanvas.getContext('2d', { willReadFrequently: true });
+  // 2. 同样缩放坐标系
+  paperStrokeCtx.scale(dpr, dpr);
+  paperStrokeCtx.imageSmoothingEnabled = true;
 
   if (img.paperStrokeBlob) {
     const psUrl = URL.createObjectURL(img.paperStrokeBlob);
     const psImg = new Image();
     await new Promise((resolve) => { psImg.onload = resolve; psImg.src = psUrl; });
-    paperStrokeCtx.drawImage(psImg, 0, 0);
+    paperStrokeCtx.drawImage(psImg, 0, 0, W, H);
     URL.revokeObjectURL(psUrl);
   }
   canvasWrap.appendChild(paperStrokeCanvas);
@@ -774,6 +787,7 @@ export async function renderAnnotator({ params, query }) {
   let justCreatedTextId = null;
   let isManuallyCollapsed = false; // 👈 核心新增：记录用户是否手动收起了面板
   let currentColor = '#EF476F';
+  let currentBrushType = 'pen'; // 'pen' (普通圆珠笔), 'fountain' (钢笔), 'brush' (毛笔), 'pencil' (铅笔)
   let currentWidth = 0.5;
   let inlineEditorEl = null;
   let waveAmplitude = 8;
@@ -1028,7 +1042,7 @@ export async function renderAnnotator({ params, query }) {
     mctx.drawImage(baseImg, 0, 0);
     mctx.drawImage(paperCanvas, 0, 0);
     mctx.drawImage(paperStrokeCanvas, 0, 0);
-    mctx.drawImage(strokeCanvas, 0, 0);
+    mctx.drawImage(strokeCanvas, 0, 0, W, H);
 
     // 👇👇👇 核心绝杀：绝对不截图 textCanvas！直接从数据里把文字画上去！
     if (window.__textLayer) {
@@ -1236,28 +1250,37 @@ export async function renderAnnotator({ params, query }) {
 
   // ============ 粗细行 ============
   const widthRange = el('input', {
-    type: 'range', min: '0.1', max: '50', step: '0.1', value: String(currentWidth),
+    type: 'range', min: '0.01', max: '30', step: '0.01', value: String(currentWidth),
     style: { flex: '1' },
     onInput: (e) => { currentWidth = Number(e.target.value); widthNum.value = currentWidth; },
   });
   const widthNum = el('input', {
-    type: 'number', min: '0.1', max: '50', step: '0.1', value: String(currentWidth),
-    style: { width: '48px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
-    // 👇 修复：把 1 和 100 换成 0.1 和 50
+    type: 'number', min: '0.01', max: '30', step: '0.01', value: String(currentWidth),
+        style: { width: '58px', padding: '4px 6px', fontSize: '13px', textAlign: 'center' },
     onInput: (e) => { const v = Math.max(0.1, Math.min(50, Number(e.target.value) || 0.1)); currentWidth = v; widthRange.value = v; },
   });
-  const widthMinus = el('button', {
+    const widthMinus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '−',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    // 👇 修复：每次减 0.1，并且用 toFixed(1) 防止出现 0.300000000004 这种鬼数字
-    onClick: () => { currentWidth = Math.max(0.1, Number((currentWidth - 0.1).toFixed(1))); widthRange.value = currentWidth; widthNum.value = currentWidth; },
+    onClick: () => { 
+      // 👇 每次减 0.05，最小到 0.05，保留 2 位小数
+      currentWidth = Math.max(0.05, Number((currentWidth - 0.05).toFixed(2))); 
+      widthRange.value = currentWidth; 
+      widthNum.value = currentWidth; 
+    },
   });
+  
   const widthPlus = el('button', {
     class: 'btn btn-sm btn-ghost', text: '+',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
-    // 👇 修复：每次加 0.1
-    onClick: () => { currentWidth = Math.min(50, Number((currentWidth + 0.1).toFixed(1))); widthRange.value = currentWidth; widthNum.value = currentWidth; },
+    onClick: () => { 
+      // 👇 每次加 0.05，最大 50，保留 2 位小数
+      currentWidth = Math.min(50, Number((currentWidth + 0.05).toFixed(2))); 
+      widthRange.value = currentWidth; 
+      widthNum.value = currentWidth; 
+    },
   });
+  
   const widthRow = el('div', { class: 'annotator-widthrow' }, [
     el('span', { text: '粗细', style: { fontSize: '13px', color: 'var(--text-2)' } }),
     widthRange, widthMinus, widthNum, widthPlus,
@@ -1334,6 +1357,26 @@ export async function renderAnnotator({ params, query }) {
     window._paperTapeSelectedList = paperTapeSelectedList;
     window._updateSubToolbar = updateSubToolbar;
     subBar.innerHTML = "";
+
+        // 👇 就放在 updateSubToolbar 函数体内部，靠前的位置
+    if (currentTool === 'pen') {
+      subBar.appendChild(el('div', { class: 'tape-row' }, [
+        el('span', { class: 'tape-label', text: '笔刷' }),
+        ...[
+          { id: 'pen', label: '🖊 圆珠笔' },
+          { id: 'fountain', label: '🖋 钢笔' },
+          { id: 'brush', label: '🖌 毛笔' },
+          { id: 'pencil', label: '✏️ 铅笔' }
+        ].map(btn => el('button', {
+          class: 'tape-chip' + (currentBrushType === btn.id ? ' active' : ''),
+          text: btn.label,
+          onClick: () => { 
+            currentBrushType = btn.id; // 切换笔刷状态
+            updateSubToolbar();       // 刷新面板，让高亮生效
+          }
+        }))
+      ]));
+    }
 
     if (currentTool === 'shape') {
       // 绘制位置开关
@@ -3372,8 +3415,14 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // 双指缩放
+        // 双指缩放
     if (pointers.size === 2) {
+      // 👇 核心修复：双指按下时，强行中断画笔/橡皮，防止画出乱码
+      if (drawing === 'pen' || drawing === 'eraser' || drawing === 'circle-erase') {
+        drawing = false;
+        clearPreview(); // 清空画到一半的预览线
+      }
+
       const pts = [...pointers.values()];
       startPt = { dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y), cx: (pts[0].x + pts[1].x) / 2, cy: (pts[0].y + pts[1].y) / 2 };
       drawing = 'pinch';
@@ -3591,11 +3640,12 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-    // ============ 画笔 / 橡皮 / 圈擦 ============
+        // ============ 画笔 / 橡皮 / 圈擦 ============
     if (currentTool === 'pen' || currentTool === 'eraser' || currentTool === 'circle-erase') {
       pushUndo();
       e.preventDefault();
       const hitPaper = paperLayer.hitTest(pt.x, pt.y);
+      
       if (currentTool === 'eraser') {
         drawing = 'eraser';
       } else if (currentTool === 'circle-erase') {
@@ -3607,8 +3657,13 @@ export async function renderAnnotator({ params, query }) {
           hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
         }
       }
+      
       startPt = pt;
-      points = [{ ...pt, pressure: e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5 }];
+      
+      // 👇 核心修复：精准获取触控笔的压感
+      const initPressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
+      points = [{ ...pt, pressure: initPressure }];
+      
       try { strokeCanvas.setPointerCapture(e.pointerId); } catch { }
       return;
     }
@@ -3924,19 +3979,25 @@ export async function renderAnnotator({ params, query }) {
         previewCtx.restore();
       }
 
-      // --- 画笔逻辑 ---
+            // --- 画笔逻辑 ---
       else if (drawing === 'pen') {
-        // 判断是否在纸上
-        let hitPaper = null;
-        const paperList = paperLayer.getPapers();
-        for (let i = paperList.length - 1; i >= 0; i--) {
-          if (paperLayer.hitTest(pt.x, pt.y) === paperList[i]) { hitPaper = paperList[i]; break; }
+        // 1. 抓取高频采样点（让曲线更顺滑、不锯死）
+        const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+        for (const ev of events) {
+          const p = canvasToImage(ev.clientX, ev.clientY);
+          const pPressure = ev.pointerType === 'pen' ? (ev.pressure || 0.5) : 0.5;
+          points.push({ ...p, pressure: pPressure });
         }
+
+        const lastPt = points[points.length - 1];
+        
+        // 2. 判断是否在纸上
+        const hitPaper = paperLayer.hitTest(startPt.x, startPt.y); // 用起点判定，防止画一半切出纸张
 
         if (hitPaper && !hitPaper.locked) {
           // 画在纸上
           if (!hitPaper._currentStroke) hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
-          hitPaper._currentStroke.points.push({ x: pt.x - hitPaper.x, y: pt.y - hitPaper.y, pressure });
+          hitPaper._currentStroke.points.push({ x: lastPt.x - hitPaper.x, y: lastPt.y - hitPaper.y, pressure: lastPt.pressure });
 
           if (!window.__paperPenRaf) {
             window.__paperPenRaf = requestAnimationFrame(() => {
@@ -3945,11 +4006,25 @@ export async function renderAnnotator({ params, query }) {
             });
           }
         } else {
-          // 画在全局
-          const recent = points.slice(-12);
+          // 画在全局底图/画板上
           const scaleFactor = Math.sqrt(W / 800);
-          if (e.pointerType === 'pen') drawPressurePath(ctx, recent, currentColor, currentWidth, scaleFactor);
-          else drawSmoothCurve(ctx, recent, currentColor, currentWidth, scaleFactor);
+          
+          // 🛑 核心替换位置：根据 currentBrushType 分发绘制函数
+          if (currentBrushType === 'fountain') {
+            drawFountainPen(ctx, points, currentColor, currentWidth);
+          } else if (currentBrushType === 'brush') {
+            drawBrush(ctx, points, currentColor, currentWidth);
+          } else if (currentBrushType === 'pencil') {
+            drawPencil(ctx, points, currentColor, currentWidth);
+          } else {
+            // 默认圆珠笔（你原有的逻辑，保留压感和贝塞尔曲线）
+            if (e.pointerType === 'pen') {
+              const recent = points.slice(-12);
+              drawPressurePath(ctx, recent, currentColor, currentWidth, scaleFactor);
+            } else {
+              drawSmoothCurve(ctx, points, currentColor, currentWidth, scaleFactor);
+            }
+          }
         }
       }
 
