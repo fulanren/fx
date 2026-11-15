@@ -204,7 +204,7 @@ export function renderEditPoint({ params, query }) {
         cancelText: '放弃' 
       });
       
-      if (restore) {
+            if (restore) {
         // 恢复数据
         form = { ...form, ...draft.data };
         contentInput.value = form.content;
@@ -220,7 +220,7 @@ export function renderEditPoint({ params, query }) {
           manualBtn.textContent = '隐藏手动设置';
         }
       } else {
-        // 👇 如果点了放弃，强行把表单恢复成原始状态，防止污染
+        // 如果点了放弃，把表单恢复成原始状态
         form.content = original ? original.content : '';
         form.explanation = original ? original.explanation : '';
         if (contentInput) contentInput.value = form.content;
@@ -229,6 +229,10 @@ export function renderEditPoint({ params, query }) {
       
       // 1. 锁死标志位
       isDraftResolved = true;
+
+      // 2. 👇 核心修复：不管选了什么，立刻销毁草稿！
+      clearDraft('point', entityId); 
+      localStorage.removeItem(`kg_draft_point_${entityId}`);
       
     }, 300);
   }

@@ -726,3 +726,18 @@ html, body {
 .swipe-action-btn {
   display: none !important;
 }
+
+/* 强制工具栏悬浮在最上面，不被遮挡 */
+.batch-bar, 
+.batch-bar-actions,
+[class*="toolbar"] {
+  position: relative;
+  z-index: 100 !important;
+  pointer-events: auto !important;
+}
+.batch-bar button {
+  position: relative;
+  z-index: 101 !important;
+  pointer-events: auto !important;
+  cursor: pointer !important;
+}

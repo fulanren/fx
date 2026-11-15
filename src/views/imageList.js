@@ -165,7 +165,7 @@ export function renderImageList(point, onRefresh) {
       style: { padding: '4px 8px', minHeight: '28px', flexShrink: '0' }, onClick: () => { isMulti = !isMulti; selected.clear(); onRefresh(); }
     }),
 
-    isMulti ? el('div', {
+        isMulti ? el('div', {
       style: {
         display: 'flex',
         gap: '4px',
@@ -173,42 +173,262 @@ export function renderImageList(point, onRefresh) {
         padding: '2px 6px',
         background: 'rgba(142, 202, 230, 0.15)',
         borderRadius: '8px',
-        flexWrap: 'wrap', // 👈 允许换行，防止撑破
+        flexWrap: 'wrap',
         zIndex: '10'
       }
     }, [
       el('span', { style: { fontSize: '12px', fontWeight: '600', color: 'var(--primary-dark)', marginRight: '4px' }, text: `${selected.size}` }),
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '全选', onClick: () => { latestPoint.imageIds.forEach(id => selected.add(id)); onRefresh(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '全不选', onClick: () => { selected.clear(); onRefresh(); } }),
-      el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '移动', onClick: () => openMoveModal(selected, onRefresh) }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '导出', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 导出逻辑 */ } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '重命名', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 重命名逻辑 */ } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '加密', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 加密逻辑 */ } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '复制', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 复制逻辑 */ } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '粘贴', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 粘贴逻辑 */ } }),
-      el('button', { class: 'btn btn-sm btn-danger', text: '删除', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, onClick: () => { /* 删除逻辑 */ } })
-    ]) : null,
+      
+          // 移动
+    el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '移动', onClick: () => openMoveModal(selected, onRefresh) }),
 
-    // 👇 6. 搜索框
-    el('input', {
-      type: 'text', placeholder: '🔍 搜索文件...',
-      value: searchQuery,
-      style: {
-        flex: '1',
-        minWidth: '140px', // 稍微给大一点基础宽度
-        maxWidth: '300px', // 限制最大宽度，不抢后面的空间
-        padding: '4px 10px',
-        borderRadius: '20px',
-        border: '1px solid rgba(0,0,0,.1)',
-        fontSize: '13px',
-        outline: 'none',
-        height: '28px',
-        zIndex: '10' // 保证它在最上层
-      },
-      onInput: (e) => { searchQuery = e.target.value.toLowerCase(); onRefresh(); }
+    // 👇 导出功能（弹窗选择格式与方式）
+    el('button', { 
+      class: 'btn btn-sm btn-ghost', text: '导出', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: async () => {
+        if (selected.size === 0) return toastError('请先选择文件');
+        
+        const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+          el('h3', { text: '选择导出方式' }),
+          el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `共选中 ${selected.size} 个文件` }),
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
+            el('button', { class: 'btn btn-primary', text: '📦 打包导出为 ZIP', onClick: async () => {
+              mask.remove();
+              toastSuccess('正在打包，请稍候...');
+              const JSZipClass = window.JSZip || (await import('jszip')).default;
+              const zip = new JSZipClass();
+              
+              for (const id of selected) {
+                const rec = await dbGet('images', id);
+                if (rec && rec.annotatedBlob) {
+                  zip.file(rec.name || `图片_${id.slice(0, 6)}.png`, rec.annotatedBlob);
+                } else if (rec && rec.pdfId) {
+                  const pdfRec = await dbGet('pdfs', rec.pdfId);
+                  if (pdfRec) zip.file(pdfRec.name || `文档_${id.slice(0, 6)}.pdf`, pdfRec.blob);
+                }
+              }
+              
+              const content = await zip.generateAsync({ type: 'blob' });
+              
+              // 尝试使用 File System Access API 唤起保存对话框
+              if (window.showSaveFilePicker) {
+                try {
+                  const handle = await window.showSaveFilePicker({
+                    suggestedName: `导出备份_${new Date().getTime()}.zip`,
+                    types: [{ description: 'ZIP 压缩包', accept: { 'application/zip': ['.zip'] } }]
+                  });
+                  const writable = await handle.createWritable();
+                  await writable.write(content);
+                  await writable.close();
+                  toastSuccess('导出成功');
+                  return;
+                } catch (err) { console.log('用户取消或浏览器不支持原生保存'); }
+              }
+              
+              // 降级为普通下载
+              const url = URL.createObjectURL(content);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `导出备份_${new Date().getTime()}.zip`;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              toastSuccess('已开始下载 ZIP');
+            }}),
+            el('button', { class: 'btn btn-ghost', text: '📂 逐个直接下载', onClick: async () => {
+              mask.remove();
+              for (const id of selected) {
+                const rec = await dbGet('images', id);
+                if (rec && rec.annotatedBlob) {
+                  const a = document.createElement('a');
+                  a.href = URL.createObjectURL(rec.annotatedBlob);
+                  a.download = rec.name || `导出图片_${id.slice(0, 6)}.png`;
+                  a.click();
+                  await new Promise(r => setTimeout(r, 300)); // 防止浏览器拦截
+                } else if (rec && rec.pdfId) {
+                  const pdfRec = await dbGet('pdfs', rec.pdfId);
+                  if (pdfRec) {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(pdfRec.blob);
+                    a.download = pdfRec.name || `导出文档_${id.slice(0, 6)}.pdf`;
+                    a.click();
+                    await new Promise(r => setTimeout(r, 300));
+                  }
+                }
+              }
+              toastSuccess('已触发下载');
+            }}),
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+          ])
+        ]);
+        mask.appendChild(box);
+        document.body.appendChild(mask);
+      } 
+    }),
+
+    // 👇 重命名功能
+    el('button', { 
+      class: 'btn btn-sm btn-ghost', text: '重命名', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: () => {
+        if (selected.size === 0) return toastError('请先选择文件');
+        if (selected.size > 1) return toastError('目前仅支持单文件重命名');
+        
+        const id = [...selected][0];
+        openInputModal('重命名', '请输入新名称', async (newName) => {
+          if (!newName.trim()) return;
+          const imgRec = await dbGet('images', id);
+          if (imgRec) { imgRec.name = newName.trim(); await dbPut('images', imgRec); }
+          toastSuccess('重命名成功');
+          onRefresh();
+        });
+      } 
+    }),
+
+    // 👇 加密
+    el('button', { 
+      class: 'btn btn-sm btn-ghost', text: '加密', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: () => { toastSuccess('密码加密功能正在接入中，敬请期待...'); } 
+    }),
+
+    // 👇 复制
+    el('button', { 
+      class: 'btn btn-sm btn-ghost', text: '复制', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: () => {
+        if (selected.size === 0) return toastError('请先选择文件');
+        window._imgClipboard = Array.from(selected);
+        toastSuccess(`已复制 ${selected.size} 个文件到内部剪贴板`);
+      } 
+    }),
+
+    // 👇 粘贴（带路径选择）
+    el('button', { 
+      class: 'btn btn-sm btn-ghost', text: '粘贴', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: () => {
+        if (!window._imgClipboard || window._imgClipboard.length === 0) return toastError('剪贴板为空，请先复制文件');
+        
+        const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+        const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
+          el('h3', { text: '选择粘贴位置' }),
+          el('p', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: `剪贴板中有 ${window._imgClipboard.length} 个文件` }),
+          el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '16px' } }, [
+            el('button', { class: 'btn btn-primary', text: '📁 粘贴到当前文件夹', onClick: async () => {
+              mask.remove();
+              await doPasteToPoint(point.id);
+            }}),
+            el('button', { class: 'btn btn-ghost', text: '📂 选择其他文件夹粘贴...', onClick: () => {
+              mask.remove();
+              const targetPointId = prompt('请输入目标知识点/卡片的 ID', point.id);
+              if (targetPointId) {
+                if (store.getPoint(targetPointId)) {
+                  doPasteToPoint(targetPointId);
+                } else {
+                  toastError('未找到对应的知识点，粘贴失败');
+                }
+              }
+            }}),
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })
+          ])
+        ]);
+        mask.appendChild(box);
+        document.body.appendChild(mask);
+
+        async function doPasteToPoint(targetId) {
+          const targetPt = store.getPoint(targetId);
+          if (!targetPt) return;
+          for (const oldId of window._imgClipboard) {
+            const rec = await dbGet('images', oldId);
+            if (rec) {
+              const newId = uuid();
+              await dbPut('images', { ...rec, id: newId, createdAt: new Date().toISOString() });
+              if (!targetPt.imageIds) targetPt.imageIds = [];
+              targetPt.imageIds.push(newId);
+            }
+          }
+          store.updatePoint(targetPt.id, { imageIds: targetPt.imageIds });
+          toastSuccess(`成功粘贴 ${window._imgClipboard.length} 个文件`);
+          selected.clear();
+          if (targetId === point.id) onRefresh();
+        }
+      } 
+    }),
+
+    // 👇 删除功能
+    el('button', { 
+      class: 'btn btn-sm btn-danger', text: '删除', 
+      style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, 
+      onClick: () => { 
+        if (selected.size === 0) return toastError('请先选择文件');
+        if (confirm(`⚠️ 确定删除选中的 ${selected.size} 个文件吗？此操作不可恢复！`)) {
+          const pt = store.getPoint(point.id);
+          pt.imageIds = pt.imageIds.filter(id => !selected.has(id));
+          store.updatePoint(pt.id, { imageIds: pt.imageIds });
+          selected.forEach(id => {
+            dbDelete('images', id).catch(() => {});
+          });
+          selected.clear();
+          toastSuccess('已删除');
+          onRefresh();
+        }
+      } 
     })
-  ]);
-  wrap.appendChild(topBar);
+  ]) : null,
+
+  // 👇 6. 搜索框
+  el('input', {
+    type: 'text', placeholder: '🔍 搜索文件...',
+    value: searchQuery,
+    style: {
+      flex: '1',
+      minWidth: '140px',
+      maxWidth: '300px',
+      padding: '4px 10px',
+      borderRadius: '20px',
+      border: '1px solid rgba(0,0,0,.1)',
+      fontSize: '13px',
+      outline: 'none',
+      height: '28px',
+      zIndex: '10'
+    },
+    onInput: (e) => { searchQuery = e.target.value.toLowerCase(); onRefresh(); }
+  })
+]);
+wrap.appendChild(topBar);
+
+  // 👇 核心新增：自动给这个操作栏里的所有按钮加上“长按提示”
+  // 延时执行，确保按钮都已经挂载到 DOM 上
+  setTimeout(() => {
+    topBar.querySelectorAll('button').forEach(btn => {
+      // 如果按钮本身没有 title 属性，我们根据它的文字给它赋一个
+      let tip = btn.getAttribute('title');
+      if (!tip) {
+        const text = btn.innerText.trim();
+        if (text.includes('加图片')) tip = '从相册选择图片上传';
+        else if (text.includes('加 PDF')) tip = '从本地导入 PDF 文档';
+        else if (text === '🖼') tip = '图文模式';
+        else if (text === '▦') tip = '纯缩略图模式';
+        else if (text === '📄') tip = '列表模式';
+        else if (text === '⬇️') tip = '全部展开';
+        else if (text === '⬆️') tip = '全部收起';
+        else if (text === '📁+') tip = '新建文件夹';
+        else if (text.includes('多选')) tip = '开启/关闭批量选择';
+        else if (text === '导出') tip = '将选中的文件导出';
+        else if (text === '重命名') tip = '批量重命名选中文件';
+        else if (text === '删除') tip = '删除选中文件';
+        else tip = text || '操作按钮';
+      }
+      // 如果你在 main.js 里写了全局的 attachLongPressTooltip 函数，直接调用它
+      if (typeof attachLongPressTooltip === 'function') {
+        attachLongPressTooltip(btn, tip);
+      }
+    });
+  }, 100);
 
   // ============ 内容区 ============
   const contentWrap = el('div', { style: { marginTop: '-4px' } }); // 👈 强行往上顶，吃掉多余间隙
