@@ -192,10 +192,6 @@ export function renderEditPoint({ params, query }) {
       manualRow.style.display = showManual ? 'flex' : 'none';
     },
   });
-
-  // 👇👇👇 强行拦截缓存，无论有什么草稿，进页面直接销毁！
-  localStorage.removeItem(`kg_draft_point_${entityId}`);
-  clearDraft('point', entityId);
   
   // 然后才是加载
   const draft = loadDraft('point', entityId);
@@ -233,12 +229,12 @@ export function renderEditPoint({ params, query }) {
       
       // 1. 锁死标志位
       isDraftResolved = true;
-
-      // 2. 👇 终极杀招：直接暴力销毁草稿，而不是存原数据！
-      clearDraft('point', entityId); 
       
     }, 300);
   }
+
+  const status = el('div', { class: 'save-status' });
+  function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
       const queueSave = debounce(() => {
     // 如果已经处理过弹窗（恢复了或者放弃了），就不准再自动存草稿了！
@@ -247,8 +243,7 @@ export function renderEditPoint({ params, query }) {
     saveDraft('point', entityId, form); 
     setStatus('已保存草稿', 'saved'); 
   }, 300);
-  const status = el('div', { class: 'save-status' });
-  function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
+
 
   function makeSection(title, children) {
     let collapsed = false;
@@ -265,7 +260,7 @@ export function renderEditPoint({ params, query }) {
 
   // ============ 归档选择区（可折叠） ============
   // 读取折叠状态，默认折叠（true 表示收起）
-  let isFolderCollapsed = localStorage.getItem('kg_folder_selector_collapsed') !== 'true';
+  let isFolderCollapsed = localStorage.getItem('kg_folder_selector_collapsed') !== 'false';
 
   const folderSection = el('div', { class: 'section', style: { background: 'rgba(142, 202, 230, 0.05)', marginBottom: '16px', borderRadius: '8px', border: '1px solid rgba(142, 202, 230, 0.2)' } });
 
@@ -537,13 +532,13 @@ export function renderEditPoint({ params, query }) {
     }
   });
 
-  // 组装 UI 容器
+    // 组装 UI 容器
   const reviewSection = el('div', { class: 'section' });
 
   function renderReviewSection() {
     reviewSection.innerHTML = '';
 
-    // 头部（点击折叠）
+    // ================= 头部 =================
     const head = el('div', {
       class: 'section-head',
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', borderBottom: isReviewCollapsed ? 'none' : '1px solid rgba(0,0,0,.06)' },
@@ -553,52 +548,37 @@ export function renderEditPoint({ params, query }) {
       }
     }, [
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
-        el('span', { text: '📊 复习设置' }),
+        el('span', { text: '📊' }), // 全局魔法会自动替换这个图标
+        el('span', { text: '复习设置' }),
         el('span', { text: isReviewCollapsed ? '▸' : '▾', style: { color: 'var(--text-2)', fontSize: '12px' } })
       ]),
-      !isReviewCollapsed ? unlockBtn : null
+      !isReviewCollapsed ? unlockBtn : el('span', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: '已收起' })
     ]);
     reviewSection.appendChild(head);
 
-    // 👇 下面是新增的展开内容区（含错因下拉框）
+    // ================= 展开内容区 =================
     if (!isReviewCollapsed) {
-      const body = el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '12px', paddingTop: '12px' } });
+      const body = el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '16px' } });
 
-      // 1. 原有的难记度、已背遍数、下次复习
-      const row1 = el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } }, [
-        el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
+      // 第一排：三个输入框（使用原本的 input，保持事件绑定）
+      const row1 = el('div', { style: { display: 'flex', gap: '12px', flexWrap: 'wrap' } }, [
+        el('div', { class: 'field', style: { flex: '1', minWidth: '100px', margin: 0 } }, [
           el('label', { text: '难记度 (1-10)' }),
-          el('input', {
-            type: 'number', min: '1', max: '10', value: String(form.difficulty || 5),
-            disabled: !isUnlocked,
-            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-            oninput: (e) => { form.difficulty = Number(e.target.value); queueSave(); }
-          })
+          diffInput
         ]),
-        el('div', { class: 'field', style: { flex: '1', minWidth: '100px' } }, [
+        el('div', { class: 'field', style: { flex: '1', minWidth: '100px', margin: 0 } }, [
           el('label', { text: '已背遍数' }),
-          el('input', {
-            type: 'number', min: '0', value: String(form.reviewCount || 0),
-            disabled: !isUnlocked,
-            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-            oninput: (e) => { form.reviewCount = Number(e.target.value); form.manualReviewCount = true; queueSave(); }
-          })
+          countInput
         ]),
-        el('div', { class: 'field', style: { flex: '1', minWidth: '120px' } }, [
+        el('div', { class: 'field', style: { flex: '1', minWidth: '120px', margin: 0 } }, [
           el('label', { text: '下次复习' }),
-          el('input', {
-            type: 'date',
-            value: form.nextReviewAt ? form.nextReviewAt.slice(0, 10) : new Date().toISOString().slice(0, 10),
-            disabled: !isUnlocked,
-            style: { width: '100%', padding: '8px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)' },
-            oninput: (e) => { form.nextReviewAt = e.target.value ? new Date(e.target.value).toISOString() : ''; form.manualNextReviewAt = true; queueSave(); }
-          })
+          dateInput
         ])
       ]);
       body.appendChild(row1);
 
-      // 2. 错因选择下拉框
-      const row2 = el('div', { class: 'field' }, [
+      // 第二排：错题原因（下拉框）
+      const row2 = el('div', { class: 'field', style: { margin: 0 } }, [
         el('label', { text: '错题原因 (错题本统计用)' }),
         el('select', {
           value: form.errorReason || '',
@@ -607,75 +587,48 @@ export function renderEditPoint({ params, query }) {
           onchange: (e) => { form.errorReason = e.target.value; queueSave(); }
         }, [
           el('option', { value: '', text: '未分类' }),
-          el('option', { value: 'blind', text: '📚 知识盲区' }),
-          el('option', { value: 'careful', text: '✏️ 粗心大意' })
+          el('option', { value: 'blind', text: '🚫 知识盲区' }),
+          el('option', { value: 'careful', text: '💦 粗心大意' })
         ])
       ]);
       body.appendChild(row2);
 
-      reviewSection.appendChild(body);
-    }
-
-    // 展开的内容区
-    if (!isReviewCollapsed) {
-      // 读取之前保存的设置
-      const showDiff = original?.showDifficultyBeforeExpand || false;
-      const showCount = original?.showReviewCountBeforeExpand || false;
-
-      reviewSection.appendChild(el('div', { class: 'section-body', style: { display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px' } }, [
-
-        // 第一排：三个输入框
-        el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap' } }, [
-          el('div', { class: 'field' }, [el('label', { text: '难记度 (1-10)' }), diffInput]),
-          el('div', { class: 'field' }, [el('label', { text: '已背遍数' }), countInput]),
-          el('div', { class: 'field' }, [el('label', { text: '下次复习' }), dateInput]),
+      // 第三排：两个勾选项（合并成一行，更紧凑）
+      const row3 = el('div', { style: { display: 'flex', gap: '16px', flexWrap: 'wrap', marginTop: '4px' } }, [
+        el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-2)' } }, [
+          el('input', {
+            type: 'checkbox',
+            'data-key': 'showDiff',
+            checked: original?.showDifficultyBeforeExpand || false,
+            style: { width: '16px', height: '16px', accentColor: 'var(--primary)' },
+            onChange: (e) => {
+              if (!isUnlocked) {
+                // 如果没解锁，先解锁
+                unlockBtn.click();
+              }
+              // 状态后续由保存时统一读取
+            }
+          }),
+          el('span', { text: '展开前显示难记度' })
         ]),
-
-        // 第二排：勾选开关
-        el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '8px' } }, [
-          // 👇 显示难记度开关
-          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
-            el('input', {
-              type: 'checkbox',
-              'data-key': 'showDiff', // 👈 关键标识
-              checked: original?.showDifficultyBeforeExpand || false,
-              style: { width: '16px', height: '16px' },
-              onChange: (e) => {
-                if (!isUnlocked) {
-                  isUnlocked = true;
-                  unlockBtn.textContent = '🔓 已解锁';
-                  unlockBtn.style.color = 'var(--primary)';
-                  diffInput.disabled = false;
-                  countInput.disabled = false;
-                  dateInput.disabled = false;
-                }
+        el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-2)' } }, [
+          el('input', {
+            type: 'checkbox',
+            'data-key': 'showCount',
+            checked: original?.showReviewCountBeforeExpand || false,
+            style: { width: '16px', height: '16px', accentColor: 'var(--primary)' },
+            onChange: (e) => {
+              if (!isUnlocked) {
+                unlockBtn.click();
               }
-            }),
-            el('span', { text: '在复习时，展开解释前显示难记度', style: { fontSize: '14px' } })
-          ]),
-
-          // 👇 显示已背遍数开关
-          el('label', { style: { display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' } }, [
-            el('input', {
-              type: 'checkbox',
-              'data-key': 'showCount', // 👈 关键标识
-              checked: original?.showReviewCountBeforeExpand || false,
-              style: { width: '16px', height: '16px' },
-              onChange: (e) => {
-                if (!isUnlocked) {
-                  isUnlocked = true;
-                  unlockBtn.textContent = '🔓 已解锁';
-                  unlockBtn.style.color = 'var(--primary)';
-                  diffInput.disabled = false;
-                  countInput.disabled = false;
-                  dateInput.disabled = false;
-                }
-              }
-            }),
-            el('span', { text: '在复习时，展开解释前显示已背遍数', style: { fontSize: '14px' } })
-          ]),
+            }
+          }),
+          el('span', { text: '展开前显示已背遍数' })
         ])
-      ]));
+      ]);
+      body.appendChild(row3);
+
+      reviewSection.appendChild(body);
     }
   }
 

@@ -14,6 +14,49 @@ import {
   eraseCircle, eraseSquare, eraseRect,
 } from '../utils/canvas.js';
 import { renderColorPicker } from '../ui/colorPicker.js';
+window.__isEditingText = false;
+// ============ 通用长按提示 ============
+function attachLongPressTooltip(btn, text) {
+  let timer = null;
+  let tooltipEl = null;
+
+  // 阻止系统默认的长按菜单
+  btn.style.webkitTouchCallout = 'none';
+  btn.style.userSelect = 'none';
+  btn.style.touchAction = 'manipulation';
+
+  const show = () => {
+    if (tooltipEl) return;
+    const rect = btn.getBoundingClientRect();
+    tooltipEl = document.createElement('div');
+    tooltipEl.style.cssText = `
+      position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.top - 40}px; 
+      transform: translateX(-50%); background: rgba(43,45,66,.95); color: #fff; 
+      padding: 6px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; 
+      pointer-events: none; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      animation: fadeInUp 0.2s;
+    `;
+    tooltipEl.textContent = text;
+    document.body.appendChild(tooltipEl);
+    if (navigator.vibrate) navigator.vibrate(30); // 手机/平板震动反馈
+  };
+
+  const hide = () => { if (tooltipEl) { tooltipEl.remove(); tooltipEl = null; } };
+
+  // 触摸事件
+  btn.addEventListener('touchstart', (e) => {
+    timer = setTimeout(show, 500);
+  }, { passive: true });
+  btn.addEventListener('touchend', () => { clearTimeout(timer); setTimeout(hide, 1500); });
+  btn.addEventListener('touchmove', () => { clearTimeout(timer); hide(); });
+
+  // 鼠标事件
+  btn.addEventListener('pointerdown', (e) => {
+    if (e.pointerType === 'mouse') timer = setTimeout(show, 500);
+  });
+  btn.addEventListener('pointerup', () => { if (timer) clearTimeout(timer); setTimeout(hide, 1500); });
+  btn.addEventListener('pointerleave', () => { if (timer) clearTimeout(timer); hide(); });
+}
 
 const TOOLS = [
   { id: 'pen', label: '✏️', name: '画笔' },
@@ -173,17 +216,12 @@ export async function renderAnnotator({ params, query }) {
     }
   }
 
-   // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
+      // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
   if (!img && query && query.isPdf === 'true') {
-    const pageTag = `pdf_${query.pdfId || 'unknown'}_page_${query.page || 1}`;
+    const pageTag = `pdf_${query.pdfId}_page_${query.page}`;
     
-    // 1. 先尝试从数据库拿（如果有旧数据的话）
-    try {
-      img = await dbGet('images', pageTag);
-    } catch (e) { }
-
-    // 2. 如果数据库也没有，那就现场从 PDF 重新渲染！
-    if (!img && query.pdfId && query.page) {
+    // 强行从 PDF 里重绘并固定 ID
+    if (query.pdfId && query.page) {
       try {
         const pdfRec = await dbGet('pdfs', query.pdfId);
         if (pdfRec && pdfRec.blob) {
@@ -201,25 +239,13 @@ export async function renderAnnotator({ params, query }) {
           const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
 
           img = {
-            id: pageTag,
-            originalBlob: blob,
-            annotatedBlob: blob,
-            strokeBlob: null,
-            paperStrokeBlob: null,
-            width: canvas.width,
-            height: canvas.height,
-            dpr: window.devicePixelRatio || 1,
-            source: pageTag,
-            name: pageTag,
-            createdAt: new Date().toISOString()
+            id: pageTag, originalBlob: blob, annotatedBlob: blob, strokeBlob: null,
+            width: canvas.width, height: canvas.height, dpr: window.devicePixelRatio || 1,
+            source: pageTag, name: pageTag, createdAt: new Date().toISOString()
           };
-
-          // 尝试存进去，存不进去就算了
-          try { await dbPut('images', img); } catch (e) {}
+          await dbPut('images', img);
         }
-      } catch (e) {
-        console.error('现场重绘 PDF 失败', e);
-      }
+      } catch (e) { console.error('现场重绘 PDF 失败', e); }
     }
   }
 
@@ -955,9 +981,13 @@ export async function renderAnnotator({ params, query }) {
 
   // 👇 新增：触发静默保存（防抖 1.5 秒）
   function triggerAutoSave() {
-    dirty = true;
-    setSaveStatus('dirty') // 变黄
+    // 🛑 核心修复：正在打字的时候，别瞎自动保存！
+    if (document.querySelector('.inline-text-editor') || window.__isEditingText) {
+      return;
+    }
 
+    dirty = true;
+    setSaveStatus('dirty');
     if (autoSaveTimer) clearTimeout(autoSaveTimer);
 
     autoSaveTimer = setTimeout(async () => {
@@ -973,13 +1003,18 @@ export async function renderAnnotator({ params, query }) {
   }
 
   async function saveAll(showToast = false) {
-    // 1. 强行掐断所有编辑
-    if (document.activeElement) document.activeElement.blur();
-    if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) closeInlineTextEditor();
+    // 🛑 核心修复：如果文字输入框还开着，说明用户正在打字，不要强制打断他！
+    const isEditingText = document.querySelector('.inline-text-editor') || window.__isEditingText;
 
-    if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
-    if (window.__tapeLayer) window.__tapeLayer.clearSelection();
-    if (window.__textLayer) window.__textLayer.select(null);
+    if (!isEditingText) {
+        // 只有在没有输入框的时候，才去强制取消焦点和关闭编辑器
+        if (document.activeElement) document.activeElement.blur();
+        if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) closeInlineTextEditor();
+        
+        if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
+        if (window.__tapeLayer) window.__tapeLayer.clearSelection();
+        if (window.__textLayer) window.__textLayer.select(null);
+    }
 
     // 2. 提取纯笔迹
     const strokeBlob = await new Promise((r) => strokeCanvas.toBlob(r, 'image/png'));
@@ -1753,17 +1788,20 @@ export async function renderAnnotator({ params, query }) {
         } else {
           const btnStyle = { padding: '6px 10px', fontSize: '13px', minHeight: '36px', borderRadius: '8px' };
 
-          // 👇 辅助函数：自动生成带 title 的按钮，并拦截冒泡
-          const createToolBtn = (text, title, onClick, isDanger = false, isActive = false) => {
+                    const createToolBtn = (text, title, onClick, isDanger = false, isActive = false) => {
             const btn = el('button', {
               class: `btn ${isDanger ? 'btn-danger' : (isActive ? 'btn-primary' : 'btn-ghost')}`,
               text: text, title: title, style: btnStyle,
               onClick: (e) => {
-                e.stopPropagation(); // 👈 核心：阻止事件穿透到画布
+                e.stopPropagation();
                 onClick();
               }
             });
-            btn.dataset.tooltip = title; // 供平板长按提示使用
+            btn.dataset.tooltip = title;
+            
+            // 把长按提示绑上去！
+            attachLongPressTooltip(btn, title);
+            
             return btn;
           };
 
@@ -2206,125 +2244,121 @@ export async function renderAnnotator({ params, query }) {
     ]);
     document.body.appendChild(mask);
   }
-  // ============ 内联文字编辑 ============
+    // ============ 内联文字编辑 (稳如老狗版) ============
   function openInlineTextEditor(textItem) {
-    closeInlineTextEditor();
+    if (inlineEditorEl) {
+      if (inlineEditorEl._saveInlineText) inlineEditorEl._saveInlineText(true);
+      inlineEditorEl.remove();
+      inlineEditorEl = null;
+    }
+    
     textItem.visible = false;
     textLayer.redraw();
+
     const rect = strokeCanvas.getBoundingClientRect();
     const sx = rect.width / W;
     const sy = rect.height / H;
 
-    const editor = document.createElement('div');
-    editor.contentEditable = 'true';
-    editor.textContent = textItem.text || '';
+    const editor = document.createElement('textarea');
+    editor.value = textItem.text || '';
+    editor.className = 'inline-text-editor';
     editor.style.cssText = `
       position: fixed;
       left: ${rect.left + textItem.x * sx}px;
       top: ${rect.top + textItem.y * sy}px;
       width: ${Math.max(120, textItem.w * sx)}px;
-      min-height: ${Math.max(40, textItem.h * sy)}px;
+      height: ${Math.max(40, textItem.h * sy)}px;
       font-size: ${(textItem.fontSize || 20) * sx}px;
       font-family: ${textItem.fontFamily || 'sans-serif'};
       line-height: ${textItem.lineHeight || 1.5};
       color: ${textItem.color || '#2B2D42'};
-      background: ${textItem.noBg ? 'rgba(255,255,255,.9)' : (textItem.bgColor || '#FFFFFF')};
+      background: ${textItem.noBg ? 'rgba(255,255,255,0.95)' : (textItem.bgColor || '#FFFFFF')};
       border: 2px solid #3B82F6;
       border-radius: 6px;
       padding: 4px;
       outline: none;
-      z-index: 999;
-      white-space: pre-wrap;
-      word-break: break-word;
+      z-index: 99999;
+      resize: both;
       overflow: auto;
       text-align: ${textItem.align || 'left'};
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      box-sizing: border-box;
     `;
-    editor.dataset.inlineEditor = '1';
+
+    // 拦截输入框自身的事件，防止传给底层画布
+    editor.addEventListener('pointerdown', (e) => e.stopPropagation());
+    editor.addEventListener('touchstart', (e) => e.stopPropagation());
+    editor.addEventListener('mousedown', (e) => e.stopPropagation());
+
     document.body.appendChild(editor);
-    if (window.visualViewport) {
-      const adjustPosition = () => {
-        const vv = window.visualViewport;
-        const editorRect = editor.getBoundingClientRect();
-        if (editorRect.bottom > vv.height - 20) {
-          editor.style.top = Math.max(10, vv.height - editorRect.height - 30) + 'px';
-        }
-      };
-      window.visualViewport.addEventListener('resize', adjustPosition);
-      editor._adjustPosition = adjustPosition;
-    }
     inlineEditorEl = editor;
 
-    editor.focus();
-    const range = document.createRange();
-    range.selectNodeContents(editor);
-    range.collapse(false);
-    const sel = window.getSelection();
-    sel.removeAllRanges();
-    sel.addRange(range);
-
-    // 👇 核心修复：增加一个状态标记，记录是否通过外部按钮主动关闭
-    let isClosedByButton = false;
+    // 聚焦并全选
+    setTimeout(() => {
+      editor.focus();
+      editor.select();
+    }, 50);
 
     function saveInlineText() {
       if (!inlineEditorEl) return;
 
-      textItem.text = editor.textContent || '';
-      textItem.visible = true; // 恢复显示
+      textItem.text = editor.value || '';
+      textItem.visible = true;
+
+      const newW = editor.offsetWidth / sx;
+      const newH = editor.offsetHeight / sy;
+      if (newW > 0 && newH > 0) {
+        textItem.w = newW;
+        textItem.h = newH;
+      }
 
       if (textItem.text.trim() === '') {
-        // 如果是空文字，只有在真正触发结束（比如失焦）且用户没主动保存时才删除
-        // 这里如果你希望空文字保留，可以将下面这行改为直接保存
         textLayer.removeText(textItem);
         textLayer.select(null);
-      } else {
-        const fs = textItem.fontSize || 20;
-        const lines = textItem.text.split('\n');
-        textItem.h = Math.max(40, lines.length * fs * (textItem.lineHeight || 1.5) + 8);
       }
 
       textLayer.save();
       textLayer.redraw();
 
-      // 只有不是通过外部按钮（比如点工具栏的“完成”）关闭的，才内部销毁编辑器
-      if (!isClosedByButton) {
-        closeInlineTextEditor();
+      if (inlineEditorEl === editor) {
+        inlineEditorEl = null;
+        editor.remove();
+        window.__waitingForTextCreate = false; 
+        if (typeof updateSubToolbar === 'function') updateSubToolbar();
       }
-      updateSubToolbar();
     }
 
-    function onInput() {
-      const text = editor.textContent || '';
-      textItem.text = text;
-      const fs = textItem.fontSize || 20;
-      const lines = text.split('\n');
-      textItem.h = Math.max(40, lines.length * fs * (textItem.lineHeight || 1.5) + 8);
+    editor.addEventListener('input', () => {
+      textItem.text = editor.value;
       textLayer.redraw();
-      dirty = true;
-      if (typeof setSaveStatus === 'function') triggerAutoSave();
-      editor.style.minHeight = Math.max(40, textItem.h * sy) + 'px';
-    }
-    editor.addEventListener('input', onInput);
-
-    editor.addEventListener('blur', () => {
-      // 放弃使用延时，直接在失焦时保存，并且把临时标记置空
-      setTimeout(() => {
-        if (inlineEditorEl === editor && !isClosedByButton) {
-          saveInlineText();
-        }
-      }, 200);
     });
 
-    editor.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' || (e.key === 'Enter' && e.ctrlKey)) {
-        e.preventDefault();
-        isClosedByButton = true;
+    // 核心：点击外部，才保存并退出
+    const handleOutsideClick = (e) => {
+      if (inlineEditorEl === editor) {
+        // 如果是点工具栏，或者点自己，就不退出
+        if (editor.contains(e.target) || e.target.closest('.annotator-bottom-bar') || e.target.closest('.sub-toolbar')) {
+          return;
+        }
         saveInlineText();
-        closeInlineTextEditor();
+        document.removeEventListener('pointerdown', handleOutsideClick, true);
+      }
+    };
+
+    // 延迟绑定，防止双击事件冲突
+    setTimeout(() => {
+      document.addEventListener('pointerdown', handleOutsideClick, true);
+    }, 300);
+
+    editor.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        saveInlineText();
+        document.removeEventListener('pointerdown', handleOutsideClick, true);
       }
     });
 
     editor._saveInlineText = saveInlineText;
-    editor._setCloseByButton = () => { isClosedByButton = true; };
   }
 
   function closeInlineTextEditor() {
@@ -3357,11 +3391,19 @@ export async function renderAnnotator({ params, query }) {
   }
   // ============ 手势事件 ============
   canvasWrap.addEventListener('pointerdown', (e) => {
-    // 只要在画布任何地方点击，立刻取消文字选中，蓝框秒消失！
-    if (window.__textLayer) window.__textLayer.select(null);
+    // 🛑 只要有输入框，画布直接废掉
+    if (document.querySelector('.inline-text-editor')) {
+      return; 
+    }
+
+    // 原有的取消选中
+    if (window.__textLayer) {
+        if (currentTool !== 'text') {
+            window.__textLayer.select(null);
+        }
+    }
 
     if (e.button !== 0 && e.pointerType === 'mouse') return;
-    // 阻止拖动底图（浏览器默认行为）
     e.preventDefault();
     e.stopPropagation();
 

@@ -26,6 +26,7 @@ import { toastError, toastSuccess } from './ui/toast.js';
 import { renderPdfViewer } from './views/pdfViewer.js';
 import { renderUploadPdf } from './views/uploadPdf.js';
 import { renderResourceOverview } from './views/resourceOverview.js';
+import { initEmojiReplacer } from './utils/emojiReplacer.js';
 
 // 修复 PDF.js Worker 404 的问题
 if (window.pdfjsLib) {
@@ -73,32 +74,77 @@ async function boot() {
       { id: 'import', icon: '📥', title: '导入数据', action: () => import('./views/settings.js').then(m => m.openImportModal()) },
       { id: 'template', icon: '📑', title: '资料模板', href: '#/template' },
       { id: 'importDoc', icon: '📄', title: '文档导入', action: () => import('./views/importDoc.js').then(m => m.globalImportDocModal()) },
-      { id: 'home', icon: '📚', title: '背诵首页', href: '#/' },
+      { id: 'home', icon: '🏠', title: '背诵首页', href: '#/' },
       { id: 'resources', icon: '📁', title: '资源总览', href: '#/resources' },
       { id: 'inbox', icon: '📥', title: '速记收件箱', href: '#/inbox' },
       { id: 'countdown', icon: '⏰', title: '考试倒计时', href: '#/countdown' },
       { id: 'trash', icon: '🗑', title: '回收站', href: '#/trash' },
       { id: 'help', icon: '❓', title: '帮助', href: '#/help' },
       { id: 'settings', icon: '⚙️', title: '设置页', href: '#/settings' },
-      { id: 'backToTop', icon: '🚀', title: '回到顶部', action: () => {
-        const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view') || window;
-        if (scrollContainer === window) window.scrollTo({ top: 0, behavior: 'smooth' });
-        else scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
-      }},
+      {
+        id: 'backToTop', icon: '🚀', title: '回到顶部', action: () => {
+          const scrollContainer = document.querySelector('.pdf-scroll-container') || document.getElementById('view') || window;
+          if (scrollContainer === window) window.scrollTo({ top: 0, behavior: 'smooth' });
+          else scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+      },
     ];
 
-    let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
-    if (prefs.length === 0) prefs = ['theme', 'quickNote', 'review', 'search', 'export'];
+    let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || 'null');
+
+    // 👇 核心修复：如果之前存的是数组，或者根本没存过，初始化对象
+    if (!prefs || Array.isArray(prefs) || Object.keys(prefs).length === 0) {
+      prefs = {
+        theme: false,
+        quickNote: false,
+        review: false,
+        search: false,
+        export: false,
+        import: false,
+        template: false,
+        importDoc: false,
+        home: true,
+        resources: true,
+        inbox: false,
+        countdown: false,
+        trash: true,
+        help: true,
+        settings: true,  // 比如让设置页默认显示
+        backToTop: true
+      };
+    }
 
     function renderTopbarTools() {
+      // 1. 先清理掉旧的按钮
       topbarActions.querySelectorAll('.topbar-tool-btn').forEach(el => el.remove());
-      prefs.forEach(id => {
+
+      // 2. 判断当前 prefs 的格式，兼容“对象”和“数组”
+      const activeIds = Array.isArray(prefs)
+        ? prefs
+        : Object.keys(prefs).filter(k => prefs[k] === true);
+
+      // 3. 遍历渲染
+      activeIds.forEach(id => {
         const tool = ALL_TOOLS.find(t => t.id === id);
         if (!tool) return;
-        const btn = el('button', {
+
+                const btn = el('button', {
           class: 'btn btn-sm btn-ghost topbar-tool-btn',
-          style: { fontSize: '18px', marginRight: '4px' },
-          text: tool.id === 'theme' ? (document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙') : tool.icon,
+          style: { 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center', 
+            padding: '0', 
+            marginRight: '4px', // 👈 把它改小一点，比如 2px 或 4px
+            width: '36px', 
+            height: '36px',
+            borderRadius: '8px',
+            background: 'rgba(142, 202, 230, 0.12)',
+            position: 'relative'
+          },
+          text: tool.id === 'theme'
+            ? (document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙')
+            : tool.icon,
           title: tool.title,
           onClick: (e) => {
             e.stopPropagation();
@@ -216,13 +262,13 @@ async function boot() {
   window.addEventListener('resize', () => {
     if (location.hash === '' || location.hash === '#/') renderSidebar();
   });
-  
+
   window.addEventListener('beforeunload', () => { flushAll(); });
-  
+
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) flushAll();
   });
-  
+
   import('./ui/reminder.js').then(({ initReminder }) => initReminder());
 }
 
@@ -232,7 +278,7 @@ function openMoreMenu() {
   const existing = document.getElementById('more-menu');
   if (existing) { existing.remove(); return; }
   const items = [
-    { icon: '📚', label: '背诵', href: '#/' },
+    { icon: '🏠', label: '背诵', href: '#/' },
     { icon: '📁', label: '资源总览', href: '#/resources' },
     { icon: '🎯', label: '待复习管理', href: '#/review' },
     { icon: '🔍', label: '搜索', href: '#/search' },
@@ -439,22 +485,42 @@ function openPasteCreateModal(text, hasImage) {
     el('h3', { text: '⚡ 极速记录' }), textarea,
     el('div', { class: 'confirm-actions' }, [
       el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-      el('button', { class: 'btn btn-primary', text: '存入收集箱', onClick: () => {
-        const val = textarea.value.trim(); if (!val) return;
-        store.createPoint({ content: val }); mask.remove(); toastSuccess('已存入收集箱');
-        if (location.hash === '#/' || location.hash === '') renderHome();
-      }})
+      el('button', {
+        class: 'btn btn-primary', text: '存入收集箱', onClick: () => {
+          const val = textarea.value.trim(); if (!val) return;
+          store.createPoint({ content: val }); mask.remove(); toastSuccess('已存入收集箱');
+          if (location.hash === '#/' || location.hash === '') renderHome();
+        }
+      })
     ])
   ]);
   mask.appendChild(box); document.body.appendChild(mask); setTimeout(() => textarea.focus(), 100);
 }
 
-// ============ 全局：防键盘遮挡 ============
+// ============ 全局：防键盘遮挡与解除滚动锁死 ============
 document.addEventListener('focusin', (e) => {
   const target = e.target;
   if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA') {
-    setTimeout(() => { target.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, 300);
+    // 每次输入框聚焦时，强行确保页面可以滚动
+    document.body.style.overflow = 'auto';
+    document.documentElement.style.overflow = 'auto';
+    const view = document.getElementById('view');
+    if (view) {
+      view.style.overflowY = 'auto';
+    }
+
+    setTimeout(() => { 
+      target.scrollIntoView({ behavior: 'smooth', block: 'center' }); 
+    }, 300);
   }
+});
+
+// 👇 终极保底：监听全站点击，随时准备解除任何不该有的滚动锁定
+document.addEventListener('click', () => {
+  const html = document.documentElement;
+  const body = document.body;
+  if (html.style.overflow === 'hidden') html.style.overflow = 'auto';
+  if (body.style.overflow === 'hidden') body.style.overflow = 'auto';
 });
 
 // ============ 全局防连点机制 ============
@@ -472,7 +538,7 @@ document.addEventListener('click', (e) => {
 });
 
 // ============ 通用手势 ============
-window.attachSwipeAction = function(container, onDelete, onStar) {
+window.attachSwipeAction = function (container, onDelete, onStar) {
   let startX = 0, startY = 0, currentX = 0;
   const content = container.querySelector('.point-card-content');
   if (!content) return;
@@ -527,64 +593,70 @@ document.addEventListener('DOMContentLoaded', () => {
   if (view) view.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
 });
 
-  // ============ 全局路由切换清理（唯一版） ============
-  window.addEventListener('hashchange', () => {
-    const view = document.getElementById('view');
-    if (view) view.style.removeProperty('padding');
+// ============ 全局路由切换清理（最终修复版） ============
+window.addEventListener('hashchange', () => {
+  const topbar = document.getElementById('topbar');
+  if (topbar) topbar.style.display = '';
 
-    // 1. 如果离开画板，立刻执行画板清理
-    if (!location.hash.startsWith('#/annotate/') && window.__annotatorCleanup) {
-      window.__annotatorCleanup();
+  const view = document.getElementById('view');
+  if (view) {
+    // 🛑 终极绝杀：强制清空所有内联样式，让 CSS 文件重新接管
+    view.style.cssText = '';
+    
+    // 默认移除 PDF 专属类名
+    view.classList.remove('pdf-active-view');
+    
+    // 👇 核心修复：如果是 PDF 页面，打上专属类名
+    if (location.hash.startsWith('#/pdf-viewer/')) {
+      view.classList.add('pdf-active-view');
     }
+    // 注意：我们不需要在这里写 padding、overflow 等内联样式了！
+    // 它们全都会由 main.css 里的 `#view` 和 `#view.pdf-active-view` 完美控制。
+  }
 
-    // 2. 清理其他全局悬浮组件
-    const oldTouchBar = document.getElementById('review-touch-bar');
-    if (oldTouchBar) oldTouchBar.remove();
-
-    const oldQuickNote = document.getElementById('floating-folder-menu');
-    if (oldQuickNote) oldQuickNote.remove();
-
-    // 3. 控制速记按钮显隐
-    const fab = document.getElementById('fab-quick-note');
-    if (fab) {
-      const hidePages = ['#/annotate/', '#/edit-point/', '#/edit-chapter/', '#/edit-task/'];
-      const shouldHide = hidePages.some(page => location.hash.startsWith(page));
-      fab.style.display = shouldHide ? 'none' : 'flex';
+  // 👇 核心新增：进入标注页时，隐藏顶栏多余的全局按钮
+  const topbarActions = document.getElementById('topbar-actions');
+  if (topbarActions) {
+    if (location.hash.startsWith('#/annotate/')) {
+      // 进入画板，把除了“更多(⋮)”以外的所有动态按钮全部隐藏
+      topbarActions.querySelectorAll('.topbar-tool-btn').forEach(btn => {
+        btn.style.display = 'none';
+      });
+    } else {
+      // 离开画板，恢复显示
+      topbarActions.querySelectorAll('.topbar-tool-btn').forEach(btn => {
+        btn.style.display = 'flex'; // 注意这里要恢复成 flex，才能保持图标居中
+      });
     }
+  }
 
-    // 4. 更新回到顶部火箭
-    setTimeout(updateBackToTopVisibility, 100);
-    if (view) view.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
-  });
+  // 下面是原有的组件清理逻辑（保持不变）
+  if (!location.hash.startsWith('#/annotate/') && window.__annotatorCleanup) {
+    window.__annotatorCleanup();
+  }
+
+  const oldTouchBar = document.getElementById('review-touch-bar');
+  if (oldTouchBar) oldTouchBar.remove();
+
+  const oldQuickNote = document.getElementById('floating-folder-menu');
+  if (oldQuickNote) oldQuickNote.remove();
+
+  const fab = document.getElementById('fab-quick-note');
+  if (fab) {
+    const hidePages = ['#/annotate/', '#/edit-point/', '#/edit-chapter/', '#/edit-task/'];
+    const shouldHide = hidePages.some(page => location.hash.startsWith(page));
+    fab.style.display = shouldHide ? 'none' : 'flex';
+  }
+
+  setTimeout(updateBackToTopVisibility, 100);
+  if (view) view.addEventListener('scroll', updateBackToTopVisibility, { passive: true });
+});
+
+// 启动全局 Emoji 替换魔法
+initEmojiReplacer();
 
 // ============ 启动应用 ============
 boot().catch(e => {
   console.error('启动失败', e);
   toastError('启动失败：' + e.message);
-
-// ============ 究极强制滚动补丁 ============
-setTimeout(() => {
-  // 1. 强行把 body 撑开到内容的真实高度
-  document.body.style.setProperty('height', 'auto', 'important');
-  document.documentElement.style.setProperty('height', 'auto', 'important');
-  
-  // 2. 放开所有的 overflow 锁定
-  document.body.style.setProperty('overflow', 'auto', 'important');
-  document.documentElement.style.setProperty('overflow', 'auto', 'important');
-  
-  // 3. 让 app 和 main 也跟着内容长高
-  const app = document.getElementById('app');
-  const main = document.getElementById('main');
-  if (app) { app.style.setProperty('height', 'auto', 'important'); app.style.setProperty('overflow', 'visible', 'important'); }
-  if (main) { main.style.setProperty('height', 'auto', 'important'); main.style.setProperty('overflow', 'visible', 'important'); }
-
-  // 4. 把 #view 的固定滚动条撤掉，让它跟网页一起滚
-  const view = document.getElementById('view');
-  if (view) {
-    view.style.setProperty('height', 'auto', 'important');
-    view.style.setProperty('overflow', 'visible', 'important'); // 👈 关键！取消内部滚动
-  }
-  
-  console.log("✅ 已强行将滚动权交还给整个网页！");
-}, 500);
 });

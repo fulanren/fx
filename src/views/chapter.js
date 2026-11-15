@@ -518,22 +518,6 @@ function pointCard(p, chapterId) {
     }
   });
 
-  const btnStar = el('div', {
-    class: 'swipe-action-btn star', text: '⭐ 易错',
-    onClick: (e) => {
-      e.stopPropagation();
-      store.updatePoint(p.id, { isErrorProne: !p.isErrorProne });
-      toastSuccess(p.isErrorProne ? '已取消标星' : '⭐ 已标为易错');
-      renderChapterDetail({ params: { id: chapterId } });
-    }
-  });
-
-  const container = el('div', { class: 'point-card-container' }, [
-    btnStar,
-    btnDelete,
-    card
-  ]);
-
   // 绑定滑动手势（调用我们刚才在 main.js 写的通用函数）
   if (window.attachSwipeAction) {
     window.attachSwipeAction(container, null, null);

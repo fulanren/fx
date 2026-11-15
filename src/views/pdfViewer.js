@@ -38,11 +38,10 @@ function setPdfPref(key, value) {
 export async function renderPdfViewer({ params, query }) {
     const pdfId = params.id;
     const pointId = query.pointId;
-    const view = document.getElementById('view');
+        const view = document.getElementById('view');
     clear(view);
-    // 👇 暴力清零父容器的边距
-    view.style.padding = '0';
-    view.style.margin = '0';
+    // 👇 打上专属标记，让 CSS 生效
+    view.classList.add('pdf-active-view');
     view.style.display = 'flex';
     view.style.flexDirection = 'column';
     view.style.position = 'relative';
@@ -72,6 +71,7 @@ export async function renderPdfViewer({ params, query }) {
     let isScreenshotMode = false; // 👈 新增：截图模式                                        
 
     const container = el('div', {
+        id: 'pdf-main-container',
         style: {
             display: 'flex', flexDirection: 'column',
             height: '100%', width: '100%',
@@ -101,37 +101,23 @@ export async function renderPdfViewer({ params, query }) {
             pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
             total = pdfDoc.numPages;
 
-            // 👇 核心修改：优先读取外部链接参数，其次读取上次阅读进度
             currentPage = 1;
-
-            // 1. 尝试解析外部链接传来的 page 参数
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const targetPage = urlParams.get('page');
 
             if (targetPage) {
                 currentPage = parseInt(targetPage);
+                if (!isNaN(currentPage) && currentPage > 0) {
+                    localStorage.setItem(`kg_pdf_progress_${id}`, currentPage);
+                }
             } else {
-                // 1. 尝试解析外部链接传来的 page 参数
-                const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
-                const targetPage = urlParams.get('page');
-
-                if (targetPage) {
-                    currentPage = parseInt(targetPage);
-                    // 👇 新增：如果是从外部链接跳转来的，顺手更新一下本地进度记录，防止下次回到旧页面
-                    if (!isNaN(currentPage) && currentPage > 0) {
-                        localStorage.setItem(`kg_pdf_progress_${id}`, currentPage);
-                    }
-                } else {
-                    // 2. 如果没有外部参数，才读取本地缓存
-                    const savedPage = localStorage.getItem(`kg_pdf_progress_${id}`);
-                    if (savedPage) {
-                        const p = parseInt(savedPage);
-                        if (p >= 1 && p <= total) currentPage = p;
-                    }
+                const savedPage = localStorage.getItem(`kg_pdf_progress_${id}`);
+                if (savedPage) {
+                    const p = parseInt(savedPage);
+                    if (p >= 1 && p <= total) currentPage = p;
                 }
             }
 
-            // 3. 越界保护
             if (currentPage > total) currentPage = total;
             if (currentPage < 1) currentPage = 1;
 
@@ -140,28 +126,16 @@ export async function renderPdfViewer({ params, query }) {
             document.querySelectorAll('#pdf-bottom-float').forEach(el => el.remove());
             document.querySelectorAll('#pdf-page-float').forEach(el => el.remove());
 
-            // 延迟 50 毫秒调用，确保 DOM 全部初始化完毕
             setTimeout(() => renderUI(), 50);
         } catch (err) {
             console.error('PDF加载崩溃:', err);
             container.innerHTML = `<div style="padding:20px;text-align:center;color:red;">加载失败: ${err.message}</div>`;
         }
     }
-
-    // 👇 在 pdfViewer.js 渲染结束时，把父级大盒子的 padding 抹除（仅在 PDF 阅读页生效）
-    setTimeout(() => {
-        // 判断当前路由是否真的是 PDF 阅读器
-        if (location.hash.startsWith('#/pdf-viewer/')) {
-            let parent = document.getElementById('view');
-            while (parent && parent.tagName !== 'BODY') {
-                parent.style.setProperty('padding', '0', 'important');
-                parent.style.setProperty('margin', '0', 'important');
-                parent.style.setProperty('border', 'none', 'important');
-                parent.style.setProperty('border-radius', '0', 'important');
-                parent = parent.parentNode;
-            }
-        }
-    }, 100);
+    if (location.hash.startsWith('#/pdf-viewer/')) {
+        view.style.padding = '0';
+        view.style.margin = '0';
+    }
 
     // 重命名
     async function renamePdf() {
@@ -759,7 +733,7 @@ export async function renderPdfViewer({ params, query }) {
         };
 
         container.innerHTML = '';
-        container.style.height = 'calc(100vh - 56px)';
+        container.style.height = 'calc(100vh - 42px)';
         container.style.overflow = 'auto';
         container.style.background = eyeMode ? '#F0F5E9' : 'var(--bg)';
 
@@ -825,9 +799,11 @@ export async function renderPdfViewer({ params, query }) {
             class: 'pdf-topbar',
             style: {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                height: '40px', minHeight: '40px',
                 padding: '0 12px',
                 margin: '0',
+                height: '44px',                // 👈 固定 44px
+                minHeight: '44px',             // 👈 最小也是 44px
+                maxHeight: '44px',             // 👈 最大也是 44px（绝杀！）
                 borderBottom: '1px solid rgba(0,0,0,.05)',
                 background: 'var(--card)',
                 position: 'sticky',
@@ -835,37 +811,39 @@ export async function renderPdfViewer({ params, query }) {
                 zIndex: '100',
                 flexShrink: '0',
                 boxShadow: '0 2px 4px rgba(0,0,0,.04)',
-                width: '100%'
+                width: '100%',
+                boxSizing: 'border-box',
+                overflow: 'hidden'             // 👈 把多余的下坠内容直接切掉！
             }
         }, [
             // 左侧：文件名
-            el('span', { style: { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px' }, text: pdfRecord.name }),
+            el('span', { style: { fontWeight: 'bold', fontSize: '14px', color: 'var(--text)', flexShrink: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '200px', lineHeight: '1' }, text: pdfRecord.name }),
 
             // 右侧：工具集合
-            el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', whiteSpace: 'nowrap', paddingLeft: '12px' } }, [
+            el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', overflowX: 'auto', whiteSpace: 'nowrap', paddingLeft: '12px', height: '100%' } }, [
 
                 // 1. 翻页组件
                 currentPrefs.nav !== false ? (() => {
-                    const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)' } });
+                    const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)', height: '28px' } }); // 👈 控制翻页组件高度
 
-                    // 👈 上一页
+                    // 上一页
                     group.appendChild(el('button', {
                         class: 'btn btn-sm btn-ghost', text: '‹', title: '上一页',
-                        style: { padding: '0 6px', height: '24px', fontSize: '16px' },
+                        style: { padding: '0 6px', height: '24px', minHeight: '24px', fontSize: '16px' },
                         onClick: (e) => {
                             e.preventDefault();
                             if (currentPage > 1) {
-                                jumpToPage(currentPage - 1); // 👈 核心修复：直接调用跳页函数，不刷路由！
+                                jumpToPage(currentPage - 1);
                             } else {
                                 toastError('已经是第一页了');
                             }
                         }
                     }));
 
-                    // 👈 页码输入框
+                    // 页码输入框
                     group.appendChild(el('input', {
                         type: 'number', value: String(currentPage),
-                        style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px' },
+                        style: { width: '36px', height: '24px', padding: '0', textAlign: 'center', fontSize: '12px', fontWeight: 'bold', border: '1px solid rgba(0,0,0,0.1)', background: 'var(--card)', borderRadius: '4px', outline: 'none' },
                         onkeydown: (e) => {
                             if (e.key === 'Enter') {
                                 const val = parseInt(e.target.value);
@@ -880,14 +858,14 @@ export async function renderPdfViewer({ params, query }) {
 
                     group.appendChild(el('span', { style: { fontSize: '12px', color: 'var(--text-2)', padding: '0 2px' }, text: `/ ${total}` }));
 
-                    // 👈 下一页
+                    // 下一页
                     group.appendChild(el('button', {
                         class: 'btn btn-sm btn-ghost', text: '›', title: '下一页',
-                        style: { padding: '0 6px', height: '24px', fontSize: '16px' },
+                        style: { padding: '0 6px', height: '24px', minHeight: '24px', fontSize: '16px' },
                         onClick: (e) => {
                             e.preventDefault();
                             if (currentPage < total) {
-                                jumpToPage(currentPage + 1); // 👈 核心修复：直接调用跳页函数
+                                jumpToPage(currentPage + 1);
                             } else {
                                 toastError('已经是最后一页了');
                             }
@@ -899,7 +877,11 @@ export async function renderPdfViewer({ params, query }) {
 
                 // 2. 专业标注
                 el('button', {
-                    class: 'btn btn-sm btn-primary', text: '🎨 专业标注', style: { padding: '4px 12px', fontWeight: '600', whiteSpace: 'nowrap' }, onClick: async () => {
+                    class: 'btn btn-sm btn-primary',
+                    text: 'PDF标注',
+                    style: { padding: '0 12px', height: '28px', minHeight: '28px', fontWeight: '600', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }, // 👈 移除了垂直 padding，锁死 28px 高度
+                    onClick: async () => {
+                        // ... 你的原有逻辑不变 ...
                         toastSuccess('正在准备画板...');
                         const pageWrap = document.getElementById(`pdf-page-wrap-${currentPage}`);
                         if (!pageWrap) return;
@@ -910,34 +892,34 @@ export async function renderPdfViewer({ params, query }) {
                         ctx.fillStyle = '#FFFFFF'; ctx.fillRect(0, 0, canvas.width, canvas.height);
                         ctx.drawImage(c, 0, 0);
                         const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
-                        const { dbPut, dbAll } = await import('../db.js');
-                        const { uuid } = await import('../utils/id.js');
-                        const newImgId = uuid();
+
+                        const { dbPut } = await import('../db.js');
                         const pageTag = `pdf_${pdfId}_page_${currentPage}`;
-                        const all = await dbAll('images');
-                        const existing = all.find(img => img.source === pageTag || img.name === pageTag);
-                        let finalBlob = blob;
-                        let strokeBlob = null;
-                        if (existing) {
-                            finalBlob = existing.originalBlob || blob;
-                            strokeBlob = existing.strokeBlob || null;
-                        }
+                        const existing = await dbGet('images', pageTag);
                         await dbPut('images', {
-                            id: existing ? existing.id : newImgId,
-                            originalBlob: finalBlob, strokeBlob: strokeBlob,
+                            id: pageTag,
+                            originalBlob: existing ? existing.originalBlob : blob,
+                            annotatedBlob: existing ? existing.annotatedBlob : blob,
+                            strokeBlob: existing ? existing.strokeBlob : null,
                             width: canvas.width, height: canvas.height, dpr: window.devicePixelRatio || 1,
-                            source: pageTag, name: pageTag, createdAt: existing ? existing.createdAt : new Date().toISOString()
+                            source: pageTag, name: pageTag,
+                            createdAt: existing ? existing.createdAt : new Date().toISOString(),
+                            updatedAt: new Date().toISOString()
                         });
-                        const pt = store.getPoint(pointId);
-                        if (pt) {
-                            if (!pt.imageIds) pt.imageIds = [];
-                            if (!pt.imageIds.includes(existing ? existing.id : newImgId)) {
-                                pt.imageIds.push(existing ? existing.id : newImgId);
-                                store.updatePoint(pt.id, { imageIds: pt.imageIds });
+
+                        if (pointId) {
+                            const pt = store.getPoint(pointId);
+                            if (pt) {
+                                if (!pt.imageIds) pt.imageIds = [];
+                                if (!pt.imageIds.includes(pageTag)) {
+                                    pt.imageIds.push(pageTag);
+                                    store.updatePoint(pt.id, { imageIds: pt.imageIds });
+                                }
                             }
                         }
+
                         const returnUrl = encodeURIComponent(window.location.hash);
-                        window.location.hash = `#/annotate/${existing ? existing.id : newImgId}?pointId=${pointId}&pdfId=${pdfId}&page=${currentPage}&returnUrl=${returnUrl}`;
+                        window.location.hash = `#/annotate/${pageTag}?pointId=${pointId || ''}&pdfId=${pdfId}&page=${currentPage}&returnUrl=${returnUrl}&isPdf=true`;
                     }
                 }),
 
@@ -959,7 +941,36 @@ export async function renderPdfViewer({ params, query }) {
                 // 👈 挂载设置里勾选的工具
                 ...visibleTools,
 
-                el('button', { class: 'btn btn-sm btn-ghost', text: '⛶', title: '全屏', style: { width: '32px', height: '32px', padding: 0, fontSize: '16px' }, onClick: () => { isFullscreen = !isFullscreen; renderUI(); } }),
+                el('button', {
+                    class: 'btn btn-sm btn-ghost', text: '⛶', title: '全屏',
+                    style: { width: '32px', height: '32px', padding: 0, fontSize: '16px' },
+                    onClick: () => {
+                        isFullscreen = !isFullscreen;
+
+                        const viewEl = document.getElementById('view');
+                        const topbar = document.getElementById('topbar');
+
+                        if (isFullscreen) {
+                            // 进入全屏模式
+                            if (topbar) topbar.style.display = 'none'; // 隐藏系统的顶栏
+                            if (viewEl) {
+                                viewEl.style.setProperty('padding', '0', 'important');
+                                viewEl.style.setProperty('height', '100vh', 'important');
+                                viewEl.style.setProperty('overflow', 'hidden', 'important');
+                            }
+                        } else {
+                            // 退出全屏模式
+                            if (topbar) topbar.style.display = ''; // 恢复系统的顶栏
+                            if (viewEl) {
+                                viewEl.style.cssText = ''; // 清空内联样式，交还给 CSS 控制
+                                viewEl.style.padding = '0';
+                                viewEl.style.overflowY = 'auto';
+                            }
+                        }
+
+                        renderUI();
+                    }
+                }),
 
                 // 更多工具菜单
                 (() => {
@@ -992,22 +1003,63 @@ export async function renderPdfViewer({ params, query }) {
             onClick: (e) => {
                 e.preventDefault();
                 const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
-                const box = el('div', { class: 'confirm-box', style: { maxWidth: '360px', maxHeight: '80vh', overflowY: 'auto' } }, [
-                    el('h3', { text: '💡 当前页面按钮说明' }),
-                    el('div', { style: { fontSize: '13px', color: 'var(--text-2)', lineHeight: '1.8', margin: '16px 0', display: 'flex', flexDirection: 'column', gap: '8px' } }, [
-                        el('div', { innerHTML: '<b>‹ / ›</b>：上一页 / 下一页' }),
-                        el('div', { innerHTML: '<b>🎨 专业标注</b>：进入画板，在 PDF 上画线、做笔记' }),
-                        el('div', { innerHTML: '<b>✏️</b>：重命名当前文档' }),
-                        el('div', { innerHTML: '<b>📑 / 📋 / 🗂</b>：书签 / 大纲 / 缩略图' }),
-                        el('div', { innerHTML: '<b>🔍</b>：搜索当前文档的内容' }),
-                        el('div', { innerHTML: '<b>🔤</b>：划词 OCR 提取文字' }),
-                        el('div', { innerHTML: '<b>➕</b>：插入新页（答题卡/横线纸/错题纸）' }),
-                        el('div', { innerHTML: '<b>⛶</b>：全屏沉浸阅读' }),
-                    ]),
-                    el('div', { class: 'confirm-actions' }, [
-                        el('button', { class: 'btn btn-primary', text: '知道了', onClick: () => mask.remove() })
+
+                // 用 HTML 模板直接写，排版更清晰，而且确保了 <b> 标签的渲染
+                const descContainer = document.createElement('div');
+                descContainer.style.cssText = `
+        font-size: 13px; 
+        color: var(--text); 
+        line-height: 1.8; 
+        margin: 12px 0; 
+        max-height: 60vh; 
+        overflow-y: auto;
+        padding-right: 8px;
+    `;
+
+                descContainer.innerHTML = `
+        <div style="margin-bottom:8px;font-weight:600;color:var(--primary)">📄 阅读与翻页</div>
+        <ul style="padding-left: 20px; margin: 0 0 12px 0;">
+            <li><b>‹ / ›</b>：上一页 / 下一页</li>
+            <li><b>单页 / 双页</b>：切换页面布局（适合平板阅读）</li>
+            <li><b>📖 翻页 / 📜 滚动</b>：切换阅读模式</li>
+            <li><b>⛶</b>：全屏沉浸阅读</li>
+        </ul>
+
+        <div style="margin-bottom:8px;font-weight:600;color:var(--primary)">🎨 标注与工具</div>
+        <ul style="padding-left: 20px; margin: 0 0 12px 0;">
+            <li><b>🎨 专业标注</b>：进入独立画板，在 PDF 上画线、做笔记</li>
+            <li><b>🔤</b>：划词 OCR 提取文字</li>
+            <li><b>➕</b>：插入新页（答题卡/横线纸/错题纸等）</li>
+            <li><b>🔍</b>：搜索当前文档的内容（支持全文、书签、大纲）</li>
+            <li><b>🌿</b>：护眼模式（绿色背景）</li>
+        </ul>
+
+        <div style="margin-bottom:8px;font-weight:600;color:var(--primary)">📑 导航与管理</div>
+        <ul style="padding-left: 20px; margin: 0 0 12px 0;">
+            <li><b>📑</b>：书签管理（当前页添加书签）</li>
+            <li><b>🗂</b>：缩略图总览（快速跳页/批量操作）</li>
+            <li><b>📋</b>：大纲目录（自动识别或手动编辑）</li>
+            <li><b>☑</b>：多选模式（批量删除、导出页面）</li>
+            <li><b>📂</b>：切换文档 / 导入新 PDF</li>
+            <li><b>✏️</b>：重命名当前文档</li>
+        </ul>
+
+        <div style="margin-bottom:8px;font-weight:600;color:var(--primary)">💡 小提示</div>
+        <ul style="padding-left: 20px; margin: 0;">
+            <li>长按 PDF 页面任意位置，可以快速进入画板。</li>
+            <li>页面右上角的 ⚙️ 里可以自定义顶栏按钮的显示/隐藏。</li>
+            <li>如果按钮太多挤不下，会被自动收进 <b>⋮</b> 更多菜单里。</li>
+        </ul>
+    `;
+
+                const box = el('div', { class: 'confirm-box', style: { maxWidth: '400px', width: '90%' } }, [
+                    el('h3', { text: '💡 当前页面按钮说明', style: { marginBottom: '8px' } }),
+                    descContainer, // 👈 把原生的节点塞进来
+                    el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
+                        el('button', { class: 'btn btn-primary', text: '我知道了', onClick: () => mask.remove() })
                     ])
                 ]);
+
                 mask.appendChild(box);
                 document.body.appendChild(mask);
             }
@@ -1028,8 +1080,8 @@ export async function renderPdfViewer({ params, query }) {
         updateLayout();
 
         // 9. 画布渲染区
-        const scrollWrap = el('div', { style: { width: '100%', display: 'block', paddingBottom: '100px' } });
-        const canvasWrap = el('div', { style: { display: 'block', width: '100%', padding: '50px 0 150px 0' } });
+        const scrollWrap = el('div', { style: { width: '100%', display: 'block', paddingBottom: '50px' } });
+        const canvasWrap = el('div', { style: { display: 'block', width: '100%', padding: '10px 0 50px 0' } });
         scrollWrap.appendChild(canvasWrap);
         container.appendChild(scrollWrap);
 
@@ -1857,20 +1909,17 @@ export async function renderPdfViewer({ params, query }) {
         // ================= 👇 懒加载核心逻辑 👇 =================
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(async entry => {
-                // 当画布进入视线，且还没渲染过时
                 if (entry.isIntersecting && !c.dataset.rendered) {
                     c.dataset.rendered = '1';
 
+                    // 👇 核心：直接用主键查，零遍历，速度极快！
                     let savedAnnotated = null;
                     try {
-                        const { dbAll } = await import('../db.js');
-                        const allImages = await dbAll('images');
                         const pageTag = `pdf_${pdfId}_page_${num}`;
-                        const matched = allImages.find(img => img.source === pageTag || img.name === pageTag || (img.source && img.source.includes(pageTag)) || (img.name && img.name.includes(pageTag)));
+                        const matched = await dbGet('images', pageTag);
                         if (matched && matched.annotatedBlob) savedAnnotated = matched.annotatedBlob;
                     } catch (e) { }
 
-                    // ================= 👇 下面这段就是你原本的代码，被我原封不动包进来了 =================
                     if (savedAnnotated) {
                         const url = URL.createObjectURL(savedAnnotated);
                         const img = new Image();
@@ -1880,12 +1929,11 @@ export async function renderPdfViewer({ params, query }) {
                     } else {
                         await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
                     }
-                    // ================= 👆 原本的代码结束 👆 =================
 
-                    observer.disconnect(); // 渲染完这一页，断开监听
+                    observer.disconnect();
                 }
             });
-        }, { rootMargin: '500px' }); // 提前 500px 开始渲染，滑动不白屏
+        }, { rootMargin: '500px' });
         observer.observe(wrap);
         // ================= 👆 懒加载核心逻辑结束 👆 =================
 
@@ -1912,28 +1960,13 @@ export async function renderPdfViewer({ params, query }) {
 
         wrap.appendChild(c);
 
-        // ：渲染完当前页后，立刻检查有没有刚刚画完带回来的图
-        const updatePdfImage = sessionStorage.getItem('update_pdf_image');
-        const updatePdfId = sessionStorage.getItem('update_pdf_id');
-
-        if (updatePdfImage && updatePdfId && updatePdfId === `pdf_${pdfId}_page_${num}`) {
-            const newImg = new Image();
-            newImg.onload = () => {
-                c.getContext('2d').clearRect(0, 0, c.width, c.height);
-                c.getContext('2d').drawImage(newImg, 0, 0, c.width, c.height);
-            };
-            newImg.src = updatePdfImage;
-            sessionStorage.removeItem('update_pdf_image');
-            sessionStorage.removeItem('update_pdf_id');
-        }
-
-                // ============ 长按进入画板 ============
+        // ============ 长按进入画板 ============
         wrap.style.cursor = 'pointer';
         wrap.style.userSelect = 'none';
 
         let touchTimer = null;
 
-                    const triggerGoToAnnotator = () => {
+        const triggerGoToAnnotator = () => {
             const toast = document.createElement('div');
             toast.style.cssText = 'position:fixed;top:20px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.8);color:#fff;padding:8px 16px;border-radius:8px;z-index:999999;font-size:14px;';
             toast.textContent = '正在准备画板...';
@@ -1943,7 +1976,7 @@ export async function renderPdfViewer({ params, query }) {
                 const targetImageId = `pdf_${pdfId}_page_${num}`;
                 document.body.removeChild(toast);
                 const returnUrl = encodeURIComponent(window.location.hash);
-                
+
                 // 👇 核心：不传图了，只传 PDF 的 ID 和页码！
                 window.location.hash = `#/annotate/${targetImageId}?returnUrl=${returnUrl}&isPdf=true&pdfId=${pdfId}&page=${num}`;
 
@@ -2003,12 +2036,12 @@ export async function renderPdfViewer({ params, query }) {
 
         wrap.addEventListener('touchmove', (e) => {
             if (isPinching && e.touches.length === 2) {
-                e.preventDefault(); 
+                e.preventDefault();
                 const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY);
                 const newScale = Math.max(1, Math.min(5, startScale * (dist / startDist)));
                 c.style.transform = `scale(${newScale}) translate(${panX / newScale}px, ${panY / newScale}px)`;
             } else if (isDragging && e.touches.length === 1 && scale > 1.05) {
-                e.preventDefault(); 
+                e.preventDefault();
                 panX = e.touches[0].clientX - startX;
                 panY = e.touches[0].clientY - startY;
                 c.style.transform = `scale(${scale}) translate(${panX / scale}px, ${panY / scale}px)`;
