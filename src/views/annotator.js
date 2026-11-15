@@ -216,10 +216,10 @@ export async function renderAnnotator({ params, query }) {
     }
   }
 
-      // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
+  // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
   if (!img && query && query.isPdf === 'true') {
     const pageTag = `pdf_${query.pdfId}_page_${query.page}`;
-    
+
     // 强行从 PDF 里重绘并固定 ID
     if (query.pdfId && query.page) {
       try {
@@ -229,7 +229,7 @@ export async function renderAnnotator({ params, query }) {
           const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
           const page = await pdfDoc.getPage(parseInt(query.page));
           const vp = page.getViewport({ scale: 1.5 });
-          
+
           const canvas = document.createElement('canvas');
           canvas.width = vp.width; canvas.height = vp.height;
           const ctx = canvas.getContext('2d');
@@ -1007,13 +1007,13 @@ export async function renderAnnotator({ params, query }) {
     const isEditingText = document.querySelector('.inline-text-editor') || window.__isEditingText;
 
     if (!isEditingText) {
-        // 只有在没有输入框的时候，才去强制取消焦点和关闭编辑器
-        if (document.activeElement) document.activeElement.blur();
-        if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) closeInlineTextEditor();
-        
-        if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
-        if (window.__tapeLayer) window.__tapeLayer.clearSelection();
-        if (window.__textLayer) window.__textLayer.select(null);
+      // 只有在没有输入框的时候，才去强制取消焦点和关闭编辑器
+      if (document.activeElement) document.activeElement.blur();
+      if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) closeInlineTextEditor();
+
+      if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
+      if (window.__tapeLayer) window.__tapeLayer.clearSelection();
+      if (window.__textLayer) window.__textLayer.select(null);
     }
 
     // 2. 提取纯笔迹
@@ -1788,7 +1788,7 @@ export async function renderAnnotator({ params, query }) {
         } else {
           const btnStyle = { padding: '6px 10px', fontSize: '13px', minHeight: '36px', borderRadius: '8px' };
 
-                    const createToolBtn = (text, title, onClick, isDanger = false, isActive = false) => {
+          const createToolBtn = (text, title, onClick, isDanger = false, isActive = false) => {
             const btn = el('button', {
               class: `btn ${isDanger ? 'btn-danger' : (isActive ? 'btn-primary' : 'btn-ghost')}`,
               text: text, title: title, style: btnStyle,
@@ -1798,10 +1798,10 @@ export async function renderAnnotator({ params, query }) {
               }
             });
             btn.dataset.tooltip = title;
-            
+
             // 把长按提示绑上去！
             attachLongPressTooltip(btn, title);
-            
+
             return btn;
           };
 
@@ -2244,14 +2244,14 @@ export async function renderAnnotator({ params, query }) {
     ]);
     document.body.appendChild(mask);
   }
-    // ============ 内联文字编辑 (稳如老狗版) ============
+  // ============ 内联文字编辑 (稳如老狗版) ============
   function openInlineTextEditor(textItem) {
     if (inlineEditorEl) {
       if (inlineEditorEl._saveInlineText) inlineEditorEl._saveInlineText(true);
       inlineEditorEl.remove();
       inlineEditorEl = null;
     }
-    
+
     textItem.visible = false;
     textLayer.redraw();
 
@@ -2323,7 +2323,7 @@ export async function renderAnnotator({ params, query }) {
       if (inlineEditorEl === editor) {
         inlineEditorEl = null;
         editor.remove();
-        window.__waitingForTextCreate = false; 
+        window.__waitingForTextCreate = false;
         if (typeof updateSubToolbar === 'function') updateSubToolbar();
       }
     }
@@ -2402,325 +2402,252 @@ export async function renderAnnotator({ params, query }) {
   function openCanvasListPanel() {
     const papers = paperLayer.getPapers();
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
-
     const listWrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } });
+    
+    // 👈 核心新增：记录当前选中的纸张 ID
+    const selectedIds = new Set();
 
     function renderList() {
-      // 👈 终极暴力清空：清空所有子节点
-      while (list.firstChild) {
-        list.removeChild(list.firstChild);
-      }
-
-      if (shapes.length === 0) {
-        list.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '还没有自定义形状' }));
+      listWrap.innerHTML = '';
+      if (papers.length === 0) {
+        listWrap.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', textAlign: 'center', padding: '12px' }, text: '暂无纸张' }));
         return;
       }
 
-      shapes.forEach(p => {
-        const checked = selected.has(p.id);
-        const isUsing = window.__shapeImageId === p.id;
-        const isFav = p.favorited === true;
-        const isLocked = p.locked === true;
+      papers.forEach((p, i) => {
+        const isChecked = selectedIds.has(p.id);
 
-        // 核心修复：给 checkbox 加上专属 class 和 data 属性
-        const cb = el('input', {
-          type: 'checkbox',
-          class: 'shape-list-checkbox', // 👈 打上标记，方便全选时精准定位
-          checked: checked,
-          onChange: (e) => {
-            if (e.target.checked) selected.add(p.id);
-            else selected.delete(p.id);
-          }
+        // 👈 核心新增：自定义圆形勾选框
+        const checkCircle = el('div', {
+          style: {
+            width: '20px', height: '20px', borderRadius: '50%',
+            border: isChecked ? 'none' : '2px solid #ccc',
+            background: isChecked ? 'var(--primary)' : 'transparent',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: '#fff', fontSize: '12px', fontWeight: 'bold',
+            flexShrink: '0', transition: 'all 0.2s'
+          },
+          text: isChecked ? '✔' : ''
         });
 
-        list.appendChild(el('div', {
-          style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '8px' },
+        const row = el('div', {
+          style: { 
+            display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', 
+            background: isChecked ? 'rgba(142, 202, 230, 0.1)' : 'var(--bg)', 
+            borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s'
+          },
+          onClick: () => {
+            if (isChecked) selectedIds.delete(p.id);
+            else selectedIds.add(p.id);
+            renderList(); // 重新渲染刷新状态
+          }
         }, [
-          cb,
-          p.thumbUrl ? el('img', { src: p.thumbUrl, style: { width: '40px', height: '40px', borderRadius: '6px', objectFit: 'contain', background: '#fff' } }) : null,
-          el('span', { style: { flex: '1', fontSize: '12px', color: 'var(--text-2)' }, text: p.id.slice(0, 8) }),
+          checkCircle,
+          el('span', { style: { flex: '1', fontSize: '13px' }, text: `第 ${i + 1} 张 - 样式: ${p.style || '空白'}` }),
           el('button', {
-            class: 'tape-chip' + (isFav ? ' active' : ''),
-            text: isFav ? '⭐' : '☆',
+            class: 'btn btn-sm btn-ghost', text: '🗑',
             onClick: (e) => {
-              e.preventDefault(); e.stopPropagation(); // 防止事件穿透
-              p.favorited = !isFav;
-              if (store.getPatterns) {
-                const all = store.getPatterns();
-                const idx = all.findIndex(x => x.id === p.id);
-                if (idx >= 0) { all[idx].favorited = p.favorited; }
-                localStorage.setItem('kg_patterns', JSON.stringify(all));
-              }
+              e.stopPropagation(); // 阻止触发整行的选中
+              if (!confirm('确定删除这张纸吗？上面的笔迹也会一起删除！')) return;
+              papers.splice(i, 1);
+              paperLayer.save();
+              paperLayer.redraw();
               renderList();
-            },
-          }),
-          el('button', {
-            class: 'tape-chip' + (isLocked ? ' active' : ''),
-            text: isLocked ? '🔒' : '🔓',
-            onClick: (e) => {
-              e.preventDefault(); e.stopPropagation();
-              p.locked = !isLocked;
-              if (store.getPatterns) {
-                const all = store.getPatterns();
-                const idx = all.findIndex(x => x.id === p.id);
-                if (idx >= 0) { all[idx].locked = p.locked; }
-                localStorage.setItem('kg_patterns', JSON.stringify(all));
-              }
-              renderList();
-            },
-          }),
-          el('button', {
-            class: 'tape-chip' + (isUsing ? ' active' : ''),
-            text: isUsing ? '✅ 使用中' : '使用',
-            onClick: (e) => {
-              e.preventDefault(); e.stopPropagation();
-              if (isLocked && !isUsing) { toastError('已锁定，先解锁'); return; }
-              if (isUsing) { window.__shapeImageId = null; shapeType = 'arrow'; }
-              else { shapeType = 'custom-image'; window.__shapeImageId = p.id; }
-              updateSubToolbar();
-              mask.remove();
-            },
-          }),
-        ]));
+            }
+          })
+        ]);
+        listWrap.appendChild(row);
       });
     }
+
     renderList();
 
-    const box = el('div', { class: 'confirm-box', style: { maxWidth: '340px' } }, [
+    // 👈 顶部工具条：全选/全不选
+    const toolBar = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px' } }, [
+      el('button', { 
+        class: 'btn btn-sm btn-ghost', text: '全选', 
+        onClick: () => { papers.forEach(p => selectedIds.add(p.id)); renderList(); } 
+      }),
+      el('button', { 
+        class: 'btn btn-sm btn-ghost', text: '全不选', 
+        onClick: () => { selectedIds.clear(); renderList(); } 
+      }),
+      el('button', { 
+        class: 'btn btn-sm btn-danger', text: '删除选中', 
+        onClick: () => {
+          if (selectedIds.size === 0) { toastError('请先勾选纸张'); return; }
+          if (!confirm(`确定删除选中的 ${selectedIds.size} 张纸吗？`)) return;
+          
+          // 倒序删除，防止索引错乱
+          for (let i = papers.length - 1; i >= 0; i--) {
+            if (selectedIds.has(papers[i].id)) papers.splice(i, 1);
+          }
+          selectedIds.clear();
+          paperLayer.save();
+          paperLayer.redraw();
+          renderList();
+          toastSuccess('已删除');
+        }
+      })
+    ]);
+
+    const box = el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
       el('h3', { text: '🗂 画布列表' }),
-      el('p', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: '点击列表项可快速定位，点击右侧垃圾桶可删除。' }),
+      el('p', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '8px' }, text: '点击纸张行选中，可拖动、删除。' }),
+      toolBar, // 👈 插入工具条
       listWrap,
       el('div', { class: 'confirm-actions' }, [
         el('button', { class: 'btn btn-primary', text: '关闭', onClick: () => mask.remove() })
       ])
     ]);
-
     mask.appendChild(box);
     document.body.appendChild(mask);
   }
 
   // ============ 扩展画布 ============
   function openExpandDialog() {
-    const papers = paperLayer.getPapers();
-    const dirSelect = el('select', { id: 'expand-dir', onChange: () => updatePreview() }, [
+    const dirSelect = el('select', { style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)' } }, [
       el('option', { value: 'top', text: '↑ 上方' }),
       el('option', { value: 'bottom', text: '↓ 下方' }),
       el('option', { value: 'left', text: '← 左侧' }),
       el('option', { value: 'right', text: '→ 右侧' }),
     ]);
-    const presetSelect = el('select', { id: 'expand-preset', onChange: () => { pxInput.disabled = presetSelect.value !== 'custom'; updatePreview(); } }, [
-      el('option', { value: 'custom', text: '自定义像素' }),
-      el('option', { value: 'a4', text: 'A4（2480×3508）' }),
-      el('option', { value: 'a3', text: 'A3（3508×4961）' }),
-      el('option', { value: 'a5', text: 'A5（1748×2480）' }),
-      el('option', { value: 'square', text: '正方形（2000×2000）' }),
-      el('option', { value: '16:9', text: '16:9（2560×1440）' }),
-      el('option', { value: '4:3', text: '4:3（2048×1536）' }),
-      el('option', { value: 'original', text: '与图片一致' }),
-    ]);
-    const pxInput = el('input', { type: 'number', id: 'expand-px', value: '200', min: '50', max: '5000', onInput: () => updatePreview() });
-    const colorSelect = el('select', { id: 'expand-color', onChange: () => { customColorField.style.display = colorSelect.value === 'custom' ? 'block' : 'none'; updatePreview(); } }, [
+    
+    // 删除了预设下拉框，只保留一个纯数字输入框
+    const pxInput = el('input', { type: 'number', value: '200', min: '50', max: '5000', style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)' } });
+    
+    const colorSelect = el('select', { style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid var(--border)' } }, [
       el('option', { value: '#FFFFFF', text: '白色' }),
       el('option', { value: 'transparent', text: '透明' }),
       el('option', { value: 'custom', text: '自定义' }),
     ]);
-    const customColorInput = el('input', { type: 'color', id: 'expand-custom-color', value: '#FFFFFF', onInput: () => updatePreview() });
-    const customColorField = el('div', { class: 'field', style: { display: 'none' } }, [
-      el('label', { text: '自定义颜色' }), customColorInput,
-    ]);
-    const previewText = el('div', { id: 'expand-preview', style: { fontSize: '13px', color: 'var(--text-2)', marginTop: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '8px' } });
-
-    function updatePreview() {
-      const dir = dirSelect.value;
-      const preset = presetSelect.value;
-      let newW = W, newH = H;
-      if (preset === 'original') { newW = img.width; newH = img.height; }
-      else if (preset === 'a4') { newW = 2480; newH = 3508; }
-      else if (preset === 'a3') { newW = 3508; newH = 4961; }
-      else if (preset === 'a5') { newW = 1748; newH = 2480; }
-      else if (preset === 'square') { newW = 2000; newH = 2000; }
-      else if (preset === '16:9') { newW = 2560; newH = 1440; }
-      else if (preset === '4:3') { newW = 2048; newH = 1536; }
-      else {
-        const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
-        if (dir === 'top' || dir === 'bottom') newH = H + px;
-        else newW = W + px;
-      }
-      const color = colorSelect.value === 'custom' ? customColorInput.value : colorSelect.value;
-      previewText.textContent = `即将扩展为：${newW} × ${newH} px（原 ${W} × ${H}），扩展区域颜色：${color === 'transparent' ? '透明' : color}`;
-    }
+    const customColorInput = el('input', { type: 'color', value: '#FFFFFF', style: { width: '100%', height: '36px', padding: '2px', borderRadius: '6px' } });
+    const customColorField = el('div', { style: { display: 'none', marginTop: '8px' } }, [customColorInput]);
+    
+    colorSelect.onchange = () => { customColorField.style.display = colorSelect.value === 'custom' ? 'block' : 'none'; };
 
     const mask = el('div', { class: 'confirm-mask' }, [
-      el('div', { class: 'confirm-box', style: { maxWidth: '420px' } }, [
+      el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
         el('h3', { text: '扩展画布' }),
-        el('div', { class: 'field' }, [el('label', { text: '方向' }), dirSelect]),
-        el('div', { class: 'field' }, [el('label', { text: '预设尺寸' }), presetSelect]),
-        el('div', { class: 'field' }, [el('label', { text: '扩展像素（自定义时有效）' }), pxInput]),
-        el('div', { class: 'field' }, [el('label', { text: '扩展区域颜色' }), colorSelect]),
-        customColorField,
-        previewText,
-
-        // 👇 核心修改：把管理按钮独立放在底部按钮的上方，作为一个次要功能
+        el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '方向', style: { fontSize: '12px', color: 'var(--text-2)' } }), dirSelect]),
+        el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '扩展像素大小', style: { fontSize: '12px', color: 'var(--text-2)' } }), pxInput]),
+        el('div', { style: { marginBottom: '12px' } }, [el('label', { text: '扩展区域颜色', style: { fontSize: '12px', color: 'var(--text-2)' } }), colorSelect, customColorField]),
+        
         el('div', { style: { marginTop: '16px', paddingTop: '16px', borderTop: '1px dashed rgba(0,0,0,.1)' } }, [
           el('button', {
-            class: 'btn btn-ghost',
-            style: { width: '100%', color: 'var(--primary-dark)', border: '1px solid var(--primary)', padding: '8px' },
+            class: 'btn btn-ghost', style: { width: '100%', color: 'var(--primary-dark)', border: '1px solid var(--primary)', padding: '8px' },
             text: '🗂 管理已有画布/纸张',
-            onClick: () => {
-              mask.remove(); // 关掉扩展弹窗
-              openCanvasListPanel(); // 打开画布列表
-            }
+            onClick: () => { mask.remove(); openCanvasListPanel(); }
           })
         ]),
-
-        // 👇 底部操作区，依然保持“取消”和“扩展”在右侧
-        el('div', { class: 'confirm-actions', style: { marginTop: '16px', justifyContent: 'flex-end', display: 'flex', gap: '8px' } }, [
+        el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
           el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
           el('button', {
-            class: 'btn btn-primary', text: '扩展',
+            class: 'btn btn-primary', text: '确认扩展',
             onClick: async () => {
               const dir = dirSelect.value;
-              const preset = presetSelect.value;
-              const color = colorSelect.value === 'custom' ? customColorInput.value : colorSelect.value;
-
-              if (preset === 'original') {
-                if (W === img.width && H === img.height) { toastError('当前已是原图大小'); return; }
-                mask.remove();
-                await doResizeToOriginal(img.width, img.height);
-                return;
-              }
-
+              const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
               let targetW = W, targetH = H;
-              if (preset === 'a4') { targetW = 2480; targetH = 3508; }
-              else if (preset === 'a3') { targetW = 3508; targetH = 4961; }
-              else if (preset === 'a5') { targetW = 1748; targetH = 2480; }
-              else if (preset === 'square') { targetW = 2000; targetH = 2000; }
-              else if (preset === '16:9') { targetW = 2560; targetH = 1440; }
-              else if (preset === '4:3') { targetW = 2048; targetH = 1536; }
-              else {
-                const px = Math.max(50, Math.min(5000, Number(pxInput.value) || 200));
-                if (dir === 'top' || dir === 'bottom') targetH = H + px;
-                else targetW = W + px;
+
+              // 根据方向加减像素
+              if (dir === 'top' || dir === 'bottom') {
+                targetH = H + px;
+              } else {
+                targetW = W + px;
               }
 
               mask.remove();
-              await doExpandToSize(targetW, targetH, color);
-            },
-          }),
-        ]),
-      ]),
+              const color = colorSelect.value === 'custom' ? customColorInput.value : colorSelect.value;
+              
+              // 调用我们之前重写好的纯净版扩展函数（固定传 expand）
+              await doExpandToSize(targetW, targetH, color, 'expand');
+            }
+          })
+        ])
+      ])
     ]);
     document.body.appendChild(mask);
-    updatePreview();
   }
 
-  async function doResizeToOriginal(newW, newH) {
-    const newStroke = document.createElement('canvas');
-    newStroke.width = newW; newStroke.height = newH;
-    newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0);
+    // ============ 扩展画布（绝对居中，绝不覆盖版） ============
+  async function doExpandToSize(newW, newH, bgColor, mode = 'expand') {
+    // 无论什么模式，我们统一计算居中偏移量
+    const offsetX = Math.floor((newW - W) / 2);
+    const offsetY = Math.floor((newH - H) / 2);
 
-    const newPaperStroke = document.createElement('canvas');
-    newPaperStroke.width = newW; newPaperStroke.height = newH;
-    newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, 0, 0);
-
-    const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
-    const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
-    const annotatedBlob = await new Promise(r => {
-      const m = document.createElement('canvas');
-      m.width = newW; m.height = newH;
-      const mctx = m.getContext('2d');
-      mctx.drawImage(baseImg, 0, 0);
-      mctx.drawImage(newStroke, 0, 0);
-      mctx.drawImage(newPaperStroke, 0, 0);
-      m.toBlob(r, 'image/png');
-    });
-
-    await putImageCached({
-      ...img,
-      originalBlob: img.originalBlob,
-      strokeBlob,
-      paperStrokeBlob,
-      annotatedBlob,
-      width: newW, height: newH,
-      updatedAt: new Date().toISOString(),
-    });
-    // 👇👇👇 核心新增：自动创建一张对应大小的空白纸张，加入画布列表 👇👇👇
-    const papers = paperLayer.getPapers();
-    const newPaper = {
-      id: crypto.randomUUID(),
-      x: 0,
-      y: 0,
-      w: newW,
-      h: newH,
-      style: 'blank',
-      bgColor: bgColor === 'transparent' ? 'transparent' : bgColor,
-      text: '',
-      textStyle: { fontSize: 16, fontFamily: 'sans-serif', color: '#2B2D42' },
-      rotation: 0,
-      opacity: 1,
-      visible: true,
-      locked: true, // 锁定它，防止误触拖动
-      strokes: [],
-      isExpandedBg: true // 打上标记，表示这是扩展出来的背景
-    };
-    papers.unshift(newPaper); // 放在最底层
-    paperLayer.save();
-    toastSuccess(`已调整为 ${newW}×${newH}，即将刷新`);
-    setTimeout(() => location.reload(), 500);
-  }
-
-  async function doExpandToSize(newW, newH, bgColor) {
+    // 1. 生成全新的底图（新尺寸）
     const newOriginal = document.createElement('canvas');
     newOriginal.width = newW; newOriginal.height = newH;
     const octx = newOriginal.getContext('2d');
-    if (bgColor === 'transparent') octx.clearRect(0, 0, newW, newH);
-    else { octx.fillStyle = bgColor; octx.fillRect(0, 0, newW, newH); }
-    octx.drawImage(baseImg, 0, 0);
 
+    // 先填充满背景色（比如A4纸的白色）
+    if (bgColor !== 'transparent') {
+      octx.fillStyle = bgColor;
+      octx.fillRect(0, 0, newW, newH);
+    }
+
+    // 核心修复：把原图按照原有的 W 和 H（比例）画在正中间，绝不拉伸变形
+    octx.drawImage(baseImg, offsetX, offsetY, W, H);
+
+    // 2. 生成新的笔迹、胶带、文字层，同样居中偏移
     const newStroke = document.createElement('canvas');
     newStroke.width = newW; newStroke.height = newH;
-    newStroke.getContext('2d').drawImage(strokeCanvas, 0, 0);
+    newStroke.getContext('2d').drawImage(strokeCanvas, offsetX, offsetY);
 
     const newPaperStroke = document.createElement('canvas');
     newPaperStroke.width = newW; newPaperStroke.height = newH;
-    newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, 0, 0);
+    newPaperStroke.getContext('2d').drawImage(paperStrokeCanvas, offsetX, offsetY);
 
+    const newTape = document.createElement('canvas');
+    newTape.width = newW; newTape.height = newH;
+    newTape.getContext('2d').drawImage(tapeCanvas, offsetX, offsetY);
+
+    const newText = document.createElement('canvas');
+    newText.width = newW; newText.height = newH;
+    newText.getContext('2d').drawImage(textCanvas, offsetX, offsetY);
+
+    // 3. 重新拼合预览图
+    const merged = document.createElement('canvas');
+    merged.width = newW; merged.height = newH;
+    const mctx = merged.getContext('2d');
+    mctx.drawImage(newOriginal, 0, 0);
+    mctx.drawImage(newStroke, 0, 0);
+    mctx.drawImage(newPaperStroke, 0, 0);
+    mctx.drawImage(newTape, 0, 0);
+    mctx.drawImage(newText, 0, 0);
+
+    // 4. 存入数据库
     const originalBlob = await new Promise(r => newOriginal.toBlob(r, 'image/png'));
     const strokeBlob = await new Promise(r => newStroke.toBlob(r, 'image/png'));
     const paperStrokeBlob = await new Promise(r => newPaperStroke.toBlob(r, 'image/png'));
-    const annotatedBlob = await new Promise(r => {
-      const m = document.createElement('canvas');
-      m.width = newW; m.height = newH;
-      const mctx = m.getContext('2d');
-      mctx.drawImage(newOriginal, 0, 0);
-      mctx.drawImage(newStroke, 0, 0);
-      mctx.drawImage(newPaperStroke, 0, 0);
-      mctx.drawImage(tapeCanvas, 0, 0);
-      mctx.drawImage(textCanvas, 0, 0);
-      m.toBlob(r, 'image/png');
-    });
+    const annotatedBlob = await new Promise(r => merged.toBlob(r, 'image/png'));
 
-    await putImageCached({
-      ...img,
-      originalBlob,
-      strokeBlob,
-      paperStrokeBlob,
-      annotatedBlob,
+    const existingRec = await dbGet('images', imageId);
+    await dbPut('images', {
+      ...existingRec,
+      originalBlob: originalBlob, // 保存新底图
+      strokeBlob: strokeBlob,
+      paperStrokeBlob: paperStrokeBlob,
+      annotatedBlob: annotatedBlob,
       width: newW, height: newH,
       updatedAt: new Date().toISOString(),
     });
+
+    // 5. 处理原有的纸张坐标，让它们跟随平移
     const papers = paperLayer.getPapers();
-    papers.unshift({
-      id: crypto.randomUUID(),
-      x: 0, y: 0, w: newW, h: newH,
-      style: 'blank',
-      bgColor: bgColor === 'transparent' ? '#FFFFFF' : bgColor,
-      visible: true, locked: true,
-      rotation: 0, opacity: 1, strokes: []
+    papers.forEach(p => {
+      p.x += offsetX;
+      p.y += offsetY;
     });
     paperLayer.save();
-    toastSuccess(`已扩展为 ${newW}×${newH}，即将刷新`);
+
+    toastSuccess('画布已更新，即将刷新');
     setTimeout(() => location.reload(), 500);
+  }
+
+  // 兼容原图尺寸
+  async function doResizeToOriginal(newW, newH) {
+    await doExpandToSize(newW, newH, '#FFFFFF', 'resize');
   }
 
   // ============ 顶栏动态按钮 ============
@@ -3393,14 +3320,14 @@ export async function renderAnnotator({ params, query }) {
   canvasWrap.addEventListener('pointerdown', (e) => {
     // 🛑 只要有输入框，画布直接废掉
     if (document.querySelector('.inline-text-editor')) {
-      return; 
+      return;
     }
 
     // 原有的取消选中
     if (window.__textLayer) {
-        if (currentTool !== 'text') {
-            window.__textLayer.select(null);
-        }
+      if (currentTool !== 'text') {
+        window.__textLayer.select(null);
+      }
     }
 
     if (e.button !== 0 && e.pointerType === 'mouse') return;
