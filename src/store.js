@@ -204,7 +204,7 @@ export function createTask(patch) {
     id: uuid(),
     name: patch.name || '未命名文件夹',
     note: patch.note || '',
-    parentId: patch.parentId || null, // 👈 新增：记录父文件夹 ID
+    parentId: patch.parentId || null, // 记录父文件夹 ID
     imageIds: [],
     pdfFiles: [],
     order: list.filter(x => !x.deletedAt && x.parentId === (patch.parentId || null)).length, // 按同级排序

@@ -758,3 +758,52 @@ html, body {
 #view {
   padding-top: 8px !important;
 }
+
+/* 富文本展示兜底 */
+.explanation-text * {
+  margin: 0 !important;
+  padding: 0 !important;
+  /* 👇 核心修复：删除了 font-size 和 line-height，让内联字号自由生效 */
+  color: inherit;
+}
+
+.rich-text-editor:empty:before {
+  content: attr(placeholder);
+  color: var(--text-2);
+  pointer-events: none;
+  display: block;
+}
+
+/* 确保富文本在只读卡片里不溢出 */
+.rich-text-content * {
+  white-space: pre-wrap;
+  max-width: 100%;
+}
+
+/* 禁用原生长按菜单 */
+* {
+  -webkit-touch-callout: none !important;
+}
+/* 确保输入框依然可以长按选择文字 */
+input, textarea, [contenteditable="true"] {
+  -webkit-touch-callout: default !important;
+  -webkit-user-select: text !important;
+  user-select: text !important;
+}
+
+/* iPad 键盘弹出时，让输入框自动滚动到可视区域中间 */
+input, textarea, [contenteditable="true"] {
+  scroll-margin-top: 120px;
+  scroll-margin-bottom: 250px;
+}
+
+/* 极致保护：确保颜色选择器不被外层 Flex/Grid 拉伸 */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  border: none;
+  padding: 0;
+  flex-shrink: 0;
+  width: 36px !important;
+  height: 28px !important;
+}

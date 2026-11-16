@@ -34,8 +34,7 @@ export function renderErrorBook() {
     // ================= 1. 顶部工具栏（无论有没有错题，都要先渲染出来） =================
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' } }, [
       el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-        // 👇 这就是你要的新增错题按钮，现在它在最前面
-        // 👇 核心新增：自行添加错题专属弹窗
+        // 自行添加错题专属弹窗
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '➕ 新增错题', onClick: () => {
             const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });

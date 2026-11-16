@@ -518,7 +518,7 @@ export function renderImageList(point, onRefresh) {
   ]);
   wrap.appendChild(topBar);
 
-  // 👇 核心新增：自动给这个操作栏里的所有按钮加上“长按提示”
+  // 自动给这个操作栏里的所有按钮加上“长按提示”
   // 延时执行，确保按钮都已经挂载到 DOM 上
   setTimeout(() => {
     topBar.querySelectorAll('button').forEach(btn => {

@@ -28,16 +28,27 @@ import { renderUploadPdf } from './views/uploadPdf.js';
 import { renderResourceOverview } from './views/resourceOverview.js';
 import { initEmojiReplacer } from './utils/emojiReplacer.js';
 
+window.addEventListener('error', (e) => {
+  console.error('系统级错误:', e.error);
+  const toast = document.createElement('div');
+  toast.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#EF476F;color:#fff;padding:10px 20px;border-radius:8px;z-index:999999;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.2);';
+  toast.textContent = '⚠️ 页面发生了一点小错误，请刷新重试';
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 3000);
+});
+
 // 修复 PDF.js Worker 404 的问题
 if (window.pdfjsLib) {
   window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 }
 
 async function boot() {
+  // 1. 基础数据迁移与清理
   migrate();
   store.autoCleanRecycleBin();
   await migrateImageNames();
 
+  // 2. 存储自检
   const check = await storageSelfCheck();
   if (!check.ok) { showStorageError(); return; }
 
@@ -45,11 +56,15 @@ async function boot() {
     try { await navigator.storage.persist(); } catch (e) { }
   }
 
+  // 3. 过期数据清理与主题初始化
   cleanExpiredDrafts();
   cleanRecycleBin();
   initTheme();
 
-  // ============ 可自定义的顶栏快捷按钮 ============
+  // 👇 4. 核心新增：延迟 5 秒后，执行“每日数据自动快照”，保障数据安全
+  setTimeout(() => { autoSnapshot(); }, 5000);
+
+  // 5. 自定义顶栏快捷按钮
   const btnMore = document.getElementById('btn-more');
   if (btnMore) {
     const topbarActions = document.getElementById('topbar-actions');
@@ -93,38 +108,22 @@ async function boot() {
 
     let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || 'null');
 
-    // 如果之前存的是数组，或者根本没存过，初始化对象
     if (!prefs || Array.isArray(prefs) || Object.keys(prefs).length === 0) {
       prefs = {
-        theme: false,
-        quickNote: false,
-        review: false,
-        search: false,
-        export: false,
-        import: false,
-        template: false,
-        importDoc: false,
-        home: true,
-        resources: true,
-        inbox: false,
-        countdown: false,
-        trash: true,
-        help: true,
-        settings: true,  // 比如让设置页默认显示
-        backToTop: true
+        theme: false, quickNote: false, review: false, search: false, export: false,
+        import: false, template: false, importDoc: false, home: true,
+        resources: true, inbox: false, countdown: false, trash: true,
+        help: true, settings: true, backToTop: true
       };
     }
 
     function renderTopbarTools() {
-      // 1. 先清理掉旧的按钮
       topbarActions.querySelectorAll('.topbar-tool-btn').forEach(el => el.remove());
 
-      // 2. 判断当前 prefs 的格式，兼容“对象”和“数组”
       const activeIds = Array.isArray(prefs)
         ? prefs
         : Object.keys(prefs).filter(k => prefs[k] === true);
 
-      // 3. 遍历渲染
       activeIds.forEach(id => {
         const tool = ALL_TOOLS.find(t => t.id === id);
         if (!tool) return;
@@ -132,16 +131,9 @@ async function boot() {
         const btn = el('button', {
           class: 'btn btn-sm btn-ghost topbar-tool-btn',
           style: {
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '0',
-            marginRight: '4px', // 👈 把它改小一点，比如 2px 或 4px
-            width: '36px',
-            height: '36px',
-            borderRadius: '8px',
-            background: 'rgba(142, 202, 230, 0.12)',
-            position: 'relative'
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '0', marginRight: '4px', width: '36px', height: '36px',
+            borderRadius: '8px', background: 'rgba(142, 202, 230, 0.12)', position: 'relative'
           },
           text: tool.id === 'theme'
             ? (document.documentElement.getAttribute('data-theme') === 'dark' ? '☀️' : '🌙')
@@ -778,41 +770,35 @@ boot().catch(e => {
     }
   };
 
-  // 拦截全站的触摸/鼠标按下
+  // ============ 原有的长按提示气泡逻辑 ============
   document.addEventListener('pointerdown', (e) => {
-    // 👇 核心修复：把顶栏按钮、各种动态生成的按钮全部包含在内
     const target = e.target.closest('button, .btn, .tool-btn, .topbar-tool-btn, .tape-chip, .fab, #btn-more');
     if (!target) return;
 
-    // 尝试获取提示文字：优先找 title 属性，其次找 data-tooltip，最后找按钮内的纯文字
     let tipText = target.getAttribute('title') ||
       target.getAttribute('data-tooltip') ||
       target.getAttribute('aria-label') ||
       (target.innerText ? target.innerText.trim() : '') ||
       (target.textContent ? target.textContent.trim() : '');
 
-    // 针对纯图标按钮的智能兜底
     if (!tipText || tipText.length > 10 || tipText.includes('\n')) {
       const html = target.innerHTML.toLowerCase();
       if (html.includes('svg') || html.includes('img')) {
-        // 如果是 SVG 图标，尝试通过其父级或者上下文推断
         if (target.id === 'btn-more') tipText = '更多功能';
         else if (target.id === 'btn-back') tipText = '返回上一页';
         else if (target.id === 'btn-menu') tipText = '展开侧边栏';
         else if (target.classList.contains('topbar-tool-btn')) tipText = target.title || '快捷功能';
         else tipText = '按钮';
       } else {
-        return; // 如果啥都提取不到，就不弹了
+        return;
       }
     }
 
-    // 开始 500ms 倒计时
     timer = setTimeout(() => {
       show(target, tipText);
     }, 500);
   }, { passive: true });
 
-  // 手指抬起、移动、或者鼠标松开时，取消倒计时并隐藏气泡
   document.addEventListener('pointerup', () => {
     clearTimeout(timer);
     setTimeout(hide, 1500);
@@ -827,4 +813,146 @@ boot().catch(e => {
     clearTimeout(timer);
     hide();
   }, { passive: true });
+
+  // ==========================================
+  // 👇 第二步：全局双向链接长按拦截器
+  // ==========================================
+  document.addEventListener('pointerdown', (e) => {
+    const linkEl = e.target.closest('.knowledge-link');
+    if (!linkEl) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const linkTimer = setTimeout(() => {
+      if (navigator.vibrate) navigator.vibrate(50);
+
+      const url = linkEl.getAttribute('data-link-url');
+
+      const oldMenu = document.getElementById('global-link-menu');
+      if (oldMenu) oldMenu.remove();
+
+      const rect = linkEl.getBoundingClientRect();
+      const menu = document.createElement('div');
+      menu.id = 'global-link-menu';
+      menu.style.cssText = `
+        position: fixed; top: ${rect.bottom + 8}px; left: ${Math.max(10, rect.left)}px;
+        background: var(--card); border: 1px solid rgba(0,0,0,.1); box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+        border-radius: 8px; padding: 4px; display: flex; flex-direction: column; z-index: 999999;
+      `;
+
+      const isEditPage = window.location.hash.includes('/edit-point/') || window.location.hash.includes('/edit-chapter/');
+
+      const createBtn = (text, color, onClick, disabled = false) => {
+        const btn = document.createElement('button');
+        btn.className = 'btn btn-sm btn-ghost';
+        btn.textContent = text;
+        btn.style.cssText = `justify-content: flex-start; color: ${color}; font-size: 13px; padding: 8px 16px; opacity: ${disabled ? 0.5 : 1}; pointer-events: ${disabled ? 'none' : 'auto'};`;
+        btn.onclick = (ev) => { ev.stopPropagation(); onClick(); menu.remove(); };
+        return btn;
+      };
+
+      menu.appendChild(createBtn('🚀 前往', 'var(--primary)', () => { window.location.hash = url; }));
+      // 改在 pointerdown 里触发跳转，并给个小延迟
+  btn.onpointerdown = (ev) => {
+    ev.preventDefault();
+    setTimeout(() => {
+      window.location.hash = route;
+    }, 50);
+  };
+      menu.appendChild(createBtn('🔄 重置', '#B8860B', () => { window.location.hash = url; }));
+      menu.appendChild(createBtn('🗑 删除', 'var(--danger)', () => {
+        if (!isEditPage) return alert('请先进入编辑页面才能删除该连接');
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNode(linkEl);
+        sel.removeAllRanges();
+        sel.addRange(range);
+        document.execCommand('delete');
+        const editor = document.querySelector('.rich-text-editor');
+        if (editor) editor.dispatchEvent(new Event('input', { bubbles: true }));
+      }, !isEditPage));
+      menu.appendChild(createBtn('✖ 取消', 'var(--text-2)', () => { }));
+
+      document.body.appendChild(menu);
+
+      setTimeout(() => {
+        document.addEventListener('pointerdown', (ev) => {
+          if (!menu.contains(ev.target)) menu.remove();
+        }, { once: true });
+      }, 10);
+
+    }, 500);
+
+    const cancelLinkTimer = () => clearTimeout(linkTimer);
+    linkEl.addEventListener('pointerup', cancelLinkTimer, { once: true });
+    linkEl.addEventListener('pointermove', (ev) => {
+      if (Math.abs(ev.clientX - startX) > 10 || Math.abs(ev.clientY - startY) > 10) cancelLinkTimer();
+    }, { once: true });
+    linkEl.addEventListener('pointerleave', cancelLinkTimer, { once: true });
+  });
+
+  // 供管理面板联动闪烁使用
+   window.flashLink = function(id, isOn) {
+    // 放宽查找，只要 data-link 里包含该 ID 的都算
+    const links = document.querySelectorAll(`.knowledge-link[data-link-id="${id}"], .editor-link[data-link*="${id}"]`);
+    
+    links.forEach(link => {
+      if (isOn) {
+        link.dataset.origBg = link.style.background;
+        link.dataset.origColor = link.style.color;
+        
+        link.style.transition = 'none';
+        link.style.background = 'rgba(255, 209, 102, 0.9)';
+        link.style.color = '#2B2D42';
+        link.style.borderRadius = '4px';
+        link.style.padding = '0 4px';
+        
+        // 强行滚动到屏幕中间
+        link.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      } else {
+        link.style.transition = 'background 0.2s, color 0.2s';
+        link.style.background = link.dataset.origBg || 'transparent';
+        link.style.color = link.dataset.origColor || '#5C6BC0';
+        link.style.padding = '0';
+      }
+    });
+  };
+
 })();
+
+// ============ 每日数据自动快照机制 ============
+function autoSnapshot() {
+  const today = new Date().toISOString().split('T')[0];
+  const lastSnap = localStorage.getItem('kg_last_snapshot');
+
+  if (lastSnap !== today) {
+    try {
+      const snapshotData = {
+        tasks: JSON.parse(localStorage.getItem('kg_tasks') || '[]'),
+        chapters: JSON.parse(localStorage.getItem('kg_chapters') || '[]'),
+        points: JSON.parse(localStorage.getItem('kg_points') || '[]'),
+        timestamp: new Date().toISOString()
+      };
+
+      localStorage.setItem(`kg_snapshot_${today}`, JSON.stringify(snapshotData));
+      localStorage.setItem('kg_last_snapshot', today);
+      console.log('✅ 今日自动快照已保存，空间占用:', JSON.stringify(snapshotData).length, '字节');
+
+      // 清理 3 天前的旧快照
+      for (let i = localStorage.length - 1; i >= 0; i--) {
+        const key = localStorage.key(i);
+        if (key.startsWith('kg_snapshot_')) {
+          const dateStr = key.replace('kg_snapshot_', '');
+          const snapDate = new Date(dateStr);
+          if (!isNaN(snapDate) && (new Date() - snapDate) > 3 * 86400000) {
+            localStorage.removeItem(key);
+            console.log(`🗑 已清理过期快照: ${key}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('自动快照失败，可能是存储空间不足', e);
+    }
+  }
+}

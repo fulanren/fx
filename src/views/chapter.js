@@ -9,6 +9,50 @@ import { makeSortable } from '../ui/sortable.js';
 import { getImageCached } from '../db.js';
 import { globalImportDocModal } from './importDoc.js';
 
+
+function parseLinks(html) {
+  if (!html) return html;
+  
+  // 1. 处理双向链接（保留你之前的逻辑）
+  const regex = /<span class="editor-link"[^>]*data-link="(\[\[(?:folder|point):([a-zA-Z0-9-]+):([^\]]+)\]\])"[^>]*>(.*?)<\/span>|\[\[(folder|point):([a-zA-Z0-9-]+):([^\]]+)\]\]/g;
+  
+  // 👇 核心修复：一定要有 resultHtml 这个变量，并赋初始值
+  let resultHtml = html.replace(regex, (match, dataLink, id1, name1, type2, id2, name2, spanText) => {
+    const type = type2 || (id1 ? dataLink.split(':')[0].replace('[[', '') : 'point');
+    const id = id2 || id1;
+    
+    let displayName = "";
+    if (spanText !== undefined) {
+      const tempDiv = document.createElement('div');
+      tempDiv.innerHTML = spanText;
+      displayName = tempDiv.textContent || tempDiv.innerText || spanText;
+    } else {
+      displayName = name1 || name2;
+    }
+
+    if (!displayName || !displayName.trim()) return '';
+
+    const route = type === 'folder' ? `#/chapter/${id}` : `#/edit-point/${id}`;
+    return `<span class="knowledge-link" data-link-url="${route}" data-link-id="${id}" style="
+      color: #5C6BC0; cursor: pointer; font-size: inherit; font-weight: inherit; border-bottom: none;
+    ">${displayName}</span>`;
+  });
+
+  // 2. 处理数学公式（渲染 $ ... $）
+  if (window.katex) {
+    resultHtml = resultHtml.replace(/\$([^\$]+)\$/g, (match, formula) => {
+      try {
+        // 渲染公式，并且为了不让长公式撑破卡片，套一层 inline-block
+        return `<span class="math-rendered" style="display:inline-block; vertical-align:middle; margin: 0 2px;">${window.katex.renderToString(formula, { throwOnError: false })}</span>`;
+      } catch (e) {
+        return match; // 如果语法错误，就原样返回
+      }
+    });
+  }
+
+  return resultHtml;
+}
+
 // ============ 导出格式选择菜单 ============
 function showExportMenu(scope, id) {
   const mask = el('div', { class: 'confirm-mask' }, [
@@ -159,6 +203,8 @@ function chapterCard(c, taskId) {
   return el('div', {
     class: 'card' + (isSelected ? ' selected' : ''),
     'data-id': c.id,
+    // 强制覆盖全局样式，去掉多余留白
+    style: { padding: '12px 16px', minHeight: 'auto', marginBottom: '6px' },
     onClick: (e) => {
       if (e.target.closest('.card-actions') || e.target.closest('.move-btns') || e.target.closest('.select-box')) return;
       if (chMulti) {
@@ -269,7 +315,7 @@ export function renderChapterDetail({ params, query }) {
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap' } }, [
-      // 【新增】合并选中的知识点
+      // 合并选中的知识点
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
@@ -288,6 +334,43 @@ export function renderChapterDetail({ params, query }) {
             },
           });
         },
+      }),
+      // 👇 新增：复制选中
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📋 复制',
+        onClick: () => {
+          if (ptSelected.size === 0) return toastError('请先勾选卡片');
+          const points = [...ptSelected].map(id => store.getPoint(id)).filter(Boolean);
+          localStorage.setItem('kg_clipboard_points', JSON.stringify(points));
+          toastSuccess(`已复制 ${points.length} 张卡片`);
+        }
+      }),
+
+      // 👇 新增：粘贴到当前
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📥 粘贴',
+        onClick: async () => {
+          const raw = localStorage.getItem('kg_clipboard_points');
+          if (!raw) return toastError('剪贴板为空');
+          const points = JSON.parse(raw);
+          
+          if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到当前文件夹吗？` })) {
+            points.forEach(p => {
+              // 生成新的 ID 和归属，避免覆盖原卡片
+              store.createPoint({
+                chapterId: chapterId,
+                content: p.content,
+                explanation: p.explanation,
+                difficulty: p.difficulty,
+                imageIds: p.imageIds
+              });
+            });
+            toastSuccess('粘贴成功');
+            ptMulti = false;
+            ptSelected.clear();
+            renderChapterDetail({ params });
+          }
+        }
       }),
 
       el('button', { class: 'btn btn-sm btn-primary', text: '全部记得', onClick: () => { store.batchRatePoints([...ptSelected], 'remember'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
@@ -401,7 +484,17 @@ function pointCard(p, chapterId) {
   // 卡片主体
   const card = el('div', {
     class: 'card point-card-content' + (isSelected ? ' selected' : ''),
-    style: { cursor: 'pointer', padding: '16px', transition: 'all 0.2s', background: 'var(--card)' }
+    style: {
+      cursor: 'pointer',
+      padding: '12px 16px',
+      transition: 'all 0.2s',
+      background: 'var(--card)',
+      borderRadius: '10px',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      minHeight: 'auto'
+    }
   });
 
   const header = el('div', {
@@ -414,6 +507,7 @@ function pointCard(p, chapterId) {
         return;
       }
 
+      // 👇 切换折叠状态
       isExpanded = !isExpanded;
       contentBox.style.display = isExpanded ? 'block' : 'none';
     }
@@ -422,13 +516,23 @@ function pointCard(p, chapterId) {
       // 左侧：多选框 + 内容标题
       el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', flex: '1' } }, [
         ptMulti ? el('input', {
-          type: 'checkbox', checked: isSelected, style: { marginTop: '4px' },
+          type: 'checkbox', checked: isSelected, style: { marginTop: '4px', flexShrink: '0' },
           onChange: (e) => {
             if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
             renderChapterDetail({ params: { id: chapterId } });
           }
         }) : null,
-        el('div', { style: { fontSize: '15px', fontWeight: '600', whiteSpace: 'pre-wrap', lineHeight: '1.5' }, text: p.content })
+        el('div', {
+          style: {
+            fontSize: '15px',
+            fontWeight: '600',
+            whiteSpace: 'pre-wrap',
+            lineHeight: '1.5',
+            wordBreak: 'break-word'
+          },
+          // 👇 这里保留 parseLinks，方便主标题如果有链接也能解析
+          innerHTML: parseLinks(p.content) 
+        })
       ]),
 
       // 右侧：标签（难记度、背记数）
@@ -462,10 +566,23 @@ function pointCard(p, chapterId) {
     ])
   ]);
 
+  // 展开后的详细内容
   if (p.explanation) {
+    const bgStyle = p.themeBg || 'rgba(0,0,0,0.02)';
+
     contentBox.appendChild(el('div', {
-      style: { fontSize: '14px', color: 'var(--text-2)', marginBottom: '12px', whiteSpace: 'pre-wrap', background: 'rgba(0,0,0,0.02)', padding: '8px', borderRadius: '6px' },
-      text: p.explanation
+      style: {
+        fontSize: '14px',
+        color: 'var(--text-2)',
+        marginBottom: '12px',
+        whiteSpace: 'pre-wrap',
+        wordBreak: 'break-word',
+        background: bgStyle,
+        padding: '12px',
+        borderRadius: '8px',
+        lineHeight: '1.6'
+      },
+      innerHTML: parseLinks(p.explanation)
     }));
   }
 
@@ -502,18 +619,10 @@ function pointCard(p, chapterId) {
   card.appendChild(header);
   card.appendChild(contentBox);
 
-  // 👇 核心修复：补上外层容器 container，把卡片包起来
   const container = el('div', {
     class: 'point-card-container',
-    style: { marginBottom: '8px' } // 保持一点卡片间距
+    style: { marginBottom: '6px' }
   }, [card]);
-
-  // 如果你以后还要用滑动删除，把这里解开
-  /*
-  if (window.attachSwipeAction) {
-    window.attachSwipeAction(container, null, null);
-  }
-  */
 
   return container;
 }
@@ -632,10 +741,10 @@ function startReviewMode(points, chapterId) {
       }
     });
 
-    // 卡片内容
-    card.appendChild(el('div', { style: { fontSize: '22px', fontWeight: '600', textAlign: 'center', lineHeight: '1.6', whiteSpace: 'pre-wrap' }, text: p.content }));
+        // 卡片内容
+    card.appendChild(el('div', { style: { fontSize: '22px', fontWeight: '600', textAlign: 'center', lineHeight: '1.6', whiteSpace: 'pre-wrap' }, innerHTML: parseLinks(p.content) }));
 
-    // 👇 新增：判断是否显示提示
+    // 判断是否显示提示
     const freshP = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p;
 
     const tagBox = el('div', { style: { display: 'flex', gap: '8px', marginTop: '16px', justifyContent: 'center' } });
@@ -665,7 +774,20 @@ function startReviewMode(points, chapterId) {
       const expandBox = el('div', { style: { width: '100%', marginTop: '24px', paddingTop: '24px', borderTop: '1px dashed rgba(0,0,0,0.1)' } });
 
       if (p.explanation) {
-        expandBox.appendChild(el('div', { style: { fontSize: '16px', color: 'var(--text-2)', whiteSpace: 'pre-wrap', marginBottom: '16px', background: 'var(--bg)', padding: '12px', borderRadius: '8px' }, text: p.explanation }));
+        // 这里使用的 parseLinks 就是点击展开后看到的文字
+        expandBox.appendChild(el('div', {
+          style: {
+            fontSize: '14px',
+            color: 'var(--text-2)',
+            marginBottom: '12px',
+            whiteSpace: 'pre-wrap',
+            wordBreak: 'break-word',
+            background: 'rgba(0,0,0,0.02)',
+            padding: '8px',
+            borderRadius: '6px'
+          },
+          innerHTML: parseLinks(p.explanation)
+        }));
       }
 
       // 附件快捷入口
@@ -918,7 +1040,16 @@ function startFocusListMode(points, chapterId) {
   function rateCurrent(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
-    if (rating === 'forgot') store.incrementErrorCount(p.id);
+      if (rating === 'forgot') {
+    store.incrementErrorCount(p.id);
+    
+    // 👇 错题本联动：如果你之前在这个卡片里插入过 ❝ 引用块，那么它会被自动高亮或在错题本展示
+    // 如果你希望“忘了”时自动在卡片末尾补一个“🚨 易错点：”的引用块：
+    if (!p.explanation || !p.explanation.includes('🚨 易错点')) {
+      const newHtml = (p.explanation || '') + `<br><blockquote style="border-left: 4px solid #FFB5A7; margin: 8px 0; padding: 4px 12px; color: #EF476F; background: rgba(255,181,167,0.1); border-radius: 0 4px 4px 0;"><strong>🚨 易错点总结：</strong><br>请在编辑页补充这道题的错因...</blockquote>`;
+      store.updatePoint(p.id, { explanation: newHtml });
+    }
+  }
     toastSuccess('已记录');
 
     if (currentIndex < points.length - 1) {
