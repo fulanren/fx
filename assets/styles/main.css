@@ -753,3 +753,8 @@ html, body {
 * {
   -webkit-tap-highlight-color: transparent;
 }
+
+/* 修复页面顶部的巨大留白 */
+#view {
+  padding-top: 8px !important;
+}

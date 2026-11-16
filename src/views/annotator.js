@@ -785,9 +785,9 @@ export async function renderAnnotator({ params, query }) {
   // ============ 状态变量 ============
   let currentTool = 'pen';
   let waitForTextClick = false;
-  let isTextEditing = false; // 👈 新增：标记当前是否处于“输入文字”状态
+  let isTextEditing = false; // 标记当前是否处于“输入文字”状态
   let justCreatedTextId = null;
-  let isManuallyCollapsed = false; // 👈 核心新增：记录用户是否手动收起了面板
+  let isManuallyCollapsed = false; // 记录用户是否手动收起了面板
   let currentColor = '#EF476F';
   let currentBrushType = 'pen'; // 'pen' (普通圆珠笔), 'fountain' (钢笔), 'brush' (毛笔), 'pencil' (铅笔)
   let currentWidth = 0.5;
@@ -995,7 +995,7 @@ export async function renderAnnotator({ params, query }) {
   window.__openPaperTextEditor = openPaperTextEditor;
   window.__openPaperTextEditor = openPaperTextEditor;
 
-  // 👇 新增：触发静默保存（防抖 1.5 秒）
+  // 触发静默保存（防抖 1.5 秒）
   function triggerAutoSave() {
     // 正在打字的时候，别瞎自动保存！
     if (document.querySelector('.inline-text-editor') || window.__isEditingText) {
@@ -1136,18 +1136,23 @@ export async function renderAnnotator({ params, query }) {
     if (typeof setSaveStatus === 'function') setSaveStatus('saved');
   }
 
-  // ============ 返回（秒退优化版） ============
+    // ============ 返回（秒退优化版） ============
   async function goBack() {
-
-    // 👇 强制失焦
-    if (document.activeElement) document.activeElement.blur();
-    if (window.__textLayer) window.__textLayer.select(null);
-    //  1：强行让当前获取焦点的元素失去焦点（比如正在输入的文字框），打断蓝框渲染！
-    if (document.activeElement) {
-      document.activeElement.blur();
+    // 强制暴力清理可能残留在 iPad 屏幕上的文字框
+    const strayEditor = document.querySelector('.inline-text-editor');
+    if (strayEditor) {
+      strayEditor.remove();
+      window.__isEditingText = false;
+      if (typeof inlineEditorEl !== 'undefined') {
+        inlineEditorEl = null;
+      }
     }
 
-    //  2：如果代码里有内联编辑器的变量，强制关闭它
+    // 👇 原有的强制失焦
+    if (document.activeElement) document.activeElement.blur();
+    if (window.__textLayer) window.__textLayer.select(null);
+    
+    // 如果代码里有内联编辑器的变量，强制关闭它
     if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) {
       closeInlineTextEditor();
     }
@@ -1299,7 +1304,7 @@ export async function renderAnnotator({ params, query }) {
   function setActiveTool(toolId) {
     currentTool = toolId;
 
-    // 👇 新增：如果切到了“文字”工具，标记为等待新建
+    // 如果切到了“文字”工具，标记为等待新建
     if (toolId === 'text') {
       window.__waitingForTextCreate = true;
     } else {
@@ -2309,7 +2314,7 @@ export async function renderAnnotator({ params, query }) {
     const editor = document.createElement('textarea');
     editor.value = textItem.text || '';
     editor.className = 'inline-text-editor';
-    editor.style.cssText = `
+        editor.style.cssText = `
       position: fixed;
       left: ${rect.left + textItem.x * sx}px;
       top: ${rect.top + textItem.y * sy}px;
@@ -2330,6 +2335,12 @@ export async function renderAnnotator({ params, query }) {
       text-align: ${textItem.align || 'left'};
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       box-sizing: border-box;
+      
+      /* 👇 核心修复：专门针对 iPad 的触摸优化 */
+      touch-action: auto !important; 
+      -webkit-user-select: text !important; 
+      user-select: text !important;
+      -webkit-appearance: none;
     `;
 
     // 拦截输入框自身的事件，防止传给底层画布
@@ -2451,7 +2462,7 @@ export async function renderAnnotator({ params, query }) {
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
     const listWrap = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } });
 
-    // 👈 核心新增：记录当前选中的纸张 ID
+    // 记录当前选中的纸张 ID
     const selectedIds = new Set();
 
     function renderList() {
@@ -2464,7 +2475,7 @@ export async function renderAnnotator({ params, query }) {
       papers.forEach((p, i) => {
         const isChecked = selectedIds.has(p.id);
 
-        // 👈 核心新增：自定义圆形勾选框
+        // 自定义圆形勾选框
         const checkCircle = el('div', {
           style: {
             width: '20px', height: '20px', borderRadius: '50%',
@@ -4746,7 +4757,7 @@ export async function renderAnnotator({ params, query }) {
   setActiveTool('pen');
   updateSubToolbar();
 
-  // 👇 新增：调用自适应缩放
+  // 调用自适应缩放
   initZoomToFit();
 
   window.addEventListener('beforeunload', () => { if (dirty) saveAll(false).catch(() => { }); });

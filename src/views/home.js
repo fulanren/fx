@@ -204,7 +204,7 @@ export function renderHome() {
 
     // 4. 渲染文件夹（专题）
     if (tasks.length > 0) {
-      view.appendChild(el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)', margin: '16px 0 8px' }, text: '📁 我的文件夹' }));
+      view.appendChild(el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)', margin: '12px 0 6px' }, text: '📁 我的文件夹' }));
       const list = el('div', { id: 'task-list' });
 
       const renderTree = (parentId, depth) => {
@@ -421,7 +421,35 @@ export function renderSidebar() {
 
   const tasks = store.getTasks();
   if (tasks.length === 0) {
-    tree.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--text-2)', padding: '12px' }, text: '暂无文件夹' }));
+      tree.appendChild(el('div', {
+    style: {
+      marginTop: '8px', // 👈 从 24 改成 8，瞬间拉近
+      paddingTop: '8px',
+      borderTop: '1px dashed rgba(0,0,0,.08)'
+    }
+  }, [
+    el('div', {
+      style: {
+        padding: '6px 10px',
+        borderRadius: '6px',
+        cursor: 'pointer',
+        color: 'var(--danger)',
+        fontSize: '12px',
+        fontWeight: '500',
+        display: 'flex',
+        alignItems: 'center',
+        gap: '6px',
+        opacity: 0.85
+      },
+      onClick: () => {
+        navigate('#/error-book');
+        if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
+      }
+    }, [
+      el('span', { text: '❗', style: { fontSize: '10px' } }),
+      el('span', { text: '错题本' })
+    ])
+  ]));
     return;
   }
 

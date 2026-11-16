@@ -75,7 +75,7 @@ async function boot() {
       { id: 'import', icon: '📥', title: '导入数据', action: () => import('./views/settings.js').then(m => m.openImportModal()) },
       { id: 'template', icon: '📑', title: '资料模板', href: '#/template' },
       { id: 'importDoc', icon: '📄', title: '文档导入', action: () => import('./views/importDoc.js').then(m => m.globalImportDocModal()) },
-      { id: 'home', icon: '🏠', title: '背诵首页', href: '#/' },
+      { id: 'home', icon: '🏠', title: '首页', href: '#/' },
       { id: 'resources', icon: '📁', title: '资源总览', href: '#/resources' },
       { id: 'inbox', icon: '📥', title: '速记收件箱', href: '#/inbox' },
       { id: 'countdown', icon: '⏰', title: '考试倒计时', href: '#/countdown' },
@@ -93,7 +93,7 @@ async function boot() {
 
     let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || 'null');
 
-    // 👇 核心修复：如果之前存的是数组，或者根本没存过，初始化对象
+    // 如果之前存的是数组，或者根本没存过，初始化对象
     if (!prefs || Array.isArray(prefs) || Object.keys(prefs).length === 0) {
       prefs = {
         theme: false,
@@ -631,13 +631,13 @@ window.addEventListener('hashchange', () => {
 
   const view = document.getElementById('view');
   if (view) {
-    // 🛑 终极绝杀：强制清空所有内联样式，让 CSS 文件重新接管
+    // 强制清空所有内联样式，让 CSS 文件重新接管
     view.style.cssText = '';
 
     // 默认移除 PDF 专属类名
     view.classList.remove('pdf-active-view');
 
-    // 👇 核心修复：如果是 PDF 页面，打上专属类名
+    // 如果是 PDF 页面，打上专属类名
     if (location.hash.startsWith('#/pdf-viewer/')) {
       view.classList.add('pdf-active-view');
     }
@@ -645,7 +645,7 @@ window.addEventListener('hashchange', () => {
     // 它们全都会由 main.css 里的 `#view` 和 `#view.pdf-active-view` 完美控制。
   }
 
-  // 👇 核心新增：进入标注页时，隐藏顶栏多余的全局按钮
+  // 进入标注页时，隐藏顶栏多余的全局按钮
   const topbarActions = document.getElementById('topbar-actions');
   if (topbarActions) {
     if (location.hash.startsWith('#/annotate/')) {
@@ -689,8 +689,12 @@ initEmojiReplacer();
 // ============ 数据保命机制 ============
 function checkBackupSafety() {
   const lastBackup = localStorage.getItem('kg_last_backup_at');
+
+  // 👇 核心修复：如果是第一次打开（本地压根没有备份记录），直接不提示
+  if (!lastBackup) return;
+
   const now = Date.now();
-  const daysSince = lastBackup ? (now - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24) : 999;
+  const daysSince = (now - new Date(lastBackup).getTime()) / (1000 * 60 * 60 * 24);
 
   if (daysSince > 7) {
     // 如果超过 7 天没备份，在页面顶部弹出一个警告条
@@ -776,23 +780,30 @@ boot().catch(e => {
 
   // 拦截全站的触摸/鼠标按下
   document.addEventListener('pointerdown', (e) => {
-    const target = e.target.closest('button, .btn, .tool-btn, .tape-chip, .fab, input[type="checkbox"]');
+    // 👇 核心修复：把顶栏按钮、各种动态生成的按钮全部包含在内
+    const target = e.target.closest('button, .btn, .tool-btn, .topbar-tool-btn, .tape-chip, .fab, #btn-more');
     if (!target) return;
 
-    // 尝试获取提示文字：优先找 title 属性，其次找 data-tooltip，最后找按钮内的文字
+    // 尝试获取提示文字：优先找 title 属性，其次找 data-tooltip，最后找按钮内的纯文字
     let tipText = target.getAttribute('title') ||
       target.getAttribute('data-tooltip') ||
       target.getAttribute('aria-label') ||
       (target.innerText ? target.innerText.trim() : '') ||
       (target.textContent ? target.textContent.trim() : '');
 
-    // 如果按钮里是 SVG/Emoji，提取不到文字，就跳过
+    // 针对纯图标按钮的智能兜底
     if (!tipText || tipText.length > 10 || tipText.includes('\n')) {
-      // 针对纯图标按钮，你可以通过特殊类名或 id 手动兜底（可根据实际情况调整）
-      if (target.innerHTML.includes('folder')) tipText = '文件夹';
-      else if (target.innerHTML.includes('trash')) tipText = '删除';
-      else if (target.innerHTML.includes('edit') || target.innerHTML.includes('pen')) tipText = '编辑';
-      else return;
+      const html = target.innerHTML.toLowerCase();
+      if (html.includes('svg') || html.includes('img')) {
+        // 如果是 SVG 图标，尝试通过其父级或者上下文推断
+        if (target.id === 'btn-more') tipText = '更多功能';
+        else if (target.id === 'btn-back') tipText = '返回上一页';
+        else if (target.id === 'btn-menu') tipText = '展开侧边栏';
+        else if (target.classList.contains('topbar-tool-btn')) tipText = target.title || '快捷功能';
+        else tipText = '按钮';
+      } else {
+        return; // 如果啥都提取不到，就不弹了
+      }
     }
 
     // 开始 500ms 倒计时
@@ -804,7 +815,7 @@ boot().catch(e => {
   // 手指抬起、移动、或者鼠标松开时，取消倒计时并隐藏气泡
   document.addEventListener('pointerup', () => {
     clearTimeout(timer);
-    setTimeout(hide, 2000);
+    setTimeout(hide, 1500);
   }, { passive: true });
 
   document.addEventListener('pointermove', () => {
