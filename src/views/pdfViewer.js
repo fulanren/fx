@@ -56,7 +56,7 @@ export async function renderPdfViewer({ params, query }) {
     // 核心状态
     let pdfRecord = null, pdfDoc = null, total = 0, currentPage = 1;
     let mode = 'scroll'; // 'scroll' | 'paged'
-    let layout = 'single'; // 👈 核心修复：补上没声明的 layout 变量
+    let layout = 'single'; // 补上没声明的 layout 变量
     let eyeMode = false;
     // 从 localStorage 读取持久化状态
     let bigTextMode = localStorage.getItem('kg_pdf_bigtext') === '1';
@@ -65,10 +65,10 @@ export async function renderPdfViewer({ params, query }) {
     let sepiaMode = localStorage.getItem('kg_pdf_sepia') === '1';
     let isMulti = false;
     let selectedPages = new Set();
-    let dimMode = localStorage.getItem('kg_pdf_dim') === '1';     // 👈 新增：变暗遮罩
+    let dimMode = localStorage.getItem('kg_pdf_dim') === '1';     // 变暗遮罩
     let isFullscreen = false;
     let isOcrMode = false;
-    let isScreenshotMode = false; // 👈 新增：截图模式                                        
+    let isScreenshotMode = false; // 截图模式                                        
 
     const container = el('div', {
         id: 'pdf-main-container',
@@ -76,7 +76,7 @@ export async function renderPdfViewer({ params, query }) {
             display: 'flex', flexDirection: 'column',
             height: '100%', width: '100%',
             overflowY: 'auto', overflowX: 'hidden',
-            // 👇 新增：锁死外层，不许回弹
+            // 锁死外层，不许回弹
             overscrollBehaviorY: 'contain',
             WebkitOverflowScrolling: 'touch', // 保持 iOS 丝滑滚动
             position: 'relative',
@@ -725,7 +725,7 @@ export async function renderPdfViewer({ params, query }) {
                 localStorage.setItem(`kg_pdf_progress_${pdfId}`, currentPage);
                 if (window.__updatePdfPageFloat) window.__updatePdfPageFloat();
             }
-            // 👇 新增：实时记录当前滚动的精确像素位置
+            // 实时记录当前滚动的精确像素位置
             const scrollContainer = document.querySelector('.pdf-scroll-container') || container;
             if (scrollContainer) {
                 sessionStorage.setItem(`kg_pdf_scroll_${pdfId}`, scrollContainer.scrollTop);
@@ -995,7 +995,7 @@ export async function renderPdfViewer({ params, query }) {
         ]);
         container.appendChild(topBar);
 
-        // 👇👇👇 新增：“ⓘ”功能说明按钮 (代替长按) 👇👇👇
+        // 👇👇“ⓘ”功能说明按钮 (代替长按) 👇👇👇
         const infoBtn = el('button', {
             class: 'btn btn-sm btn-ghost', text: 'ⓘ', title: '功能说明',
             style: { width: '32px', height: '32px', padding: 0, fontSize: '16px', marginLeft: '4px' },
@@ -1086,7 +1086,7 @@ export async function renderPdfViewer({ params, query }) {
 
         renderPages(canvasWrap);
 
-        // 👇 核心新增：当 PDF 页面渲染完后，强制立刻滚动到当前页
+        // 当 PDF 页面渲染完后，强制立刻滚动到当前页
         setTimeout(() => {
             const target = document.getElementById(`pdf-page-wrap-${currentPage}`);
             if (target) {
@@ -3095,7 +3095,7 @@ async function openLinkSelector(pageNum, pdfId) {
         }));
         tabRow.appendChild(el('button', {
             class: 'btn btn-sm ' + (currentTab === 'otherPdf' ? 'btn-primary' : 'btn-ghost'),
-            text: '📂 其他文档', // 👈 新增的跨文档 Tab
+            text: '📂 其他文档', 
             onClick: () => { currentTab = 'otherPdf'; renderTabs(); renderList(); }
         }));
         tabRow.appendChild(el('button', {

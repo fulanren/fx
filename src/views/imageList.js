@@ -707,10 +707,9 @@ export function renderImageList(point, onRefresh) {
                 return;
               }
 
-              // 👇👇👇 核心新增：解除全局强制状态 👇👇👇
+              //解除全局强制状态
               window.forceExpandAll = false;
               window.forceCollapseAll = false;
-              // 👆👆👆 ------------------------ 👆👆👆
 
               collapsed[groupName] = !isCollapsed;
               saveCollapsed(collapsed);
@@ -1199,7 +1198,7 @@ export function renderImageList(point, onRefresh) {
           mask.remove(); URL.revokeObjectURL(url); onRefresh();
         }
       }),
-      // 👇 新增：一键提取文字 (OCR)
+      // 一键提取文字 (OCR)
       el('button', {
         class: 'btn btn-ghost', text: '🔤 提取文字',
         style: { color: '#fff', border: '1px solid rgba(255,255,255,0.3)' },

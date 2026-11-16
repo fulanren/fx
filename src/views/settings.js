@@ -279,7 +279,7 @@ export function renderSettings() {
         }),
         el('button', { class: 'btn btn-primary btn-sm', text: '⬆️ 上传备份', onClick: () => syncWebDAV('upload') }),
         el('button', { class: 'btn btn-danger btn-sm', text: '⬇️ 下载覆盖', onClick: () => syncWebDAV('download') }),
-        // 👇 新增：安全恢复按钮
+        // 安全恢复按钮
         el('button', {
           class: 'btn btn-ghost btn-sm',
           text: '🛡️ 恢复安全快照',
@@ -410,7 +410,7 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
   let currentFormat = 'pdf';
   let onlyError = false;
   let includeImagesInDoc = false;
-  let imageExportVersion = 'all'; // 👈 新增：图片导出版本
+  let imageExportVersion = 'all'; // 图片导出版本
 
   const selectedModules = new Set(MODULES.map(m => m.key));
   const selectedTaskIds = new Set(defaultTaskId ? [defaultTaskId] : []);
@@ -708,7 +708,7 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
               [
                 ['zip', '📦 ZIP 完整包'], ['json', '📄 JSON 数据'], ['markdown', '📝 Markdown'],
                 ['txt', '📑 纯文本 TXT'], ['html', '🌐 网页 HTML'], ['pdf', '🖨️ 打印 PDF'],
-                ['docx', '📝 Word 文档 (.docx)'] // 👈 新增 Word 格式
+                ['docx', '📝 Word 文档 (.docx)'] 
               ].map(([fmt, label]) => el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' } }, [
                 el('input', {
                   type: 'radio', name: 'exportFmt', value: fmt, checked: currentFormat === fmt,
