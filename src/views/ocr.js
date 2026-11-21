@@ -14,14 +14,62 @@ export async function runOCR(imageId) {
     if (!window.Tesseract) {
       await loadScript('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js');
     }
-    if (!window.Tesseract) { toastError('OCR 引擎加载失败'); return null; }
+    if (!window.Tesseract) { toastError('OCR 引擎加载失败，请检查网络'); return null; }
 
-    const blob = img.originalBlob;
+    const blob = img.originalBlob || img.annotatedBlob;
     if (!blob) { toastError('原图不存在'); return null; }
 
-    toastSuccess('识别中，请稍候…');
-    const result = await window.Tesseract.recognize(blob, 'chi_sim');
-    const text = (result.data.text || '').trim();
+    toastSuccess('识别中，请稍候…（首次需下载语言包）');
+
+    //通过 Canvas 强制转换成最纯净的 Base64
+    const base64Image = await new Promise((resolve) => {
+      const imgObj = new Image();
+      const url = URL.createObjectURL(blob);
+      imgObj.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = imgObj.width;
+        canvas.height = imgObj.height;
+        const ctx = canvas.getContext('2d');
+        // 填白底，防止透明 PNG 被识别成全黑
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(imgObj, 0, 0);
+        URL.revokeObjectURL(url);
+        resolve(canvas.toDataURL('image/jpeg', 0.95));
+      };
+      imgObj.onerror = () => {
+        URL.revokeObjectURL(url);
+        resolve(null); // 如果连 Image 都加载不出，直接返回 null
+      };
+      imgObj.src = url;
+    });
+
+    if (!base64Image) { toastError('图片解码失败'); return null; }
+
+    //屏蔽底层噪音
+    const originalWarn = console.warn;
+    console.warn = function (...args) {
+      if (args[0] && typeof args[0] === 'string' && (args[0].includes('Parameter not found') || args[0].includes('Warning'))) return;
+      originalWarn.apply(console, args);
+    };
+
+    let text = '';
+    let worker = null;
+
+    try {
+      worker = await window.Tesseract.createWorker('chi_sim+eng');
+      // 使用 try-catch 死死按住 recognize 的异常，不让它抛出
+      const result = await worker.recognize(base64Image).catch(e => {
+        console.warn('Tesseract 内部识别警告（已拦截）', e);
+        return { data: { text: '' } };
+      });
+      text = (result.data.text || '').trim();
+    } catch (err) {
+      console.error('Worker 创建或运行错误:', err);
+    } finally {
+      console.warn = originalWarn;
+      if (worker) await worker.terminate().catch(() => { });
+    }
 
     if (!text) {
       toastError('未识别到文字，图片可能是纯图形');
@@ -29,12 +77,12 @@ export async function runOCR(imageId) {
     }
 
     await dbPut('ocr_cache', {
-      id: imageId, text, lang: 'chi_sim',
+      id: imageId, text, lang: 'chi_sim+eng',
       createdAt: new Date().toISOString(),
     });
     return { id: imageId, text };
   } catch (e) {
-    console.error('OCR 失败', e);
+    console.warn('OCR 运行异常:', e.message);
     toastError('OCR 失败：' + e.message);
     return null;
   }

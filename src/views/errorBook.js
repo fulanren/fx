@@ -4,6 +4,8 @@ import { navigate } from '../router.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 import { openExportModal } from './settings.js';
 import { dbPut, dbGet, dbDelete } from '../db.js';
+import { confirmBox } from '../ui/confirm.js';
+import { showPasteOptionsModal } from './importDoc.js';
 
 export function renderErrorBook() {
   const view = document.getElementById('view');
@@ -25,16 +27,18 @@ export function renderErrorBook() {
   });
 
   // ================= 状态管理 =================
+  let isManageMode = false;
+  let selectedCardIds = new Set();
   let currentFilter = 'all'; // 错因过滤
   const collapsedChapters = new Set();
 
   function renderMain() {
     view.innerHTML = '';
 
-    // ================= 1. 顶部工具栏（无论有没有错题，都要先渲染出来） =================
+    // ================= 1. 顶部工具栏 =================
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' } }, [
       el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-        // 自行添加错题专属弹窗
+        //完整的新增错题逻辑
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '➕ 新增错题', onClick: () => {
             const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
@@ -71,13 +75,12 @@ export function renderErrorBook() {
                       errorReason: 'blind'
                     });
 
-                    // 👇 核心修复：同步将这道错题生成为“资源总览”里的一个文本文档占位图
+                    // 3. 同步将这道错题生成为“资源总览”里的一个文本文档占位图
                     try {
                       const fakeImgId = crypto.randomUUID();
                       const textContent = `【错题】\n${val}\n\n【解析】\n${exp || '暂无解析'}`;
                       const blob = new Blob([textContent], { type: 'text/plain' });
 
-                      // 存入 IndexedDB（直接调用 dbPut）
                       await dbPut('images', {
                         id: fakeImgId,
                         type: 'text_note',
@@ -89,7 +92,6 @@ export function renderErrorBook() {
                         createdAt: new Date().toISOString()
                       });
 
-                      // 关联到知识点
                       store.addImageToPoint(newPoint.id, fakeImgId);
                     } catch (err) {
                       console.error('同步到资源总览失败', err);
@@ -98,9 +100,7 @@ export function renderErrorBook() {
 
                     mask.remove();
                     toastSuccess('已保存到错题本');
-
-                    // 👇 核心改动：不要用 location.reload()，而是重新渲染当前页面数据
-                    renderErrorBook();
+                    renderErrorBook(); // 重新渲染整个页面
                   }
                 })
               ])
@@ -110,17 +110,121 @@ export function renderErrorBook() {
             setTimeout(() => contentInput.focus(), 100);
           }
         }),
+
         allPoints.length > 0 ? el('button', { class: 'btn btn-sm btn-primary', text: '🎯 开始重练', onClick: () => startRetrainMode() }) : null,
         allPoints.length > 0 ? el('button', { class: 'btn btn-sm btn-ghost', text: '🖨️ 导出打印', onClick: () => openExportModal(null, null, true) }) : null,
+
+        //管理模式按钮（带取消功能）
+        allPoints.length > 0 ? el('button', {
+          class: `btn btn-sm ${isManageMode ? 'btn-danger' : 'btn-ghost'}`,
+          text: isManageMode ? '✖ 退出管理' : '⚙️ 管理',
+          onClick: () => {
+            isManageMode = !isManageMode;
+            selectedCardIds.clear();
+            renderMain();
+          }
+        }) : null,
+
+        //补充的“取消”按钮 (只在管理模式下显示)
+        isManageMode ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '取消',
+          onClick: () => {
+            isManageMode = false;
+            selectedCardIds.clear();
+            renderMain();
+          }
+        }) : null,
       ]),
 
-      // 错因过滤器（如果没有错题，隐藏它）
-      allPoints.length > 0 ? el('div', { style: { display: 'flex', gap: '4px', background: 'var(--bg)', padding: '4px', borderRadius: '8px' } }, [
+      // 错因过滤器（只在非管理模式下显示）
+      allPoints.length > 0 && !isManageMode ? el('div', { style: { display: 'flex', gap: '4px', background: 'var(--bg)', padding: '4px', borderRadius: '8px' } }, [
         el('button', { class: 'btn btn-sm ' + (currentFilter === 'all' ? 'btn-primary' : 'btn-ghost'), text: '全部', onClick: () => { currentFilter = 'all'; renderMain(); } }),
         el('button', { class: 'btn btn-sm ' + (currentFilter === 'blind' ? 'btn-primary' : 'btn-ghost'), text: '盲区', onClick: () => { currentFilter = 'blind'; renderMain(); } }),
         el('button', { class: 'btn btn-sm ' + (currentFilter === 'careless' ? 'btn-primary' : 'btn-ghost'), text: '粗心', onClick: () => { currentFilter = 'careless'; renderMain(); } }),
       ]) : null
     ]));
+
+    //管理模式下的全能批量操作栏
+    if (isManageMode) {
+      view.appendChild(el('div', {
+        style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(239,71,111,0.08)', borderRadius: '10px', marginBottom: '12px', border: '1px solid rgba(239,71,111,0.2)' }
+      }, [
+        el('div', { style: { width: '100%', fontSize: '13px', fontWeight: '600', color: 'var(--danger)', marginBottom: '4px' } }, [
+          `已选中 ${selectedCardIds.size} 张错题`
+        ]),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => {
+            allPoints.forEach(p => selectedCardIds.add(p.id));
+            renderMain();
+          }
+        }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => {
+            selectedCardIds.clear();
+            renderMain();
+          }
+        }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
+            if (selectedCardIds.size === 0) return toastError('请先勾选错题');
+            const items = allPoints.filter(p => selectedCardIds.has(p.id));
+            localStorage.setItem('kg_clipboard_points', JSON.stringify(items));
+            toastSuccess(`已复制 ${items.length} 张错题`);
+          }
+        }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '📥 粘贴', onClick: () => {
+            const raw = localStorage.getItem('kg_clipboard_points');
+            if (!raw) return toastError('剪贴板为空');
+            showPasteOptionsModal(
+              (finalChapterId, finalTaskId, targetName) => {
+                const points = JSON.parse(raw);
+                toastSuccess(`正在粘贴到 ${targetName}...`);
+                points.forEach(p => {
+                  store.createPoint({
+                    chapterId: finalChapterId,
+                    content: p.content,
+                    explanation: p.explanation,
+                    difficulty: p.difficulty,
+                    imageIds: p.imageIds,
+                    isErrorProne: true // 保持错题属性
+                  });
+                });
+                setTimeout(() => { selectedCardIds.clear(); renderErrorBook(); }, 500);
+              },
+              null, null, '粘贴'
+            );
+          }
+        }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '🚚 移动', onClick: () => {
+            if (selectedCardIds.size === 0) return toastError('请先勾选错题');
+            showPasteOptionsModal(
+              (finalChapterId, finalTaskId, targetName) => {
+                selectedCardIds.forEach(id => {
+                  store.updatePoint(id, { chapterId: finalChapterId });
+                });
+                toastSuccess(`已移动 ${selectedCardIds.size} 张错题到 ${targetName}`);
+                selectedCardIds.clear();
+                renderErrorBook();
+              },
+              null, null, '移动'
+            );
+          }
+        }),
+        el('button', {
+          class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async () => {
+            if (selectedCardIds.size === 0) return toastError('请先勾选');
+            if (await confirmBox({ title: '删除错题', message: `确定删除选中的 ${selectedCardIds.size} 张错题吗？` })) {
+              selectedCardIds.forEach(id => store.deletePoint(id));
+              selectedCardIds.clear();
+              renderErrorBook();
+              toastSuccess('已删除');
+            }
+          }
+        })
+      ]));
+    }
 
     // ================= 2. 空状态处理 =================
     if (allPoints.length === 0) {
@@ -189,17 +293,34 @@ export function renderErrorBook() {
   // ================= 卡片渲染（错题专属紧凑版） =================
   function renderErrorCard(p) {
     let isExpanded = false;
+    const isSelected = selectedCardIds.has(p.id);
 
     const card = el('div', {
       class: 'card',
-      style: { padding: '10px 12px', marginBottom: '0', borderLeft: '3px solid var(--danger)', display: 'flex', flexDirection: 'column', gap: '6px', background: 'var(--bg)' }
+      style: {
+        padding: '10px 12px', marginBottom: '0',
+        borderLeft: (isManageMode && isSelected) ? '3px solid var(--primary)' : '3px solid var(--danger)',
+        display: 'flex', flexDirection: 'column', gap: '6px',
+        background: (isManageMode && isSelected) ? 'rgba(142,202,230,0.1)' : 'var(--bg)',
+        cursor: isManageMode ? 'pointer' : 'default'
+      },
+      onClick: (e) => {
+        // 管理模式下的全卡点击切换
+        if (isManageMode) {
+          if (e.target.tagName === 'BUTTON') return;
+          if (isSelected) selectedCardIds.delete(p.id);
+          else selectedCardIds.add(p.id);
+          renderMain();
+        }
+      }
     });
 
     // 题目内容
     const titleEl = el('div', {
-      style: { fontWeight: '600', fontSize: '14px', cursor: 'pointer', whiteSpace: 'pre-wrap', lineHeight: '1.4' },
+      style: { fontWeight: '600', fontSize: '14px', cursor: isManageMode ? 'pointer' : 'pointer', whiteSpace: 'pre-wrap', lineHeight: '1.4', flex: '1' },
       text: p.content,
       onClick: () => {
+        if (isManageMode) return; // 管理模式下不展开
         isExpanded = !isExpanded;
         expandBox.style.display = isExpanded ? 'block' : 'none';
         toggleIcon.textContent = isExpanded ? '▾' : '▸';
@@ -222,9 +343,17 @@ export function renderErrorBook() {
 
     const toggleIcon = el('span', { text: '▸', style: { fontSize: '14px', color: 'var(--text-2)', marginLeft: '4px' } });
 
-    // 顶部行
+    // 顶部行（加入复选框）
     const headerRow = el('div', { style: { display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: '8px' } }, [
-      el('div', { style: { display: 'flex', gap: '6px', flex: '1' } }, [titleEl, toggleIcon]),
+      el('div', { style: { display: 'flex', gap: '6px', flex: '1', alignItems: 'flex-start' } }, [
+        //多选模式下的复选框
+        isManageMode ? el('input', {
+          type: 'checkbox', checked: isSelected,
+          style: { width: '18px', height: '18px', marginTop: '2px', accentColor: 'var(--primary)', pointerEvents: 'none' }
+        }) : null,
+        titleEl,
+        !isManageMode ? toggleIcon : null
+      ]),
       el('div', { style: { display: 'flex', gap: '4px' } }, [
         p.errorReason === 'blind' ? el('span', { style: { fontSize: '11px', background: 'rgba(142,202,230,0.2)', color: 'var(--primary-dark)', padding: '2px 6px', borderRadius: '4px' }, text: '📚' }) : null,
         p.errorReason === 'careless' ? el('span', { style: { fontSize: '11px', background: 'rgba(255,209,102,0.3)', color: '#B8860B', padding: '2px 6px', borderRadius: '4px' }, text: '✏️' }) : null
@@ -234,24 +363,24 @@ export function renderErrorBook() {
     card.appendChild(headerRow);
     card.appendChild(expandBox);
 
-    // 底部操作行
-    card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' } }, [
-      el('div', { style: { display: 'flex', gap: '4px' } }, [
-        // 这里放你之前写的“忘了”和“记得并消除”
-        el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😵 忘了', onClick: () => { store.ratePoint(p.id, 'forgot'); toastSuccess('已记录'); } }),
-        el('button', {
-          class: 'btn btn-sm btn-primary', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😎 消除', onClick: () => {
-            store.ratePoint(p.id, 'remember');
-            store.updatePoint(p.id, { isErrorProne: false });
-            toastSuccess('已移出错题本');
-            allPoints.splice(allPoints.findIndex(item => item.id === p.id), 1);
-            renderMain();
-          }
-        })
-      ]),
-      // 去详细编辑页（用于补充图片、录音等）
-      el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '✏️ 编辑', onClick: () => navigate(`#/edit-point/${p.id}`) })
-    ]));
+    // 底部操作行（管理模式下隐藏）
+    if (!isManageMode) {
+      card.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' } }, [
+        el('div', { style: { display: 'flex', gap: '4px' } }, [
+          el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😵 忘了', onClick: () => { store.ratePoint(p.id, 'forgot'); toastSuccess('已记录'); } }),
+          el('button', {
+            class: 'btn btn-sm btn-primary', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '😎 消除', onClick: () => {
+              store.ratePoint(p.id, 'remember');
+              store.updatePoint(p.id, { isErrorProne: false });
+              toastSuccess('已移出错题本');
+              allPoints.splice(allPoints.findIndex(item => item.id === p.id), 1);
+              renderMain();
+            }
+          })
+        ]),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { padding: '2px 8px', minHeight: '24px', fontSize: '12px' }, text: '✏️ 编辑', onClick: () => navigate(`#/edit-point/${p.id}`) })
+      ]));
+    }
 
     return card;
   }

@@ -185,11 +185,11 @@ export function restoreRecycle(id) {
 }
 export function purgeRecycle(id) {
   write(K.recycle, read(K.recycle).filter(x => x.id !== id));
-  cleanOrphanImages(); // 👈 彻底删除时顺便清理垃圾
+  cleanOrphanImages(); //彻底删除时顺便清理垃圾
 }
 export function emptyRecycle() {
   write(K.recycle, []);
-  cleanOrphanImages(); // 👈 清空回收站时顺便清理垃圾
+  cleanOrphanImages(); //清空回收站时顺便清理垃圾
 }
 
 // ============ 任务 ============
@@ -220,7 +220,7 @@ export function createTask(patch) {
 export function createChapter(patch) {
   const tasks = getTasks();
 
-  // 👇 兜底：如果没有指定任务，或指定的任务不存在
+  //如果没有指定任务，或指定的任务不存在
   if (!patch.taskId || !tasks.some(t => t.id === patch.taskId)) {
     if (tasks.length === 0) {
       // 如果连一个任务都没有，自动建一个默认任务
@@ -242,8 +242,8 @@ export function createChapter(patch) {
     book: patch.book || '',
     part: patch.part || '',
     note: patch.note || '',
-    imageIds: [], // 👈 确保附件字段存在
-    pdfFiles: [], // 👈 确保附件字段存在
+    imageIds: [], //确保附件字段存在
+    pdfFiles: [], //确保附件字段存在
     order: list.filter(x => x.taskId === patch.taskId && !x.deletedAt).length,
     createdAt: now(),
     updatedAt: now(),
@@ -360,12 +360,12 @@ export function deleteChapter(id) {
 export function getPoints(chapterId) {
   const allPoints = read(K.points).filter(p => !p.deletedAt);
 
-  // 👇 如果传了 chapterId，就按章节过滤
+  //如果传了 chapterId，就按章节过滤
   if (chapterId !== undefined) {
     return allPoints.filter(p => p.chapterId === chapterId).sort((a, b) => a.order - b.order);
   }
 
-  // 👇 如果没传参数，就返回所有未删除的卡片（用于首页散落卡片展示）
+  //如果没传参数，就返回所有未删除的卡片（用于首页散落卡片展示）
   return allPoints.sort((a, b) => a.order - b.order);
 }
 export function getPoint(id) { return read(K.points).find(p => p.id === id); }
@@ -373,7 +373,7 @@ export function createPoint(patch) {
   const list = read(K.points);
   const p = {
     id: uuid(),
-    chapterId: patch.chapterId || null, // 👈 必须允许为 null，代表未分类卡片
+    chapterId: patch.chapterId || null, //必须允许为 null，代表未分类卡片
     content: patch.content || '未命名卡片',
     explanation: patch.explanation || '',
     imageIds: patch.imageIds || [],
@@ -635,6 +635,16 @@ export function updateSettings(patch) {
   localStorage.setItem('kg_settings', JSON.stringify(s));
   return s;
 }
+// 侧边栏挂载配置 (默认错题本在顶部，倒计时在底部)
+export function getSidebarConfig() {
+  try {
+    return JSON.parse(localStorage.getItem('kg_sidebar_config') || '{"errorBookPos":"top","countdownPos":"bottom","countdownSize":"medium"}');
+  } catch { return {}; }
+}
+export function updateSidebarConfig(patch) {
+  const cfg = { ...getSidebarConfig(), ...patch };
+  localStorage.setItem('kg_sidebar_config', JSON.stringify(cfg));
+}
 
 // ============ 胶带 / 纸张 / 花样 ============
 export function getTape(imageId) {
@@ -768,40 +778,81 @@ export function saveLayerOrder(order) {
   catch { return false; }
 }
 
-export function mergePoints(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep', mergeMode = 'concat') {
+export function mergePoints(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep', mergeMode = 'concat', saveMode = 'overwrite', customExplanation = null) {
   const list = read(K.points);
   const target = list.find(p => p.id === targetId);
   if (!target) return;
-  if (newName) target.content = newName;
 
-  sourceIds.forEach(sid => {
-    const s = list.find(p => p.id === sid);
-    if (!s) return;
-    if (dedupe && target.content === s.content) { s.deletedAt = now(); pushRecycle('point', s); return; }
+  let finalTargetId = targetId;
 
-    if (mergeMode === 'concat') {
-      target.content += '\n\n---\n\n' + s.content;
-      if (s.explanation) target.explanation = (target.explanation || '') + '\n\n' + s.explanation;
-      target.imageIds = [...new Set([...(target.imageIds || []), ...(s.imageIds || [])])];
-      target.compositeImageIds = [...new Set([...(target.compositeImageIds || []), ...(s.compositeImageIds || [])])];
-      target.audioIds = [...new Set([...(target.audioIds || []), ...(s.audioIds || [])])];
-      target.attachments = [...(target.attachments || []), ...(s.attachments || [])];
-      target.difficulty = Math.max(target.difficulty || 5, s.difficulty || 5);
-      target.reviewCount = (target.reviewCount || 0) + (s.reviewCount || 0);
-      if (s.nextReviewAt && (!target.nextReviewAt || new Date(s.nextReviewAt) < new Date(target.nextReviewAt))) {
-        target.nextReviewAt = s.nextReviewAt;
-      }
+  // 1. 克隆新卡片 (另存模式)
+  if (saveMode === 'saveAs') {
+    finalTargetId = uuid();
+    const newTarget = JSON.parse(JSON.stringify(target));
+    newTarget.id = finalTargetId;
+
+    // 防重名
+    let baseName = newName || target.content;
+    let finalName = baseName;
+    let counter = 1;
+    while (list.some(p => p.content === finalName && !p.deletedAt)) {
+      finalName = `${baseName} (${counter})`;
+      counter++;
+    }
+    newTarget.content = finalName;
+    newTarget.createdAt = now();
+    newTarget.updatedAt = now();
+    list.push(newTarget);
+  } else {
+    if (newName) target.content = newName;
+  }
+
+  const finalTarget = list.find(p => p.id === finalTargetId);
+
+  // 2. 处理合并逻辑
+  const selectedItems = sourceIds.map(id => list.find(p => p.id === id)).filter(Boolean);
+
+  if (mergeMode === 'concat') {
+    //直接使用用户在弹窗里编辑好的 `customExplanation`
+    if (customExplanation !== null) {
+      finalTarget.explanation = customExplanation;
     } else {
-      // 方案 B：关联链接
-      if (!target.linkedPointIds) target.linkedPointIds = [];
-      if (!target.linkedPointIds.includes(s.id)) target.linkedPointIds.push(s.id);
+      // 兜底：如果没传，就按老逻辑拼接
+      const allExplanations = [target.explanation, ...selectedItems.map(s => s.explanation)].filter(Boolean);
+      finalTarget.explanation = allExplanations.join('<br><br>');
     }
 
-    s.deletedAt = now();
-    pushRecycle('point', s);
+    // 合并图片等其他附属数据
+    const allImages = [target, ...selectedItems].flatMap(p => p.imageIds || []);
+    finalTarget.imageIds = [...new Set(allImages)];
+
+    finalTarget.difficulty = Math.max(target.difficulty || 5, ...selectedItems.map(s => s.difficulty || 5));
+    finalTarget.reviewCount = [target, ...selectedItems].reduce((sum, p) => sum + (p.reviewCount || 0), 0);
+
+    const allDates = [target, ...selectedItems].map(p => p.nextReviewAt).filter(Boolean).sort();
+    if (allDates.length > 0) finalTarget.nextReviewAt = allDates[0];
+
+  } else {
+    // 关联模式
+    if (!finalTarget.linkedPointIds) finalTarget.linkedPointIds = [];
+    selectedItems.forEach(s => {
+      if (!finalTarget.linkedPointIds.includes(s.id)) finalTarget.linkedPointIds.push(s.id);
+    });
+  }
+
+  // 3. 清理源卡片 (如果选了覆盖)
+  sourceIds.forEach(sid => {
+    if (sid === targetId) return;
+    const s = list.find(p => p.id === sid);
+    if (!s) return;
+
+    if (saveMode === 'overwrite') {
+      s.deletedAt = now();
+      pushRecycle('point', s);
+    }
   });
 
-  target.updatedAt = now();
+  finalTarget.updatedAt = now();
   write(K.points, list);
 }
 
@@ -927,8 +978,8 @@ export function deleteTemplate(id) {
   return list;
 }
 
-// ============ 复制与粘贴 ============
-export function copyTask(taskId) {
+//支持跨级粘贴/复制的 Task
+export function copyTask(taskId, targetParentId = null) {
   const tasks = read(K.tasks);
   const chapters = read(K.chapters);
   const points = read(K.points);
@@ -936,21 +987,36 @@ export function copyTask(taskId) {
   const task = tasks.find(t => t.id === taskId);
   if (!task) return false;
 
+  const newTaskId = uuid();
+  const newTaskName = `${task.name} (副本)`;
+
+  const newTask = { ...task, id: newTaskId, name: newTaskName, parentId: targetParentId, createdAt: now(), updatedAt: now() };
+  tasks.push(newTask);
+
   // 收集该任务下的所有章节
   const taskChapters = chapters.filter(c => c.taskId === taskId && !c.deletedAt);
-  const chapterIds = taskChapters.map(c => c.id);
+  const chapterMap = {};
 
-  // 收集这些章节下的所有知识点
+  taskChapters.forEach(c => {
+    const newCid = uuid();
+    chapterMap[c.id] = newCid;
+    chapters.push({ ...c, id: newCid, taskId: newTaskId, createdAt: now(), updatedAt: now() });
+  });
+
+  // 收集知识点
+  const chapterIds = taskChapters.map(c => c.id);
   const taskPoints = points.filter(p => chapterIds.includes(p.chapterId) && !p.deletedAt);
 
-  const clipboardData = {
-    type: 'task',
-    task: JSON.parse(JSON.stringify(task)),
-    chapters: JSON.parse(JSON.stringify(taskChapters)),
-    points: JSON.parse(JSON.stringify(taskPoints))
-  };
+  taskPoints.forEach(p => {
+    const newCid = chapterMap[p.chapterId];
+    if (newCid) {
+      points.push({ ...p, id: uuid(), chapterId: newCid, createdAt: now(), updatedAt: now() });
+    }
+  });
 
-  localStorage.setItem('kg_clipboard_copy', JSON.stringify(clipboardData));
+  write(K.tasks, tasks);
+  write(K.chapters, chapters);
+  write(K.points, points);
   return true;
 }
 

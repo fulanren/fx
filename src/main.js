@@ -28,13 +28,25 @@ import { renderUploadPdf } from './views/uploadPdf.js';
 import { renderResourceOverview } from './views/resourceOverview.js';
 import { initEmojiReplacer } from './utils/emojiReplacer.js';
 
+let hasShownGlobalError = false;
 window.addEventListener('error', (e) => {
-  console.error('系统级错误:', e.error);
+  //如果是跨域导致的 Script error，直接 return 忽略掉！
+  if (e.message === 'Script error.' || !e.error) return;
+
+  console.error('系统级错误:', e.error || e.message);
+
+  if (hasShownGlobalError) return;
+  hasShownGlobalError = true;
+
   const toast = document.createElement('div');
   toast.style.cssText = 'position:fixed;top:10px;left:50%;transform:translateX(-50%);background:#EF476F;color:#fff;padding:10px 20px;border-radius:8px;z-index:999999;font-size:14px;box-shadow:0 4px 12px rgba(0,0,0,.2);';
   toast.textContent = '⚠️ 页面发生了一点小错误，请刷新重试';
   document.body.appendChild(toast);
-  setTimeout(() => toast.remove(), 3000);
+
+  setTimeout(() => {
+    toast.remove();
+    hasShownGlobalError = false;
+  }, 3000);
 });
 
 // 修复 PDF.js Worker 404 的问题
@@ -61,7 +73,7 @@ async function boot() {
   cleanRecycleBin();
   initTheme();
 
-  // 👇 4. 核心新增：延迟 5 秒后，执行“每日数据自动快照”，保障数据安全
+  //延迟 5 秒后，执行“每日数据自动快照”，保障数据安全
   setTimeout(() => { autoSnapshot(); }, 5000);
 
   // 5. 自定义顶栏快捷按钮
@@ -338,7 +350,12 @@ function openMoreMenu() {
         onClick: async () => {
           menu.remove();
           if (it.action === 'importDoc') { import('./views/importDoc.js').then(m => m.globalImportDocModal()); }
-          else if (it.action === 'batchImport') { import('./views/importDoc.js').then(m => m.globalBatchImportModal()); }
+          else if (it.action === 'batchImport') {
+            const hash = window.location.hash;
+            const chapterMatch = hash.match(/#\/chapter\/([a-zA-Z0-9-]+)/);
+            const currentChapId = chapterMatch ? chapterMatch[1] : null;
+            import('./views/importDoc.js').then(m => m.globalBatchImportModal(currentChapId));
+          }
           else if (it.action === 'export') { import('./views/settings.js').then(m => m.openExportModal()); }
           else if (it.action === 'import') { import('./views/settings.js').then(m => m.openImportModal()); }
         }
@@ -538,7 +555,7 @@ document.addEventListener('focusin', (e) => {
   }
 });
 
-// 👇 终极保底：监听全站点击，随时准备解除任何不该有的滚动锁定
+//监听全站点击，随时准备解除任何不该有的滚动锁定
 document.addEventListener('click', () => {
   const html = document.documentElement;
   const body = document.body;
@@ -682,7 +699,7 @@ initEmojiReplacer();
 function checkBackupSafety() {
   const lastBackup = localStorage.getItem('kg_last_backup_at');
 
-  // 👇 核心修复：如果是第一次打开（本地压根没有备份记录），直接不提示
+  //如果是第一次打开（本地压根没有备份记录），直接不提示
   if (!lastBackup) return;
 
   const now = Date.now();
@@ -814,9 +831,7 @@ boot().catch(e => {
     hide();
   }, { passive: true });
 
-  // ==========================================
-  // 👇 第二步：全局双向链接长按拦截器
-  // ==========================================
+  //全局双向链接长按拦截器
   document.addEventListener('pointerdown', (e) => {
     const linkEl = e.target.closest('.knowledge-link');
     if (!linkEl) return;
@@ -854,12 +869,12 @@ boot().catch(e => {
 
       menu.appendChild(createBtn('🚀 前往', 'var(--primary)', () => { window.location.hash = url; }));
       // 改在 pointerdown 里触发跳转，并给个小延迟
-  btn.onpointerdown = (ev) => {
-    ev.preventDefault();
-    setTimeout(() => {
-      window.location.hash = route;
-    }, 50);
-  };
+      btn.onpointerdown = (ev) => {
+        ev.preventDefault();
+        setTimeout(() => {
+          window.location.hash = route;
+        }, 50);
+      };
       menu.appendChild(createBtn('🔄 重置', '#B8860B', () => { window.location.hash = url; }));
       menu.appendChild(createBtn('🗑 删除', 'var(--danger)', () => {
         if (!isEditPage) return alert('请先进入编辑页面才能删除该连接');
@@ -893,21 +908,21 @@ boot().catch(e => {
   });
 
   // 供管理面板联动闪烁使用
-   window.flashLink = function(id, isOn) {
+  window.flashLink = function (id, isOn) {
     // 放宽查找，只要 data-link 里包含该 ID 的都算
     const links = document.querySelectorAll(`.knowledge-link[data-link-id="${id}"], .editor-link[data-link*="${id}"]`);
-    
+
     links.forEach(link => {
       if (isOn) {
         link.dataset.origBg = link.style.background;
         link.dataset.origColor = link.style.color;
-        
+
         link.style.transition = 'none';
         link.style.background = 'rgba(255, 209, 102, 0.9)';
         link.style.color = '#2B2D42';
         link.style.borderRadius = '4px';
         link.style.padding = '0 4px';
-        
+
         // 强行滚动到屏幕中间
         link.scrollIntoView({ behavior: 'smooth', block: 'center' });
       } else {

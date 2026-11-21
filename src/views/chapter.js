@@ -8,19 +8,20 @@ import { mergeModal } from '../ui/mergeModal.js';
 import { makeSortable } from '../ui/sortable.js';
 import { getImageCached } from '../db.js';
 import { globalImportDocModal } from './importDoc.js';
+import { showPasteOptionsModal } from './importDoc.js';
 
 
 function parseLinks(html) {
   if (!html) return html;
-  
+
   // 1. 处理双向链接（保留你之前的逻辑）
   const regex = /<span class="editor-link"[^>]*data-link="(\[\[(?:folder|point):([a-zA-Z0-9-]+):([^\]]+)\]\])"[^>]*>(.*?)<\/span>|\[\[(folder|point):([a-zA-Z0-9-]+):([^\]]+)\]\]/g;
-  
-  // 👇 核心修复：一定要有 resultHtml 这个变量，并赋初始值
+
+  //一定要有 resultHtml 这个变量，并赋初始值
   let resultHtml = html.replace(regex, (match, dataLink, id1, name1, type2, id2, name2, spanText) => {
     const type = type2 || (id1 ? dataLink.split(':')[0].replace('[[', '') : 'point');
     const id = id2 || id1;
-    
+
     let displayName = "";
     if (spanText !== undefined) {
       const tempDiv = document.createElement('div');
@@ -130,18 +131,72 @@ export function renderChapterList({ params }) {
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { chMulti = false; chSelected.clear(); renderChapterList({ params }); } }),
     ]));
     view.appendChild(el('div', { class: 'batch-bar-actions' }, [
-      // 【合并选中章节】
+      // 【粘贴章节】
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '📥 粘贴章节',
+        onClick: () => {
+          // 假设你复制章节时，存入的 key 叫 kg_clipboard_chapters
+          const raw = localStorage.getItem('kg_clipboard_chapters');
+          if (!raw) return toastError('剪贴板里没有章节');
+
+          let chapters = [];
+          try {
+            chapters = JSON.parse(raw);
+          } catch (e) { }
+
+          if (!chapters || chapters.length === 0) return toastError('剪贴板为空');
+
+          // 呼出通用弹窗
+          showPasteOptionsModal(
+            async (finalChapterId, targetName) => {
+              if (!finalChapterId) return toastError('请选择目标文件夹');
+
+              if (await confirmBox({ title: '粘贴章节', message: `确定要将 ${chapters.length} 个章节粘贴到「${targetName}」吗？` })) {
+                toastSuccess('正在粘贴...');
+
+                for (const c of chapters) {
+                  // 1. 在目标文件夹下创建新章节
+                  const newChapter = store.createChapter({
+                    taskId: store.getChapter(finalChapterId).taskId,
+                    name: c.name + ' (副本)'
+                  });
+
+                  // 2. 将原章节下的所有知识点复制到新章节
+                  const points = store.getPoints(c.id);
+                  points.forEach(p => {
+                    store.createPoint({
+                      chapterId: newChapter.id,
+                      content: p.content,
+                      explanation: p.explanation,
+                      difficulty: p.difficulty,
+                      imageIds: p.imageIds
+                    });
+                  });
+                }
+
+                toastSuccess(`成功粘贴 ${chapters.length} 个章节！`);
+                chMulti = false;
+                chSelected.clear();
+
+                // 粘贴完毕，重新刷新当前页面
+                renderChapterList({ params });
+              }
+            },
+            null // 章节批量选择时，通常没有当前章节 ID，传 null
+          );
+        }
+      }),
+
+      // 【合并选中章节】（保留你原来的）
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
-          // 至少选 2 个章节才能合并
           if (chSelected.size < 2) { alert('至少选择 2 个章节'); return; }
           const ids = [...chSelected];
-          const targetId = ids[0];  // 第一个作为主章节
+          const targetId = ids[0];
           const items = ids.map(id => store.getChapter(id));
           await mergeModal({
             title: '合并章节', items, targetId,
-            // onConfirm 接收：源 id 列表、去重、新名称、排序方式、合并方式
             onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
               store.mergeChapters(sourceIds, targetId, dedupe, newName, sortMode);
               toastSuccess('已合并');
@@ -152,6 +207,8 @@ export function renderChapterList({ params }) {
           });
         },
       }),
+
+      // 【删除选中】
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除选中',
         onClick: async () => {
@@ -229,7 +286,7 @@ function chapterCard(c, taskId) {
       c.part ? el('span', { text: `📄 ${c.part}` }) : null,
       el('span', { text: `💡 ${points.length} 知识点` }),
     ]),
-    // 👇 章节专属附件提示区
+    //章节专属附件提示区
     (c.imageIds && c.imageIds.length > 0) || (c.pdfFiles && c.pdfFiles.length > 0)
       ? el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } }, [
         c.imageIds && c.imageIds.length > 0 ? el('div', {
@@ -248,7 +305,7 @@ function chapterCard(c, taskId) {
       : null,
     !chMulti ? el('div', { class: 'card-actions' }, [
       el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
-      // 👇 删除按钮
+      //删除按钮
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
         onClick: async () => {
@@ -319,23 +376,24 @@ export function renderChapterDetail({ params, query }) {
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
-          // 至少选 2 个才能合并
           if (ptSelected.size < 2) { alert('至少选择 2 个知识点'); return; }
           const ids = [...ptSelected];
           const targetId = ids[0];  // 第一个作为主项
           const items = ids.map(id => store.getPoint(id));
           await mergeModal({
             title: '合并知识点', items, targetId,
-            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
-              store.mergePoints(sourceIds, targetId, dedupe, newName, sortMode, mergeMode);
-              toastSuccess('已合并');
+            //接收第 7 个参数 customExplanation
+            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation) => {
+              //传给 store
+              store.mergePoints(sourceIds, targetId, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation);
+              toastSuccess('合并成功！');
               ptMulti = false; ptSelected.clear();
               renderChapterDetail({ params });
             },
           });
         },
       }),
-      // 👇 新增：复制选中
+      // 复制选中
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📋 复制',
         onClick: () => {
@@ -346,30 +404,72 @@ export function renderChapterDetail({ params, query }) {
         }
       }),
 
-      // 👇 新增：粘贴到当前
+      //粘贴到指定位置
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📥 粘贴',
         onClick: async () => {
           const raw = localStorage.getItem('kg_clipboard_points');
           if (!raw) return toastError('剪贴板为空');
           const points = JSON.parse(raw);
-          
-          if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到当前文件夹吗？` })) {
-            points.forEach(p => {
-              // 生成新的 ID 和归属，避免覆盖原卡片
-              store.createPoint({
-                chapterId: chapterId,
-                content: p.content,
-                explanation: p.explanation,
-                difficulty: p.difficulty,
-                imageIds: p.imageIds
-              });
-            });
-            toastSuccess('粘贴成功');
-            ptMulti = false;
-            ptSelected.clear();
-            renderChapterDetail({ params });
-          }
+          if (points.length === 0) return toastError('剪贴板为空');
+
+          // 弹出选择归属文件夹的弹窗
+          showPasteOptionsModal(
+            // 传给弹窗的回调：确认粘贴时执行
+            async (finalChapterId, targetName) => {
+              if (!finalChapterId) return toastError('请选择目标文件夹');
+
+              if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到「${targetName}」吗？` })) {
+                points.forEach(p => {
+                  store.createPoint({
+                    chapterId: finalChapterId,
+                    content: p.content,
+                    explanation: p.explanation,
+                    difficulty: p.difficulty,
+                    imageIds: p.imageIds
+                  });
+                });
+                toastSuccess('粘贴成功');
+                ptMulti = false;
+                ptSelected.clear();
+                // 如果粘贴到了新文件夹，直接跳转过去
+                if (finalChapterId !== chapterId) {
+                  navigate(`#/chapter/${finalChapterId}`);
+                } else {
+                  renderChapterDetail({ params });
+                }
+              }
+            },
+            chapterId // 传入当前章节 ID，作为“粘贴到当前”的默认值
+          );
+        }
+      }),
+      // 移动到其他文件夹
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '🚚 移动到...',
+        onClick: () => {
+          if (ptSelected.size === 0) return toastError('请先勾选要移动的卡片');
+
+          showPasteOptionsModal(
+            async (finalChapterId, targetName) => {
+              if (!finalChapterId) return;
+              if (finalChapterId === chapterId) return toastSuccess('它们已经在当前文件夹了');
+
+              if (await confirmBox({ title: '移动卡片', message: `确定将 ${ptSelected.size} 张卡片移动到「${targetName}」吗？` })) {
+                // 批量更新章节 ID
+                ptSelected.forEach(id => {
+                  store.updatePoint(id, { chapterId: finalChapterId });
+                });
+
+                toastSuccess('移动成功');
+                ptMulti = false;
+                ptSelected.clear();
+                renderChapterDetail({ params }); // 刷新当前页
+              }
+            },
+            chapterId, // 传入当前章节 ID
+            '移动' // 把弹窗里的“粘贴”文案换成“移动”
+          );
         }
       }),
 
@@ -409,7 +509,7 @@ export function renderChapterDetail({ params, query }) {
       el('button', {
         class: 'btn btn-sm btn-primary', text: '🎯 开始复习',
         onClick: () => {
-          // 👇 弹出模式选择
+          //弹出模式选择
           const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
           const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
             el('h3', { text: '选择复习模式', style: { marginBottom: '16px' } }),
@@ -507,7 +607,7 @@ function pointCard(p, chapterId) {
         return;
       }
 
-      // 👇 切换折叠状态
+      //切换折叠状态
       isExpanded = !isExpanded;
       contentBox.style.display = isExpanded ? 'block' : 'none';
     }
@@ -530,8 +630,8 @@ function pointCard(p, chapterId) {
             lineHeight: '1.5',
             wordBreak: 'break-word'
           },
-          // 👇 这里保留 parseLinks，方便主标题如果有链接也能解析
-          innerHTML: parseLinks(p.content) 
+          //这里保留 parseLinks，方便主标题如果有链接也能解析
+          innerHTML: parseLinks(p.content)
         })
       ]),
 
@@ -741,7 +841,7 @@ function startReviewMode(points, chapterId) {
       }
     });
 
-        // 卡片内容
+    // 卡片内容
     card.appendChild(el('div', { style: { fontSize: '22px', fontWeight: '600', textAlign: 'center', lineHeight: '1.6', whiteSpace: 'pre-wrap' }, innerHTML: parseLinks(p.content) }));
 
     // 判断是否显示提示
@@ -801,7 +901,7 @@ function startReviewMode(points, chapterId) {
         }));
       }
 
-      // 👇 2. 打开 PDF 按钮
+      //2. 打开 PDF 按钮
       if (p.pdfFiles && p.pdfFiles.length > 0) {
         btnRow.appendChild(el('button', {
           class: 'btn btn-sm btn-ghost', text: '📄 打开 PDF',
@@ -857,7 +957,7 @@ function startReviewMode(points, chapterId) {
 
   // 图片预览弹窗
   async function openQuickImages(imageIds) {
-    // 👇 暂停复习快捷键，防止按 ESC 时直接退出复习
+    //暂停复习快捷键，防止按 ESC 时直接退出复习
     const oldKeyDown = window.onkeydown;
     window.onkeydown = null;
 
@@ -884,7 +984,7 @@ function startReviewMode(points, chapterId) {
     imgMask.appendChild(closeBtn);
     document.body.appendChild(imgMask);
 
-    // 👇 加入 ESC 监听
+    //加入 ESC 监听
     window.onkeydown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -1040,16 +1140,16 @@ function startFocusListMode(points, chapterId) {
   function rateCurrent(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
-      if (rating === 'forgot') {
-    store.incrementErrorCount(p.id);
-    
-    // 👇 错题本联动：如果你之前在这个卡片里插入过 ❝ 引用块，那么它会被自动高亮或在错题本展示
-    // 如果你希望“忘了”时自动在卡片末尾补一个“🚨 易错点：”的引用块：
-    if (!p.explanation || !p.explanation.includes('🚨 易错点')) {
-      const newHtml = (p.explanation || '') + `<br><blockquote style="border-left: 4px solid #FFB5A7; margin: 8px 0; padding: 4px 12px; color: #EF476F; background: rgba(255,181,167,0.1); border-radius: 0 4px 4px 0;"><strong>🚨 易错点总结：</strong><br>请在编辑页补充这道题的错因...</blockquote>`;
-      store.updatePoint(p.id, { explanation: newHtml });
+    if (rating === 'forgot') {
+      store.incrementErrorCount(p.id);
+
+      //错题本联动：如果你之前在这个卡片里插入过 ❝ 引用块，那么它会被自动高亮或在错题本展示
+      // 如果你希望“忘了”时自动在卡片末尾补一个“🚨 易错点：”的引用块：
+      if (!p.explanation || !p.explanation.includes('🚨 易错点')) {
+        const newHtml = (p.explanation || '') + `<br><blockquote style="border-left: 4px solid #FFB5A7; margin: 8px 0; padding: 4px 12px; color: #EF476F; background: rgba(255,181,167,0.1); border-radius: 0 4px 4px 0;"><strong>🚨 易错点总结：</strong><br>请在编辑页补充这道题的错因...</blockquote>`;
+        store.updatePoint(p.id, { explanation: newHtml });
+      }
     }
-  }
     toastSuccess('已记录');
 
     if (currentIndex < points.length - 1) {
@@ -1067,7 +1167,7 @@ function startFocusListMode(points, chapterId) {
 
   // 5. 图片预览复用
   async function openQuickImages(imageIds) {
-    // 👇 暂停复习快捷键
+    //暂停复习快捷键
     const oldKeyDown = window.onkeydown;
     window.onkeydown = null;
 
@@ -1094,7 +1194,7 @@ function startFocusListMode(points, chapterId) {
     imgMask.appendChild(closeBtn);
     document.body.appendChild(imgMask);
 
-    // 👇 加入 ESC 监听
+    //加入 ESC 监听
     window.onkeydown = (e) => {
       if (e.key === 'Escape') {
         e.preventDefault();

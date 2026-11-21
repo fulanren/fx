@@ -19,7 +19,7 @@ export function renderEditPoint({ params, query }) {
   }
   window.__editPointAbort = new AbortController();
   const docSignal = window.__editPointAbort.signal;
-  // 👇 清理上一次编辑页挂到 body 的面板，防止叠面板
+  //清理上一次编辑页挂到 body 的面板，防止叠面板
   document.querySelectorAll('.edit-point-panel').forEach(p => p.remove());
   // 只要进入编辑页，强行把画板残留的组件干掉
   const doneBtn = document.getElementById('btn-done');
@@ -98,68 +98,243 @@ export function renderEditPoint({ params, query }) {
     }, 200); // 稍微延迟 200ms 等页面渲染完毕再滚
   }
 
-  // ============ 拍照识别按钮 ============
-  const ocrBtn = el('button', {
-    class: 'btn btn-ghost', title: '拍题识别',
-    style: { padding: '8px', fontSize: '18px', borderRadius: '10px', background: 'rgba(142,202,230,.15)', height: '44px', flexShrink: '0' },
-    text: '📷',
-    onClick: () => {
-      const fileInput = document.createElement('input');
-      fileInput.type = 'file';
-      fileInput.accept = 'image/*';
-      // 手机端唤起后置摄像头拍照，电脑端不受影响
-      fileInput.capture = 'environment';
-      fileInput.onchange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        toastSuccess('正在识别文字，请稍候…');
+  // ============ 多源图片/OCR 导入逻辑 ============
+  // 1. 通用处理函数：将图片入库、自动 OCR、插入目标框
+  async function handleImageImport(file, targetInput, isExplanation) {
+    if (isNew || !params || !params.id || params.id === 'new') {
+      toastError('请先保存卡片，再添加图片');
+      return;
+    }
 
-        try {
-          // 注意：如果你的 OCR 模块不是 '../utils/ocr.js'，请把这里改成你的真实路径
-          const ocrModule = await import('../utils/ocr.js');
-          // 尝试寻找识别方法（兼容不同的写法命名）
-          const recognize = ocrModule.ocrImage || ocrModule.recognizeImage || ocrModule.default;
+    toastSuccess('正在保存图片...');
 
-          if (typeof recognize !== 'function') {
-            throw new Error('未找到 OCR 识别函数，请检查 utils/ocr.js 的导出名称');
+    const pt = store.getPoint(params.id);
+    if (!pt) return;
+    if (!pt.imageIds) pt.imageIds = [];
+
+    // 生成防重名文件名
+    let baseName = file.name ? file.name.split('.')[0] : '截图_' + new Date().getTime();
+    let ext = file.name && file.name.includes('.') ? '.' + file.name.split('.').pop() : '.png';
+    let finalName = baseName + ext;
+    let counter = 1;
+    const existingRecs = await Promise.all(pt.imageIds.map(id => dbGet('images', id)));
+    const usedNames = new Set(existingRecs.map(r => r && r.name).filter(Boolean));
+    while (usedNames.has(finalName)) {
+      finalName = `${baseName} (${counter})${ext}`;
+      counter++;
+    }
+
+    // 获取图片尺寸
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    await new Promise(r => { img.onload = r; img.src = url; });
+
+    // 存入 IndexedDB
+    const id = uuid();
+    await dbPut('images', {
+      id,
+      name: finalName,
+      originalBlob: file,
+      annotatedBlob: file,
+      width: img.width,
+      height: img.height,
+      dpr: 1,
+      source: 'upload',
+      createdAt: new Date().toISOString()
+    });
+
+    // 更新知识点，将 ID 加入关联数组
+    pt.imageIds.push(id);
+    store.updatePoint(pt.id, { imageIds: pt.imageIds });
+    URL.revokeObjectURL(url);
+
+    //自动调用你的 runOCR 识别
+    toastSuccess('图片已保存，正在识别文字...');
+    let text = '';
+    try {
+      const ocrModule = await import('./ocr.js');
+      if (typeof ocrModule.runOCR === 'function') {
+        const res = await ocrModule.runOCR(id);
+        if (res && res.text) {
+          text = res.text;
+        }
+      } else {
+        console.warn('ocr.js 中没有找到 runOCR 函数');
+      }
+    } catch (err) {
+      console.warn('OCR 模块加载失败:', err);
+    }
+
+    //将文字和图片插入到编辑框
+    targetInput.focus();
+    if (isExplanation) restoreExplainRange();
+
+    if (text && text.trim()) {
+      if (targetInput.isContentEditable) {
+        document.execCommand('insertText', false, '\n' + text.trim());
+      } else {
+        targetInput.value += (targetInput.value ? '\n' : '') + text.trim();
+      }
+    }
+
+    // 在“图文附件”区域插入图片（如果是富文本框）
+    if (isExplanation) {
+      // 为了让图片在解释框立即可见，转为 Base64 塞进去
+      const reader = new FileReader();
+      const base64 = await new Promise(resolve => {
+        reader.onloadend = () => resolve(reader.result);
+        reader.readAsDataURL(file);
+      });
+      document.execCommand('insertHTML', false, `<img src="${base64}" style="max-width:100%; border-radius:8px; margin:8px 0; display:block;" data-img-id="${id}" />`);
+
+      form.explanation = explainInput.innerHTML;
+      saveExplainRange();
+    } else {
+      form.content = targetInput.value || targetInput.innerHTML;
+    }
+
+    queueSave();
+    toastSuccess(text ? '识别成功，文字已插入！' : '图片已导入（未识别到文字）');
+
+    //强制刷新下方的“图文附件”区域
+    if (typeof renderImgSection === 'function') {
+      isImgCollapsed = false; // 自动展开附件区
+      renderImgSection();
+    }
+  }
+
+  // 2. 底部动作面板 (统一调用 handleImageImport)
+  function showImageSourceSheet(targetInput, isExplanation = false) {
+    const oldSheet = document.getElementById('import-source-sheet');
+    if (oldSheet) oldSheet.remove();
+
+    const sheet = el('div', {
+      id: 'import-source-sheet',
+      style: {
+        position: 'fixed', bottom: '0', left: '0', right: '0', top: '0',
+        background: 'rgba(0,0,0,0.4)', zIndex: '999999', display: 'flex', flexDirection: 'column', justifyContent: 'flex-end'
+      },
+      onClick: (e) => { if (e.target === sheet) sheet.remove(); }
+    }, [
+      el('div', {
+        style: {
+          background: 'var(--card)', borderTopLeftRadius: '16px', borderTopRightRadius: '16px',
+          padding: '20px', display: 'flex', flexDirection: 'column', gap: '12px', paddingBottom: 'calc(20px + env(safe-area-inset-bottom))'
+        }
+      }, [
+        el('div', { style: { textAlign: 'center', color: 'var(--text-2)', marginBottom: '4px', fontSize: '13px', fontWeight: 'bold' } }, '选择图片来源'),
+
+        // 拍照
+        el('button', {
+          class: 'btn btn-ghost', style: { padding: '12px', fontSize: '15px', background: 'var(--bg)' }, onClick: () => {
+            sheet.remove();
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.capture = 'environment';
+            fileInput.onchange = (e) => { const f = e.target.files[0]; if (f) handleImageImport(f, targetInput, isExplanation); };
+            fileInput.click();
           }
+        }, '📷 拍照识别文字'),
 
-          const text = await recognize(file);
-          if (text && text.trim()) {
+        // 本地图片
+        el('button', {
+          class: 'btn btn-ghost', style: { padding: '12px', fontSize: '15px', background: 'var(--bg)' }, onClick: () => {
+            sheet.remove();
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.multiple = true;
+            fileInput.onchange = async (e) => {
+              const files = Array.from(e.target.files);
+              for (const f of files) {
+                await handleImageImport(f, targetInput, isExplanation);
+              }
+            };
+            fileInput.click();
+          }
+        }, '🖼️ 导入本地图片'),
 
-            // 👇 核心修复：如果你想让 OCR 的文字存入“内容”框，请针对 contentInput 操作
-            contentInput.focus();
-
-            // 如果 contentInput 已经升级成了富文本 div
-            if (contentInput.isContentEditable) {
-              document.execCommand('insertText', false, '\n' + text.trim());
-              form.content = contentInput.innerHTML;
-            } else {
-              // 如果 contentInput 还是老版本的 textarea
-              contentInput.value += (contentInput.value ? '\n' : '') + text.trim();
-              form.content = contentInput.value;
+        // PDF 选页
+        el('button', {
+          class: 'btn btn-ghost', style: { padding: '12px', fontSize: '15px', background: 'var(--bg)' }, onClick: async () => {
+            sheet.remove();
+            if (isNew || !params || !params.id || params.id === 'new') {
+              toastError('请先点击保存按钮，保存卡片后再添加 PDF');
+              return;
             }
 
-            // 👇 如果你同时想把内容也同步一份到“解释”里（可选），可以加上这两句：
-            explainInput.focus();
-            document.execCommand('insertText', false, '\n' + text.trim());
-            form.explanation = explainInput.innerHTML;
+            try {
+              const module = await import('./pdfImport.js');
+              const pdfImportModal = module.pdfImportModal;
 
-            queueSave(); // 触发自动保存
-            toastSuccess('文字识别成功');
-          } else {
-            toastError('未识别到文字内容');
+              const oldPoint = store.getPoint(params.id);
+              const oldImageIds = oldPoint && oldPoint.imageIds ? [...oldPoint.imageIds] : [];
+
+              await pdfImportModal(params.id);
+
+              // 刷新界面
+              if (typeof renderImgSection === 'function') {
+                isImgCollapsed = false;
+                renderImgSection();
+              }
+
+              // 自动 OCR 提取
+              const newPoint = store.getPoint(params.id);
+              if (newPoint && newPoint.imageIds) {
+                const newImageIds = newPoint.imageIds.filter(id => !oldImageIds.includes(id));
+                if (newImageIds.length > 0) {
+                  toastSuccess(`成功导入 ${newImageIds.length} 页，正在识别文字...`);
+                  const ocrModule = await import('./ocr.js');
+
+                  let allText = '';
+                  for (const imgId of newImageIds) {
+                    try {
+                      //直接传入 imgId 调用你原本的 runOCR
+                      const res = await ocrModule.runOCR(imgId);
+                      if (res && res.text && res.text.trim()) {
+                        allText += res.text.trim() + '\n\n';
+                      }
+                    } catch (e) {
+                      console.warn('单页识别失败:', e);
+                    }
+                  }
+
+                  if (allText.trim()) {
+                    targetInput.focus();
+                    if (isExplanation) restoreExplainRange();
+                    if (targetInput.isContentEditable) {
+                      document.execCommand('insertText', false, '\n' + allText.trim());
+                      if (isExplanation) { form.explanation = explainInput.innerHTML; saveExplainRange(); }
+                      else { form.content = targetInput.innerHTML; }
+                    } else {
+                      targetInput.value += (targetInput.value ? '\n' : '') + allText.trim();
+                      form.content = targetInput.value;
+                    }
+                    queueSave();
+                    toastSuccess('文字已提取并插入');
+                  } else {
+                    toastError('未从导入的页面中识别到文字');
+                  }
+                }
+              }
+            } catch (err) {
+              console.error('PDF 导入失败:', err);
+              toastError('加载失败：' + err.message);
+            }
           }
-        } catch (err) {
-          console.error('OCR 识别失败:', err);
-          alert('识别失败，请重试。原因：' + err.message);
-        }
-      };
-      fileInput.click();
-    }
+        }, '📄 从 PDF 选页'),
+
+        el('button', { class: 'btn btn-ghost', style: { padding: '12px', fontSize: '15px', marginTop: '8px', color: 'var(--text-2)' }, onClick: () => sheet.remove() }, '取消')
+      ])
+    ]);
+    document.body.appendChild(sheet);
+  }
+
+  // 3. 实例化按钮
+  const ocrBtn = el('button', {
+    class: 'btn btn-ghost', title: '导入图片/识别',
+    style: { padding: '8px', fontSize: '18px', borderRadius: '10px', background: 'rgba(142,202,230,.15)', height: '44px', flexShrink: '0' },
+    text: '📷',
+    onClick: () => showImageSourceSheet(contentInput, false) // 绑定内容框
   });
 
-  // 把 ocrBtn 加进 contentRow 里
   const contentRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start' } }, [
     contentInput,
     isMobile ? null : attachSpeechButton(contentInput),
@@ -174,10 +349,19 @@ export function renderEditPoint({ params, query }) {
     style: {
       width: '100%', minHeight: '100px', padding: '12px', border: '1px solid rgba(0,0,0,.1)',
       borderRadius: '10px',
-      background: 'transparent', // 👈 核心修改：让底色透明，这样底层颜色才能透出来
+      background: 'transparent',
       outline: 'none', overflowY: 'auto',
-      whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: '1.6'
+      whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: '1.6',
+      userSelect: 'text', // 确保能选中文字
+      pointerEvents: 'auto' // 确保能点击
     },
+
+    //加上 onInput，让打字实时同步到表单数据
+    onInput: (e) => {
+      form.explanation = e.target.innerHTML;
+      queueSave(); // 触发草稿自动保存
+    },
+
     onKeyDown: (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
@@ -191,9 +375,12 @@ export function renderEditPoint({ params, query }) {
       e.preventDefault();
       const text = (e.originalEvent || e).clipboardData.getData('text/plain');
       document.execCommand('insertText', false, text);
+      form.explanation = explainInput.innerHTML; // 粘贴后也同步一下
+      queueSave();
     },
     onBlur: () => {
-      // 什么都不做，避免失焦重置样式
+      // 失焦时再兜底同步一次
+      form.explanation = explainInput.innerHTML;
     }
   });
   explainInput.innerHTML = form.explanation;
@@ -228,7 +415,7 @@ export function renderEditPoint({ params, query }) {
   // ==================== 选区保护（解决改字号光标跳到开头 / 整段变） ====================
 
   function saveExplainRange() {
-    if (isPanelOpen) return;   // 👈 面板打开期间不覆盖 savedRange
+    if (isPanelOpen) return;   //面板打开期间不覆盖 savedRange
     const sel = window.getSelection();
     if (sel.rangeCount && explainInput.contains(sel.anchorNode)) {
       savedRange = sel.getRangeAt(0).cloneRange();
@@ -260,7 +447,7 @@ export function renderEditPoint({ params, query }) {
     return null;
   }
 
-  // 👇 拦截编辑器里的链接点击和长按
+  //拦截编辑器里的链接点击和长按
   // ==================== 编辑器内的链接长按拦截 ====================
   explainInput.addEventListener('pointerdown', (e) => {
     const linkEl = e.target.closest('.editor-link');
@@ -300,7 +487,7 @@ export function renderEditPoint({ params, query }) {
         btn.textContent = text;
         btn.style.cssText = `justify-content: flex-start; color: ${color}; font-size: 13px; padding: 8px 16px; cursor: pointer;`;
 
-        // 👇 核心修复：mousedown 和 touchstart 全部拦截
+        //mousedown 和 touchstart 全部拦截
         const handleAction = (ev) => {
           ev.preventDefault();
           ev.stopPropagation();
@@ -339,7 +526,7 @@ export function renderEditPoint({ params, query }) {
       // 3. 删除（彻底拔掉链接外套，变成纯黑字）
       menu.appendChild(createBtn('🗑 删除', 'var(--danger)', () => {
         if (confirm('确定要删除这个链接吗？\n（文字会保留，变成普通文本）')) {
-          // 👇 核心修复：创建一个最干净的文字节点，把带颜色的外壳彻底替换掉
+          //创建一个最干净的文字节点，把带颜色的外壳彻底替换掉
           const textNode = document.createTextNode(linkEl.textContent);
           linkEl.parentNode.replaceChild(textNode, linkEl);
 
@@ -372,7 +559,7 @@ export function renderEditPoint({ params, query }) {
     linkEl.addEventListener('pointerleave', cancel, { once: true });
   });
 
-  // 👇 让编辑器里的链接支持单击直接前往（如果你需要的话）
+  //让编辑器里的链接支持单击直接前往（如果你需要的话）
   explainInput.addEventListener('dblclick', (e) => {
     const linkEl = e.target.closest('.editor-link');
     if (linkEl) {
@@ -412,7 +599,7 @@ export function renderEditPoint({ params, query }) {
       const box = el('div', { class: 'confirm-box', style: { maxWidth: '340px', width: '90%', padding: '20px', textAlign: 'center' } }, [
         el('h3', { text: '选择复制格式', style: { marginBottom: '16px', fontSize: '16px' } }),
         el('div', { style: { display: 'flex', gap: '12px', justifyContent: 'center' } }, [
-          // 👇 纯文本复制
+          //纯文本复制
           el('button', {
             class: 'btn btn-ghost', text: '纯文本',
             style: { flex: '1', padding: '12px' },
@@ -426,7 +613,7 @@ export function renderEditPoint({ params, query }) {
               mask.remove();
             }
           }),
-          // 👇 带格式复制
+          //带格式复制
           el('button', {
             class: 'btn btn-primary', text: '带格式文本',
             style: { flex: '1', padding: '12px' },
@@ -585,7 +772,7 @@ export function renderEditPoint({ params, query }) {
           return;
         }
 
-        // 👇 升级：管理工具条（全选/全不选/删除）
+        //管理工具条（全选/全不选/删除）
         listWrap.appendChild(el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } }, [
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '全选',
@@ -706,7 +893,7 @@ export function renderEditPoint({ params, query }) {
         maskPanel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text-2)', fontWeight: 'bold' }, text: '遮挡颜色' }));
 
         const colors = ['#2B2D42', '#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#9D4EDD', '#F4F4F5', 'transparent'];
-        // 👇 核心：压缩色块大小（repeat(8, 1fr)，尺寸约 18x18）
+        //压缩色块大小（repeat(8, 1fr)，尺寸约 18x18）
         const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
 
         colors.forEach(c => {
@@ -798,7 +985,7 @@ export function renderEditPoint({ params, query }) {
           return;
         }
 
-        // 👇 压缩收藏色块
+        //压缩收藏色块
         const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
         customList.forEach(c => {
           const isSel = favSelected.has(c.id);
@@ -864,7 +1051,7 @@ export function renderEditPoint({ params, query }) {
         queueSave();
       }
 
-      // 👇 核心修复：即使没有遮挡，也渲染列表头部
+      //即使没有遮挡，也渲染列表头部
       let isListExpanded = false;
       const selectedMasks = new Set();
 
@@ -962,7 +1149,7 @@ export function renderEditPoint({ params, query }) {
         savedFormulaRange = sel.getRangeAt(0).cloneRange();
       }
 
-      // 👇 核心修复：自适应屏幕高度，智能向上/向下弹出
+      //自适应屏幕高度，智能向上/向下弹出
       const formulaPanel = el('div', {
         id: 'formula-panel',
         class: 'edit-point-panel',
@@ -971,8 +1158,8 @@ export function renderEditPoint({ params, query }) {
           background: 'var(--card)', padding: '12px', borderRadius: '12px',
           boxShadow: '0 10px 30px rgba(0,0,0,0.15)', flexDirection: 'column',
           width: '340px', gap: '10px', border: '1px solid rgba(0,0,0,.08)',
-          overflowY: 'auto', // 👈 内部滚动
-          overscrollBehavior: 'contain' // 👈 防止滚动穿透到背后的网页
+          overflowY: 'auto', //内部滚动
+          overscrollBehavior: 'contain' //防止滚动穿透到背后的网页
         }
       });
       document.body.appendChild(formulaPanel);
@@ -1163,11 +1350,16 @@ export function renderEditPoint({ params, query }) {
 
       function renderUsedFormulas() {
         usedHeader.innerHTML = '';
-        const plainText = explainInput.innerText || explainInput.textContent || '';
+
+        // 抓取最新数据
+        let usedList = [];
+        explainInput.querySelectorAll('.math-node').forEach(node => {
+          const latex = node.getAttribute('data-latex');
+          if (latex && !usedList.includes(latex)) usedList.push(latex);
+        });
         const regex = /\$([^\$]+)\$/g;
         let match;
-        const usedList = [];
-        while ((match = regex.exec(plainText)) !== null) {
+        while ((match = regex.exec(explainInput.innerText || '')) !== null) {
           if (!usedList.includes(match[1])) usedList.push(match[1]);
         }
 
@@ -1179,20 +1371,84 @@ export function renderEditPoint({ params, query }) {
         usedBody.innerHTML = '';
 
         if (usedList.length === 0) {
-          usedBody.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '2px 0' }, text: '暂无已使用的公式' }));
+          usedBody.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', padding: '4px', textAlign: 'center' }, text: '暂无已使用的公式' }));
           return;
         }
 
-        const listBox = el('div', { style: { maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
+        //批量操作栏
+        let usedManageMode = false;
+        let selectedUsed = new Set();
+        const usedToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
+
+        const renderUsedToolbar = () => {
+          usedToolbar.innerHTML = '';
+          usedToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-ghost', text: usedManageMode ? '完成' : '管理',
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: () => { usedManageMode = !usedManageMode; selectedUsed.clear(); renderUsedFormulas(); }
+          }));
+          if (usedManageMode) {
+            usedToolbar.appendChild(el('button', {
+              class: 'btn btn-sm btn-ghost', text: '全选',
+              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+              onClick: () => { usedList.forEach(l => selectedUsed.add(l)); renderUsedFormulas(); }
+            }));
+            usedToolbar.appendChild(el('button', {
+              class: 'btn btn-sm btn-danger', text: `删除(${selectedUsed.size})`,
+              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
+              onClick: () => {
+                if (selectedUsed.size === 0) return;
+                // 从 DOM 中删除对应的节点
+                explainInput.querySelectorAll('.math-node').forEach(node => {
+                  if (selectedUsed.has(node.getAttribute('data-latex'))) node.remove();
+                });
+                // 从纯文本中删除
+                let newText = explainInput.innerText || '';
+                selectedUsed.forEach(latex => {
+                  newText = newText.replace(new RegExp(`\\$${latex.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\$`, 'g'), '');
+                });
+                // 如果使用了富文本，删除纯文本稍微复杂，这里建议用户直接编辑
+                if (explainInput.innerText !== newText) {
+                  explainInput.innerText = newText;
+                }
+
+                form.explanation = explainInput.innerHTML;
+                queueSave();
+                selectedUsed.clear();
+                renderUsedFormulas();
+                toastSuccess('已删除选中公式');
+              }
+            }));
+          }
+        };
+
+        renderUsedToolbar();
+        usedBody.appendChild(usedToolbar);
+
+        // 公式列表
+        const listBox = el('div', { style: { maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
         usedList.forEach(latex => {
+          const isSel = selectedUsed.has(latex);
           listBox.appendChild(el('div', {
-            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px', background: 'var(--bg)', borderRadius: '4px', cursor: 'pointer' },
-            onClick: () => { inputBox.value = latex; inputBox.dispatchEvent(new Event('input')); }
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px', background: isSel ? 'rgba(239,71,111,0.1)' : 'var(--bg)', borderRadius: '4px', cursor: 'pointer' },
+            onClick: () => {
+              if (usedManageMode) {
+                if (isSel) selectedUsed.delete(latex); else selectedUsed.add(latex);
+                renderUsedFormulas();
+              } else {
+                // 非管理模式下，点击直接预览
+                inputBox.value = latex; inputBox.dispatchEvent(new Event('input'));
+              }
+            }
           }, [
-            el('span', {
-              style: { fontSize: '12px', flex: '1', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
-              innerHTML: window.katex ? window.katex.renderToString(latex, { throwOnError: false }) : latex
-            }),
+            el('div', { style: { display: 'flex', alignItems: 'center', gap: '6px', flex: '1', overflow: 'hidden' } }, [
+              usedManageMode ? el('input', { type: 'checkbox', checked: isSel, style: { pointerEvents: 'none' } }) : null,
+              el('span', {
+                style: { fontSize: '12px', flex: '1', overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' },
+                innerHTML: window.katex ? window.katex.renderToString(latex, { throwOnError: false }) : latex
+              })
+            ]),
+            //收藏按钮
             el('button', {
               class: 'btn btn-sm btn-ghost', text: '⭐',
               style: { padding: '0 4px', fontSize: '12px', color: '#FFD166' },
@@ -1203,7 +1459,7 @@ export function renderEditPoint({ params, query }) {
                 if (!list.some(f => f.latex === latex)) {
                   list.push({ id: Date.now(), latex });
                   saveFavFormulas(list);
-                  renderFavFormulas();
+                  renderFavFormulas(); // 刷新收藏列表
                   toastSuccess('已收藏');
                 } else { toastError('已在收藏列表中'); }
               }
@@ -1240,52 +1496,54 @@ export function renderEditPoint({ params, query }) {
         favBody.innerHTML = '';
 
         if (list.length === 0) {
-          favBody.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '2px 0' }, text: '暂无收藏' }));
+          favBody.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', padding: '4px', textAlign: 'center' }, text: '暂无收藏' }));
           return;
         }
 
-        const toolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
-        toolbar.appendChild(el('button', {
-          class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
-          style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-          onClick: (e) => { e.stopPropagation(); favManageMode = !favManageMode; favSelected.clear(); renderFavFormulas(); }
-        }));
-        if (favManageMode) {
-          toolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-ghost', text: '全选',
-            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: (e) => { e.stopPropagation(); list.forEach(f => favSelected.add(f.id)); renderFavFormulas(); }
-          }));
-          toolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-ghost', text: '全不选',
-            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: (e) => { e.stopPropagation(); favSelected.clear(); renderFavFormulas(); }
-          }));
-          toolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-danger', text: `删除(${favSelected.size})`,
-            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
-            onClick: (e) => {
-              e.stopPropagation();
-              if (favSelected.size === 0) return;
-              const newList = list.filter(f => !favSelected.has(f.id));
-              saveFavFormulas(newList);
-              favSelected.clear();
-              renderFavFormulas();
-              toastSuccess('已删除选中');
-            }
-          }));
-        }
-        favBody.appendChild(toolbar);
+        //批量操作栏
+        let favManageMode = false;
+        let selectedFav = new Set();
+        const favToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
 
-        const listBox = el('div', { style: { maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
+        const renderFavToolbar = () => {
+          favToolbar.innerHTML = '';
+          favToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: () => { favManageMode = !favManageMode; selectedFav.clear(); renderFavFormulas(); }
+          }));
+          if (favManageMode) {
+            favToolbar.appendChild(el('button', {
+              class: 'btn btn-sm btn-ghost', text: '全选',
+              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+              onClick: () => { list.forEach(f => selectedFav.add(f.id)); renderFavFormulas(); }
+            }));
+            favToolbar.appendChild(el('button', {
+              class: 'btn btn-sm btn-danger', text: `删除(${selectedFav.size})`,
+              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
+              onClick: () => {
+                if (selectedFav.size === 0) return;
+                const newList = list.filter(f => !selectedFav.has(f.id));
+                saveFavFormulas(newList);
+                selectedFav.clear();
+                renderFavFormulas();
+                toastSuccess('已删除选中收藏');
+              }
+            }));
+          }
+        };
+
+        renderFavToolbar();
+        favBody.appendChild(favToolbar);
+
+        const listBox = el('div', { style: { maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
         list.forEach((f) => {
-          const isSel = favSelected.has(f.id);
+          const isSel = selectedFav.has(f.id);
           listBox.appendChild(el('div', {
-            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '4px', background: isSel ? 'rgba(142,202,230,0.2)' : 'var(--bg)', borderRadius: '4px', cursor: 'pointer' },
-            onClick: (e) => {
-              e.stopPropagation();
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px', background: isSel ? 'rgba(239,71,111,0.1)' : 'var(--bg)', borderRadius: '4px', cursor: 'pointer' },
+            onClick: () => {
               if (favManageMode) {
-                if (favSelected.has(f.id)) favSelected.delete(f.id); else favSelected.add(f.id);
+                if (isSel) selectedFav.delete(f.id); else selectedFav.add(f.id);
                 renderFavFormulas();
               } else {
                 inputBox.value = f.latex; inputBox.dispatchEvent(new Event('input'));
@@ -1464,15 +1722,87 @@ export function renderEditPoint({ params, query }) {
     eraseAll: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--danger)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`
   };
 
+  // ==================== 按钮生成器（带平板防误触长按提示） ====================
   const createToolBtn = (svg, title, onClick) => {
+    let pressTimer = null;
+    let tooltipEl = null;
+
+    // 显示提示气泡
+    const showTooltip = () => {
+      if (tooltipEl) return;
+      const rect = b.getBoundingClientRect();
+      tooltipEl = document.createElement('div');
+      tooltipEl.style.cssText = `
+        position: fixed; left: ${rect.left + rect.width / 2}px; top: ${rect.bottom + 8}px; 
+        transform: translateX(-50%); background: rgba(43,45,66,.95); color: #fff; 
+        padding: 6px 12px; border-radius: 6px; font-size: 12px; white-space: nowrap; 
+        pointer-events: none; z-index: 999999; box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+      `;
+      tooltipEl.textContent = title;
+      document.body.appendChild(tooltipEl);
+      if (navigator.vibrate) navigator.vibrate(30); // 平板震动反馈
+    };
+
+    // 隐藏提示气泡
+    const hideTooltip = () => {
+      if (tooltipEl) {
+        tooltipEl.remove();
+        tooltipEl = null;
+      }
+    };
+
     const b = el('button', {
       class: 'btn btn-sm btn-ghost',
       style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', height: '28px' },
-      title: title,
-      onMousedown: (e) => { e.preventDefault(); },
-      onClick: (e) => { e.preventDefault(); onClick(); }
+      title: title, // 保留自带的，电脑端悬停还能看
+      onMousedown: (e) => {
+        e.preventDefault(); // 防止点击时抢占富文本焦点
+        // 电脑端：按住 500ms 触发
+        if (e.pointerType === 'mouse') {
+          pressTimer = setTimeout(showTooltip, 500);
+        }
+      },
+      onMouseup: () => {
+        clearTimeout(pressTimer);
+        if (navigator.vibrate) navigator.vibrate(0);
+        setTimeout(hideTooltip, 1000); // 延迟 1 秒消失
+      },
+      onMouseLeave: () => {
+        clearTimeout(pressTimer);
+        hideTooltip();
+      },
+      onClick: (e) => {
+        e.preventDefault();
+        clearTimeout(pressTimer);
+        hideTooltip();
+        onClick();
+      },
+      //针对平板触控的专属拦截与触发
+      onTouchstart: (e) => {
+        // 强制阻断 iPad 的放大镜和系统菜单
+        if (e.cancelable) e.preventDefault();
+        pressTimer = setTimeout(showTooltip, 400); // 平板上 400ms 触发
+      },
+      onTouchend: (e) => {
+        if (e.cancelable) e.preventDefault();
+        clearTimeout(pressTimer);
+        setTimeout(hideTooltip, 1000);
+      },
+      onTouchmove: (e) => {
+        // 如果手指滑动了，就取消长按
+        if (e.cancelable) e.preventDefault();
+        clearTimeout(pressTimer);
+        hideTooltip();
+      }
     });
+
     b.innerHTML = svg;
+
+    // 关键 CSS 强杀系统菜单
+    b.style.webkitTouchCallout = 'none';
+    b.style.userSelect = 'none';
+    b.style.touchAction = 'manipulation';
+
     return b;
   };
 
@@ -1489,7 +1819,7 @@ export function renderEditPoint({ params, query }) {
           updateFormatStatus();
         }
       } catch (e) {
-        // 👈 捕获异常，防止关闭面板时崩溃
+        //捕获异常，防止关闭面板时崩溃
         console.warn('关闭面板刷新状态时忽略错误:', e);
       }
     });
@@ -1531,7 +1861,7 @@ export function renderEditPoint({ params, query }) {
       style: { flex: '1', minWidth: '60px', fontSize: '14px', padding: '6px 8px', border: '1px solid var(--primary)', background: 'var(--card)', borderRadius: '6px', outline: 'none', textAlign: 'center', color: 'var(--text)' }
     });
 
-    // 👇 3.3 打开面板时：一致则填值，混合则留空显示“混合”
+    //3.3 打开面板时：一致则填值，混合则留空显示“混合”
     try {
       if (savedRange && !savedRange.collapsed && explainInput.contains(savedRange.startContainer)) {
         const range = savedRange;
@@ -1555,7 +1885,7 @@ export function renderEditPoint({ params, query }) {
       }
     } catch { }
 
-    // 👇 输入框获得焦点时不覆盖 savedRange
+    //输入框获得焦点时不覆盖 savedRange
     fontCustomInput.addEventListener('focus', () => {
       // savedRange 已在 showPanelAtBtn 里保存，这里什么都不做
     });
@@ -1739,7 +2069,7 @@ export function renderEditPoint({ params, query }) {
           const val = lineCustomInput.value;
           if (!val) return closePanels();
 
-          // 👇 先恢复 savedRange，再操作
+          //先恢复 savedRange，再操作
           explainInput.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();
@@ -1820,7 +2150,7 @@ export function renderEditPoint({ params, query }) {
         style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px' },
         onMousedown: (e) => e.preventDefault(),
         onClick: () => {
-          // 👇 先恢复 savedRange，再操作
+          //先恢复 savedRange，再操作
           explainInput.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();
@@ -1976,7 +2306,7 @@ export function renderEditPoint({ params, query }) {
     panel.appendChild(favWrap);
 
     function renderFav() {
-      // 👇 把马卡龙色和之前的预设合并
+      //把马卡龙色和之前的预设合并
       const builtinPresets = [
         { id: 'preset_0', hex: '#FFB3BA', alpha: 1, bd: '#FFB3BA', isPreset: true },
         { id: 'preset_1', hex: '#FFDFBA', alpha: 1, bd: '#FFDFBA', isPreset: true },
@@ -2116,7 +2446,7 @@ export function renderEditPoint({ params, query }) {
     explainInput.focus();
     const sel = window.getSelection();
 
-    // 👈 核心修复：保证选区不丢失
+    //保证选区不丢失
     if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
       if (savedRange && explainInput.contains(savedRange.startContainer)) {
         sel.removeAllRanges();
@@ -2134,7 +2464,7 @@ export function renderEditPoint({ params, query }) {
     else if (command === 'italic') document.execCommand('italic', false, null);
     else if (command === 'underline') document.execCommand('underline', false, null);
     else if (command === 'removeFormat') document.execCommand('removeFormat', false, null);
-    else if (command === 'insertHTML') document.execCommand('insertHTML', false, value); // 👈 新增了这一行
+    else if (command === 'insertHTML') document.execCommand('insertHTML', false, value);
 
     form.explanation = explainInput.innerHTML;
     saveExplainRange();
@@ -2174,7 +2504,7 @@ export function renderEditPoint({ params, query }) {
           title: c === 'transparent' ? '透明 / 清除' : c,
           onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
           onMouseLeave: (e) => e.currentTarget.style.transform = 'scale(1)',
-          // 👇 关键修复：阻止默认行为保住选区，同时保留 onClick 响应
+          //阻止默认行为保住选区，同时保留 onClick 响应
           onMouseDown: (e) => e.preventDefault(),
           onClick: () => { execFormat(cmd, c); closePanels(); }
         }));
@@ -2308,7 +2638,7 @@ export function renderEditPoint({ params, query }) {
     // 用变量记录当前选中的颜色
     let currentCustomColor = cmd === 'foreColor' ? '#EF476F' : '#FFD166';
 
-    // 👇 核心修复：点击自定义时，现场动态创建一个输入框（避开全局 CSS 污染）
+    //点击自定义时，现场动态创建一个输入框（避开全局 CSS 污染）
     const openColorPicker = () => {
       const picker = document.createElement('input');
       picker.type = 'color';
@@ -2337,15 +2667,15 @@ export function renderEditPoint({ params, query }) {
       class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
       title: '收藏当前选中的颜色',
       style: {
-        flex: '1',               // 👈 与自定义按钮平分空间
+        flex: '1',               //与自定义按钮平分空间
         height: '26px',
         minHeight: 'auto',
         padding: '0',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'rgba(255, 209, 102, 0.2)', // 👈 浅黄色高亮背景
-        color: '#B8860B',        // 👈 深金色文字
+        background: 'rgba(255, 209, 102, 0.2)', //浅黄色高亮背景
+        color: '#B8860B',        //深金色文字
         fontSize: '11px',
         border: '1px solid rgba(255, 209, 102, 0.4)',
         borderRadius: '6px'
@@ -2362,12 +2692,12 @@ export function renderEditPoint({ params, query }) {
     customBar.appendChild(el('button', {
       class: 'btn btn-sm btn-ghost', text: '🎨 自定义',
       style: {
-        flex: '1',               // 👈 与收藏按钮平分空间
+        flex: '1',               //与收藏按钮平分空间
         fontSize: '11px',
         padding: '0',
         height: '26px',
         minHeight: 'auto',
-        background: 'rgba(186, 225, 255, 0.3)', // 👈 浅蓝色高亮背景
+        background: 'rgba(186, 225, 255, 0.3)', //浅蓝色高亮背景
         color: 'var(--primary-dark)',
         display: 'flex',
         alignItems: 'center',
@@ -2402,7 +2732,7 @@ export function renderEditPoint({ params, query }) {
   explainInput.addEventListener('input', () => {
     setTimeout(pushHistory, 100);
 
-    // 👇 新增：快捷输入 [[ 触发插入链接弹窗
+    // 快捷输入 [[ 触发插入链接弹窗
     const sel = window.getSelection();
     if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
       const range = sel.getRangeAt(0);
@@ -2471,7 +2801,7 @@ export function renderEditPoint({ params, query }) {
       pushHistory();
     }
 
-    // 👇 插入双向链接按钮
+    //插入双向链接按钮
     toolbarInner.appendChild(el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,.1)', margin: '0 4px' } }));
     toolbarInner.appendChild(createToolBtn(icons.bold /* 如果有专门图标可以用那个 */, '插入双向链接', () => {
       const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
@@ -2602,7 +2932,7 @@ export function renderEditPoint({ params, query }) {
         formatStatus.appendChild(chip(`行距 ${lh}`));
         formatStatus.appendChild(chip(`对齐 ${taMap[ta] || '左'}`));
       } catch (e) {
-        // 👈 捕获异常，防止触发系统级错误弹窗
+        //捕获异常，防止触发系统级错误弹窗
         console.warn('刷新状态栏时被忽略的小错误:', e);
       }
     });
@@ -2625,7 +2955,7 @@ export function renderEditPoint({ params, query }) {
   document.addEventListener('selectionchange', updateFormatStatus, { signal: docSignal });
 
   explainInput.addEventListener('input', () => {
-    // 👇 核心修复：在此处统一清理空壳，保证每次打字/删除都能生效
+    //在此处统一清理空壳，保证每次打字/删除都能生效
     let hasEmptyLink = false;
     explainInput.querySelectorAll('.editor-link').forEach(linkEl => {
       if (!linkEl.textContent.trim()) {
@@ -2640,7 +2970,7 @@ export function renderEditPoint({ params, query }) {
       queueSave();
     }
 
-    // 👇 新增：检测是否输入了 [[
+    // 检测是否输入了 [[
     const sel = window.getSelection();
     if (sel.rangeCount && sel.getRangeAt(0).collapsed) {
       const range = sel.getRangeAt(0);
@@ -2667,12 +2997,26 @@ export function renderEditPoint({ params, query }) {
   // 首次渲染后刷新一次
   setTimeout(updateFormatStatus, 100);
 
+  // 解释框专属的相机按钮
+  const explainOcrBtn = el('button', {
+    class: 'btn btn-ghost', title: '导入图片/识别到解释',
+    style: { padding: '8px', fontSize: '18px', borderRadius: '10px', background: 'rgba(142,202,230,.15)', height: '44px', flexShrink: '0' },
+    text: '📷',
+    onMousedown: (e) => e.preventDefault(), // 防止富文本失焦
+    onClick: (e) => {
+      e.preventDefault();
+      saveExplainRange();
+      showImageSourceSheet(explainInput, true); // 绑定解释框，并传入 true
+    }
+  });
+
   // 最终组装
   const explainRow = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' } }, [
     toolbarWrapper,
     el('div', { style: { display: 'flex', gap: '8px', alignItems: 'flex-start', width: '100%' } }, [
       explainInput,
       isMobile ? null : attachSpeechButton(explainInput),
+      explainOcrBtn //把新按钮放进去
     ])
   ]);
 
@@ -2779,7 +3123,7 @@ export function renderEditPoint({ params, query }) {
       // 1. 锁死标志位
       isDraftResolved = true;
 
-      // 2. 👇 核心修复：不管选了什么，立刻销毁草稿！
+      // 2.不管选了什么，立刻销毁草稿！
       clearDraft('point', entityId);
       localStorage.removeItem(`kg_draft_point_${entityId}`);
 
@@ -2926,7 +3270,7 @@ export function renderEditPoint({ params, query }) {
   renderFolderSelector();
   view.appendChild(folderSection);
 
-  // 👇 全局关联按钮
+  //全局关联按钮
   view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', marginBottom: '8px' } }, [
     el('button', {
       class: 'btn btn-sm btn-ghost', text: '🔗 连接与关系管理',
@@ -2946,13 +3290,33 @@ export function renderEditPoint({ params, query }) {
   const basicSection = el('div', { class: 'section' });
   function renderBasicSection() {
     basicSection.innerHTML = '';
+
+    // 修改标题栏，加入搜索/替换按钮
     basicSection.appendChild(el('div', {
-      class: 'section-head', style: { cursor: 'pointer', display: 'flex', justifyContent: 'space-between' },
-      onClick: () => { isInfoCollapsed = !isInfoCollapsed; renderBasicSection(); }
+      class: 'section-head',
+      style: { cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
+      onClick: (e) => {
+        //如果点的是按钮，不触发折叠
+        if (e.target.tagName === 'BUTTON' || e.target.closest('button')) return;
+        isInfoCollapsed = !isInfoCollapsed;
+        renderBasicSection();
+      }
     }, [
       el('span', { text: '基本信息' }),
-      el('span', { text: isInfoCollapsed ? '▸' : '▾', style: { color: 'var(--text-2)' } })
+      el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+        el('button', {
+          class: 'btn btn-sm btn-ghost',
+          text: '🔍 搜索/替换',
+          style: { padding: '2px 8px', fontSize: '12px' },
+          onClick: (e) => {
+            e.stopPropagation(); // 阻止事件冒泡
+            openSearchReplaceModal(); // 调用替换弹窗
+          }
+        }),
+        el('span', { text: isInfoCollapsed ? '▸' : '▾', style: { color: 'var(--text-2)' } })
+      ])
     ]));
+
     if (!isInfoCollapsed) {
       basicSection.appendChild(el('div', { class: 'section-body' }, [
         el('div', { class: 'field' }, [el('label', { text: '内容' }), contentRow]),
@@ -2960,10 +3324,484 @@ export function renderEditPoint({ params, query }) {
       ]));
     }
   }
+
   renderBasicSection();
   view.appendChild(basicSection);
 
-  // 👇 插入：显示来自 PDF 的反向链接
+  // ==================== 搜索/替换功能（终极完全体） ====================
+  function openSearchReplaceModal() {
+    const mask = el('div', { style: { position: 'fixed', inset: 0, zIndex: 999998 } });
+    const panel = el('div', {
+      class: 'edit-point-panel',
+      style: {
+        position: 'fixed', top: '0', left: '0', background: 'var(--card)', padding: '12px',
+        borderRadius: '12px', boxShadow: '0 10px 40px rgba(0,0,0,0.15)', zIndex: 999999,
+        width: '95%', maxWidth: '440px', display: 'flex', flexDirection: 'column', gap: '8px',
+        border: '1px solid rgba(0,0,0,0.08)', maxHeight: '90vh', overflowY: 'auto'
+      }
+    });
+
+    // 拖拽逻辑
+    let isDragging = false, startX = 0, startY = 0, panelX = 0, panelY = 0;
+    const header = el('div', {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'move' },
+      onPointerDown: (e) => {
+        if (e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT') return;
+        isDragging = true; startX = e.clientX - panelX; startY = e.clientY - panelY;
+        panel.setPointerCapture(e.pointerId);
+      },
+      onPointerMove: (e) => {
+        if (!isDragging) return;
+        panelX = e.clientX - startX; panelY = e.clientY - startY;
+        panel.style.transform = `translate(${panelX}px, ${panelY}px)`;
+      },
+      onPointerUp: (e) => { isDragging = false; panel.releasePointerCapture(e.pointerId); }
+    }, [
+      el('h3', { text: '🔍 搜索与替换', style: { margin: 0, fontSize: '15px', userSelect: 'none' } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '✖', onClick: () => { clearHighlight(); panel.remove(); mask.remove(); } })
+    ]);
+
+    const searchInput = el('input', {
+      type: 'text', placeholder: '查找内容...',
+      style: { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #ccc', outline: 'none', boxSizing: 'border-box', fontSize: '13px' }
+    });
+
+    // ================= 历史记录 =================
+    let searchHistory = JSON.parse(localStorage.getItem('kg_search_history') || '[]');
+    let historyExpanded = false;
+    let historyManageMode = false;
+    let selectedHistory = new Set();
+
+    const historyContainer = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '4px' } });
+    const historyList = el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } });
+
+    const renderHistory = () => {
+      historyContainer.innerHTML = '';
+      if (searchHistory.length === 0) return;
+
+      // 头部：展收控制
+      const historyHeader = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-2)', cursor: 'pointer', paddingBottom: '2px', userSelect: 'none' },
+        onClick: () => { historyExpanded = !historyExpanded; renderHistory(); }
+      }, [
+        el('span', { text: `历史记录 (${searchHistory.length})` }),
+        el('span', { text: historyExpanded ? '▾' : '▸' })
+      ]);
+      historyContainer.appendChild(historyHeader);
+
+      // 如果展开了，就渲染列表和管理工具栏
+      if (historyExpanded) {
+        // 1. 工具栏（管理/全选/删除）
+        const hToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost',
+            text: historyManageMode ? '完成' : '管理',
+            style: { fontSize: '10px', padding: '0 6px', height: '22px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: (e) => { e.stopPropagation(); historyManageMode = !historyManageMode; selectedHistory.clear(); renderHistory(); }
+          }),
+          historyManageMode ? el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全选',
+            style: { fontSize: '10px', padding: '0 6px', height: '22px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: (e) => { e.stopPropagation(); searchHistory.forEach(h => selectedHistory.add(h)); renderHistory(); }
+          }) : null,
+          historyManageMode ? el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选',
+            style: { fontSize: '10px', padding: '0 6px', height: '22px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: (e) => { e.stopPropagation(); selectedHistory.clear(); renderHistory(); }
+          }) : null,
+          historyManageMode ? el('button', {
+            class: 'btn btn-sm btn-danger', text: `删除(${selectedHistory.size})`,
+            style: { fontSize: '10px', padding: '0 6px', height: '22px', minHeight: 'auto' },
+            onClick: (e) => {
+              e.stopPropagation();
+              if (selectedHistory.size === 0) return;
+              searchHistory = searchHistory.filter(h => !selectedHistory.has(h));
+              localStorage.setItem('kg_search_history', JSON.stringify(searchHistory));
+              selectedHistory.clear();
+              // 如果删完了，退出管理模式
+              if (searchHistory.length === 0) historyManageMode = false;
+              renderHistory();
+            }
+          }) : null
+        ]);
+        historyContainer.appendChild(hToolbar);
+
+        // 2. 标签列表
+        historyList.innerHTML = '';
+        searchHistory.forEach(kw => {
+          const isSel = selectedHistory.has(kw);
+          historyList.appendChild(el('span', {
+            class: 'tape-chip', text: kw,
+            style: {
+              fontSize: '11px', padding: '4px 10px', cursor: 'pointer',
+              background: isSel ? 'rgba(239,71,111,0.1)' : 'var(--bg)',
+              border: isSel ? '1px solid var(--danger)' : '1px solid rgba(0,0,0,.05)',
+              color: isSel ? 'var(--danger)' : 'var(--text)',
+              borderRadius: '20px'
+            },
+            onClick: (e) => {
+              if (historyManageMode) {
+                if (isSel) selectedHistory.delete(kw); else selectedHistory.add(kw);
+                renderHistory();
+              } else {
+                searchInput.value = kw;
+                searchIndex = 1;
+                doSearch(false);
+                // 选完历史后顺便收起列表
+                historyExpanded = false;
+                renderHistory();
+              }
+            }
+          }));
+        });
+        historyContainer.appendChild(historyList);
+      }
+    };
+
+    // ================= 选项配置 =================
+    const replaceInput = el('input', {
+      type: 'text', placeholder: '替换为...',
+      style: { width: '100%', padding: '8px 10px', borderRadius: '8px', border: '1px solid #ccc', outline: 'none', boxSizing: 'border-box', fontSize: '13px' }
+    });
+
+    let targetScope = 'content';
+    let isCaseSensitive = false;
+    let isWholeWord = false;
+
+    const optionRow = el('div', { style: { display: 'flex', gap: '10px', flexWrap: 'wrap', fontSize: '12px', alignItems: 'center' } }, [
+      el('label', { style: { cursor: 'pointer', display: 'flex', gap: '4px' } }, [
+        el('input', { type: 'checkbox', onChange: (e) => { isCaseSensitive = e.target.checked; doSearch(false); } }), '区分大小写'
+      ]),
+      el('label', { style: { cursor: 'pointer', display: 'flex', gap: '4px' } }, [
+        el('input', { type: 'checkbox', onChange: (e) => { isWholeWord = e.target.checked; doSearch(false); } }), '全词匹配'
+      ])
+    ]);
+
+    const scopeRow = el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', fontSize: '12px' } }, [
+      el('label', { style: { cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } }, [
+        el('input', { type: 'radio', name: 'search-scope', value: 'content', checked: true, onChange: (e) => { targetScope = e.target.value; renderGlobalList(); } }), '当前内容'
+      ]),
+      el('label', { style: { cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' } }, [
+        el('input', { type: 'radio', name: 'search-scope', value: 'both', onChange: (e) => { targetScope = e.target.value; renderGlobalList(); } }), '内容+解释'
+      ]),
+      el('label', { style: { cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px', color: 'var(--primary-dark)', fontWeight: '600' } }, [
+        el('input', { type: 'radio', name: 'search-scope', value: 'global', onChange: (e) => { targetScope = e.target.value; doSearch(false); } }), '🌍 全局资料库'
+      ])
+    ]);
+
+    // ================= 历史栈 =================
+    const undoBtn = el('button', { class: 'btn btn-sm btn-ghost', text: '↶', onClick: () => doUndo(), style: { fontSize: '14px', padding: '2px 6px' } });
+    const redoBtn = el('button', { class: 'btn btn-sm btn-ghost', text: '↷', onClick: () => doRedo(), style: { fontSize: '14px', padding: '2px 6px' } });
+    let historyStack = [], historyIndex = -1;
+    const updateUndoRedoState = () => {
+      if (!undoBtn || !redoBtn) return;
+      undoBtn.style.opacity = historyIndex > 0 ? '1' : '0.4';
+      redoBtn.style.opacity = historyIndex < historyStack.length - 1 ? '1' : '0.4';
+    };
+    const pushHistory = () => {
+      const state = { content: contentInput.tagName === 'TEXTAREA' ? contentInput.value : contentInput.innerHTML, explanation: explainInput.innerHTML };
+      if (historyIndex >= 0 && JSON.stringify(historyStack[historyIndex]) === JSON.stringify(state)) return;
+      historyStack = historyStack.slice(0, historyIndex + 1);
+      historyStack.push(state); historyIndex++;
+      if (historyStack.length > 20) { historyStack.shift(); historyIndex--; }
+      updateUndoRedoState();
+    };
+    const applyState = (state) => {
+      if (contentInput.tagName === 'TEXTAREA') contentInput.value = state.content; else contentInput.innerHTML = state.content;
+      form.content = contentInput.value || contentInput.innerHTML;
+      explainInput.innerHTML = state.explanation; form.explanation = state.explanation;
+      queueSave();
+    };
+    const doUndo = () => { if (historyIndex > 0) { historyIndex--; applyState(historyStack[historyIndex]); updateUndoRedoState(); } };
+    const doRedo = () => { if (historyIndex < historyStack.length - 1) { historyIndex++; applyState(historyStack[historyIndex]); updateUndoRedoState(); } };
+    pushHistory();
+
+    // ================= 核心正则 =================
+    let searchIndex = -1, currentMark = null, globalMatches = [];
+
+    const buildRegex = (kw) => {
+      let pattern = kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (isWholeWord) pattern = `\\b${pattern}\\b`;
+      return new RegExp(`(${pattern})`, isCaseSensitive ? 'g' : 'gi');
+    };
+
+    const clearHighlight = () => {
+      const clean = (domNode) => {
+        if (domNode && domNode.isContentEditable) {
+          domNode.querySelectorAll('mark.search-highlight').forEach(m => {
+            const parent = m.parentNode;
+            while (m.firstChild) parent.insertBefore(m.firstChild, m);
+            parent.removeChild(m);
+          });
+        }
+      };
+      clean(contentInput); clean(explainInput);
+      if (contentInput.isContentEditable) form.content = contentInput.innerHTML;
+      if (explainInput) form.explanation = explainInput.innerHTML;
+      currentMark = null; globalMatches = [];
+    };
+
+    const highlightRichText = (domNode, keyword, isAll) => {
+      if (!domNode || !domNode.isContentEditable) return 0;
+      const regex = buildRegex(keyword);
+      const walker = document.createTreeWalker(domNode, NodeFilter.SHOW_TEXT, null, false);
+      const textNodes = []; let node;
+      while (node = walker.nextNode()) {
+        if (regex.test(node.textContent)) { textNodes.push(node); regex.lastIndex = 0; }
+      }
+
+      let count = 0;
+      textNodes.forEach(textNode => {
+        const text = textNode.textContent;
+        const parts = text.split(regex);
+        if (parts.length > 1) {
+          const fragment = document.createDocumentFragment();
+          parts.forEach(part => {
+            if (regex.test(part) && part.length > 0) {
+              count++;
+              const shouldHighlight = isAll || (count === searchIndex);
+              if (shouldHighlight) {
+                const mark = document.createElement('mark');
+                mark.className = 'search-highlight';
+                mark.style.cssText = 'background-color: #FFD166; color: #2B2D42; border-radius: 2px; padding: 0 2px; transition: background 0.2s;';
+                mark.textContent = part;
+                fragment.appendChild(mark);
+                if (!isAll && !currentMark) {
+                  currentMark = mark;
+                  setTimeout(() => { mark.scrollIntoView({ behavior: 'smooth', block: 'center' }); mark.style.backgroundColor = '#FF9F1C'; }, 50);
+                }
+              } else {
+                fragment.appendChild(document.createTextNode(part));
+              }
+            } else {
+              if (part.length > 0) fragment.appendChild(document.createTextNode(part));
+            }
+          });
+          textNode.parentNode.replaceChild(fragment, textNode);
+        }
+      });
+      return count;
+    };
+
+    const doSearch = (findAll = false) => {
+      const keyword = searchInput.value.trim();
+      if (!keyword) return;
+
+      if (findAll) searchIndex = -1;
+      clearHighlight();
+
+      if (!searchHistory.includes(keyword)) {
+        searchHistory.unshift(keyword);
+        searchHistory = searchHistory.slice(0, 10);
+        localStorage.setItem('kg_search_history', JSON.stringify(searchHistory));
+        renderHistory();
+      }
+
+      let totalCount = 0;
+
+      if (targetScope === 'global') {
+        const allPoints = store.getPoints();
+        const regex = buildRegex(keyword);
+        allPoints.forEach(p => {
+          if (p.id === params.id) return;
+          const contentMatches = (p.content.match(regex) || []).length;
+          const expMatches = (p.explanation || '').match(regex) || [];
+          if (contentMatches > 0 || expMatches.length > 0) {
+            globalMatches.push({ id: p.id, content: p.content, explanation: p.explanation, count: contentMatches + expMatches.length });
+            totalCount += contentMatches + expMatches.length;
+          }
+        });
+        renderGlobalList();
+        return;
+      }
+
+      const highlightSingle = (domNode, isContent) => {
+        if (!domNode) return;
+        if (isContent && domNode.tagName === 'TEXTAREA') {
+          const regex = buildRegex(keyword);
+          const matches = domNode.value.match(regex);
+          if (matches) {
+            totalCount += matches.length;
+            if (!findAll && searchIndex === 1) {
+              const pos = domNode.value.search(regex);
+              if (pos !== -1) { domNode.focus(); domNode.setSelectionRange(pos, pos + keyword.length); }
+            }
+          }
+        } else if (domNode.isContentEditable) {
+          totalCount += highlightRichText(domNode, keyword, findAll);
+        }
+      };
+
+      if (targetScope === 'both') { highlightSingle(contentInput, true); highlightSingle(explainInput, false); }
+      else if (targetScope === 'content') { highlightSingle(contentInput, true); }
+      else if (targetScope === 'explanation') { highlightSingle(explainInput, false); }
+
+      if (contentInput.isContentEditable) form.content = contentInput.innerHTML;
+      if (explainInput) form.explanation = explainInput.innerHTML;
+
+      if (totalCount > 0 && !findAll) {
+        toastSuccess(`找到第 ${searchIndex} / ${totalCount} 处`);
+      }
+    };
+
+    let searchTimer = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(searchTimer);
+      searchTimer = setTimeout(() => { searchIndex = 1; doSearch(false); }, 400);
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        searchIndex = e.shiftKey ? Math.max(1, searchIndex - 1) : searchIndex + 1;
+        doSearch(false);
+      }
+    });
+
+    // ================= 全局结果与操作 =================
+    const globalListContainer = el('div', { style: { display: 'none', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto', borderTop: '1px dashed rgba(0,0,0,0.1)', paddingTop: '8px' } });
+    let selectedGlobalIds = new Set();
+
+    function renderGlobalList() {
+      if (targetScope !== 'global' || globalMatches.length === 0) {
+        globalListContainer.style.display = 'none';
+        return;
+      }
+      globalListContainer.style.display = 'flex';
+      globalListContainer.innerHTML = '';
+
+      globalListContainer.appendChild(el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '4px', alignItems: 'center' } }, [
+        el('span', { text: `找到 ${globalMatches.length} 张卡片:`, style: { fontSize: '12px', fontWeight: '600', flex: '1' } }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { fontSize: '11px', padding: '2px 6px' }, onClick: () => { globalMatches.forEach(m => selectedGlobalIds.add(m.id)); renderGlobalList(); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', style: { fontSize: '11px', padding: '2px 6px' }, onClick: () => { selectedGlobalIds.clear(); renderGlobalList(); } }),
+        el('button', { class: 'btn btn-sm btn-danger', text: '全部替换', style: { fontSize: '11px', padding: '2px 6px' }, onClick: doReplaceAll })
+      ]));
+
+      globalMatches.forEach(m => {
+        const isSel = selectedGlobalIds.has(m.id);
+        globalListContainer.appendChild(el('label', {
+          style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px', background: isSel ? 'rgba(239,71,111,0.05)' : 'var(--bg)', borderRadius: '6px', cursor: 'pointer' },
+          onClick: (e) => { if (e.target.tagName === 'BUTTON') return; if (isSel) selectedGlobalIds.delete(m.id); else selectedGlobalIds.add(m.id); renderGlobalList(); }
+        }, [
+          el('input', { type: 'checkbox', checked: isSel, style: { pointerEvents: 'none', width: '14px', height: '14px' } }),
+          el('div', { style: { flex: '1', overflow: 'hidden' } }, [
+            el('div', { text: m.content.replace(/<[^>]+>/g, '').slice(0, 30) + '...', style: { fontSize: '12px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } }),
+            el('div', { text: `匹配 ${m.count} 处`, style: { fontSize: '10px', color: 'var(--text-2)' } })
+          ]),
+          el('button', { class: 'btn btn-sm btn-ghost', text: '🚀 前往', style: { flexShrink: '0', padding: '2px 6px', fontSize: '11px' }, onClick: (e) => { e.preventDefault(); e.stopPropagation(); clearHighlight(); panel.remove(); mask.remove(); window.location.hash = `#/edit-point/${m.id}?highlight=${encodeURIComponent(searchInput.value)}`; } })
+        ]));
+      });
+    }
+
+    // ================= 替换逻辑 =================
+    const doReplaceCurrent = () => {
+      if (targetScope === 'global') return toastError('全局模式下不支持单点替换');
+      if (!currentMark) return toastError('请先点击查找定位');
+      pushHistory();
+      const replacement = replaceInput.value;
+      const textNode = document.createTextNode(replacement);
+      currentMark.parentNode.replaceChild(textNode, currentMark);
+      if (contentInput.isContentEditable && contentInput.contains(textNode)) form.content = contentInput.innerHTML;
+      if (explainInput.contains(textNode)) form.explanation = explainInput.innerHTML;
+      queueSave();
+      toastSuccess('已替换当前处');
+      setTimeout(() => { searchIndex++; doSearch(false); }, 100);
+    };
+
+    const doReplaceAll = async () => {
+      const keyword = searchInput.value.trim();
+      const replacement = replaceInput.value;
+      if (!keyword) return toastError('请输入查找内容');
+
+      const confirmMsg = targetScope === 'global' ? `确定要在整个资料库中，把「${keyword}」全部替换为「${replacement}」吗？` : `确定要将所有的「${keyword}」替换为「${replacement}」吗？`;
+      const confirm = await new Promise(resolve => {
+        const cMask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
+        const cBox = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
+          el('h3', { text: '确认替换' }),
+          el('p', { text: confirmMsg, style: { whiteSpace: 'pre-wrap', fontSize: '13px' } }),
+          el('div', { class: 'confirm-actions', style: { justifyContent: 'center', marginTop: '16px' } }, [
+            el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => { cMask.remove(); resolve(false); } }),
+            el('button', { class: 'btn btn-danger', text: '确认替换', onClick: () => { cMask.remove(); resolve(true); } })
+          ])
+        ]);
+        cMask.appendChild(cBox); document.body.appendChild(cMask);
+      });
+      if (!confirm) return;
+
+      const regex = buildRegex(keyword);
+      if (targetScope === 'global') {
+        let count = 0;
+        store.getPoints().forEach(p => {
+          if (p.content.includes(keyword) || p.explanation.includes(keyword)) {
+            const newContent = p.content.replace(regex, replacement);
+            const newExp = (p.explanation || '').replace(regex, replacement);
+            store.updatePoint(p.id, { content: newContent, explanation: newExp });
+            count++;
+          }
+        });
+        toastSuccess(`全站共更新 ${count} 张卡片`);
+        renderGlobalList();
+        return;
+      }
+
+      clearHighlight();
+      pushHistory();
+
+      let replacedCount = 0;
+      const replaceText = (html) => {
+        if (!html) return html;
+        const count = (html.match(regex) || []).length;
+        replacedCount += count;
+        return html.replace(regex, replacement);
+      };
+
+      if (targetScope === 'content' || targetScope === 'both') {
+        if (contentInput.tagName === 'TEXTAREA') { contentInput.value = replaceText(contentInput.value); form.content = contentInput.value; }
+        else { contentInput.innerHTML = replaceText(contentInput.innerHTML); form.content = contentInput.innerHTML; }
+      }
+      if (targetScope === 'explanation' || targetScope === 'both') {
+        explainInput.innerHTML = replaceText(explainInput.innerHTML);
+        form.explanation = explainInput.innerHTML;
+      }
+
+      if (replacedCount > 0) { toastSuccess(`成功替换 ${replacedCount} 处`); queueSave(); searchIndex = -1; }
+      else { toastError('没有找到可替换的内容'); historyStack.pop(); historyIndex--; updateUndoRedoState(); }
+    };
+
+    // ================= 底部按钮组 =================
+    const actionRow = el('div', { style: { display: 'flex', gap: '6px', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', flexWrap: 'wrap', borderTop: '1px dashed rgba(0,0,0,0.1)', paddingTop: '8px' } }, [
+      el('div', { style: { display: 'flex', gap: '4px' } }, [undoBtn, redoBtn]),
+      el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end', flex: '1' } }, [
+        el('button', { class: 'btn btn-sm btn-ghost', text: '查找全部', style: { fontSize: '12px', padding: '4px 8px' }, onClick: () => { searchIndex = -1; doSearch(true); } }),
+        el('button', { class: 'btn btn-sm btn-primary', text: '下一处', style: { fontSize: '12px', padding: '4px 8px' }, onClick: () => { searchIndex++; doSearch(false); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '替换', style: { fontSize: '12px', padding: '4px 8px', color: 'var(--primary-dark)' }, onClick: doReplaceCurrent }),
+        el('button', { class: 'btn btn-sm btn-danger', text: '全部替换', style: { fontSize: '12px', padding: '4px 8px' }, onClick: doReplaceAll }),
+      ])
+    ]);
+
+    // 组装面板
+    panel.appendChild(header);
+    panel.appendChild(scopeRow);
+    panel.appendChild(optionRow);
+    panel.appendChild(searchInput);
+    renderHistory(); // 渲染历史
+    panel.appendChild(historyContainer);
+    panel.appendChild(replaceInput);
+    panel.appendChild(globalListContainer); // 全局列表容器
+    panel.appendChild(actionRow);
+
+    document.body.appendChild(mask);
+    document.body.appendChild(panel);
+
+    setTimeout(() => {
+      const rect = panel.getBoundingClientRect();
+      panelX = (window.innerWidth - rect.width) / 2; panelY = 100;
+      panel.style.transform = `translate(${panelX}px, ${panelY}px)`;
+      searchInput.focus();
+    }, 10);
+  }
+
+  //显示来自 PDF 的反向链接
   if (!isNew && original.linkedPdfs && original.linkedPdfs.length > 0) {
     const linksWrap = el('div', {
       style: { display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '0 16px', marginBottom: '12px' }
@@ -2983,7 +3821,7 @@ export function renderEditPoint({ params, query }) {
   }
 
   // ============ 图文附件（可折叠） ============
-  let isImgRendered = false; // 👈 记录是否已经渲染过内容
+  let isImgRendered = false; //记录是否已经渲染过内容
   const imgSection = el('div', { class: 'section' });
 
   function renderImgSection() {
@@ -3302,7 +4140,7 @@ export function renderEditPoint({ params, query }) {
           `;
           document.body.appendChild(renderBox);
 
-          // 👇 核心：等待所有图片加载完毕
+          //等待所有图片加载完毕
           const imgs = renderBox.querySelectorAll('img');
           await Promise.all(Array.from(imgs).map(img => {
             return new Promise(resolve => {
@@ -3380,7 +4218,7 @@ export function renderEditPoint({ params, query }) {
 
                     toastSuccess('正在生成 PDF，请稍候...');
 
-                    // 👇 核心修改：拦截生成结果，转为 Blob 后用原生 API 选路径
+                    //拦截生成结果，转为 Blob 后用原生 API 选路径
                     window.html2pdf().set({
                       margin: 10,
                       filename: `知识卡片_${new Date().getTime()}.pdf`,
@@ -3439,7 +4277,7 @@ export function renderEditPoint({ params, query }) {
     el('button', { class: 'btn btn-primary', text: '保存', onClick: () => doSave() }),
   ]));
 
-  function doSave() {
+  async function doSave() {
     // 对于富文本，content 依然可以是纯文本，但 explanation 是 HTML
     if (!form.content.trim()) { setStatus('请填写内容', 'failed'); contentInput.focus(); return; }
 
@@ -3450,17 +4288,45 @@ export function renderEditPoint({ params, query }) {
     const finalShowDiff = diffCheckbox ? diffCheckbox.checked : false;
     const finalShowCount = countCheckbox ? countCheckbox.checked : false;
 
-    // 👇 核心新增：简单清洗一下富文本里的垃圾标签
+    // 简单清洗一下富文本里的垃圾标签
+    // 强行从 DOM 抓取最新的内容，防止 onInput 偶尔失灵
+    if (explainInput) {
+      form.explanation = explainInput.innerHTML;
+    }
     let cleanExplanation = form.explanation || '';
 
-    // 👇 保存时，把可视化的公式节点洗回纯文本的 $...$ 格式
+    //保存时，把可视化的公式节点洗回纯文本的 $...$ 格式
     cleanExplanation = cleanExplanation.replace(/<span class="math-node"[^>]*data-latex="([^"]+)"[^>]*>.*?<\/span>/g, (match, latex) => {
       // 把转义的引号还原
       const decodedLatex = latex.replace(/&quot;/g, '"');
       return ` $${decodedLatex}$ `;
     });
 
-    // 👇 核心修复：提取纯背景色，存入独立字段（不再包裹 div 造成视觉套娃）
+    // 将 <img> 标签里的 blob 链接转为 Base64，防止刷新后图片丢失
+    const imgRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
+    let match;
+    while ((match = imgRegex.exec(cleanExplanation)) !== null) {
+      const src = match[1];
+      // 如果已经是 base64 或者 http 链接，就跳过
+      if (!src.startsWith('blob:')) continue;
+
+      try {
+        // 从我们刚才存的 blob url 提取出 Blob
+        const blob = await fetch(src).then(r => r.blob());
+        // 转成 Base64
+        const base64 = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onloadend = () => resolve(reader.result);
+          reader.readAsDataURL(blob);
+        });
+        // 替换 HTML 中的 blob 链接
+        cleanExplanation = cleanExplanation.replace(src, base64);
+      } catch (e) {
+        console.warn('图片转 Base64 失败', e);
+      }
+    }
+
+    //提取纯背景色，存入独立字段（不再包裹 div 造成视觉套娃）
     const currentBg = explainInput.style.backgroundColor;
     const finalBg = (currentBg && currentBg !== 'var(--card)' && currentBg !== 'transparent' && currentBg !== 'rgba(0, 0, 0, 0)') ? currentBg : '';
 
@@ -3468,8 +4334,8 @@ export function renderEditPoint({ params, query }) {
       store.createPoint({
         chapterId: chapterId,
         content: form.content.trim(),
-        explanation: cleanExplanation, // 👈 保存纯净的富文本 HTML
-        themeBg: finalBg,              // 👈 独立保存主题背景色
+        explanation: cleanExplanation, //保存纯净的富文本 HTML
+        themeBg: finalBg,              //独立保存主题背景色
         difficulty: form.difficulty,
         showDifficultyBeforeExpand: finalShowDiff,
         showReviewCountBeforeExpand: finalShowCount,
@@ -3480,8 +4346,8 @@ export function renderEditPoint({ params, query }) {
       store.updatePoint(params.id, {
         chapterId: chapterId,
         content: form.content.trim(),
-        explanation: cleanExplanation, // 👈 保存纯净的富文本 HTML
-        themeBg: finalBg,              // 👈 独立保存主题背景色
+        explanation: cleanExplanation, //保存纯净的富文本 HTML
+        themeBg: finalBg,              //独立保存主题背景色
         difficulty: form.difficulty,
         isErrorProne: form.isErrorProne,
         reviewCount: form.reviewCount,
@@ -3496,7 +4362,7 @@ export function renderEditPoint({ params, query }) {
 
     clearDraft('point', entityId);
 
-    // 👇 主动释放本页的 document 级监听与面板
+    //主动释放本页的 document 级监听与面板
     if (window.__editPointAbort) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;
@@ -3519,7 +4385,7 @@ export function renderEditPoint({ params, query }) {
       saveDraft('point', entityId, form);
     }
 
-    // 👇 主动释放本页的 document 级监听与面板
+    //主动释放本页的 document 级监听与面板
     if (window.__editPointAbort) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;
@@ -3540,7 +4406,7 @@ export function renderEditPoint({ params, query }) {
   // ：将它暴露给全局
   window.__editPointGoBack = goBack;
 
-  // 👇 强行绑定左上角返回按钮
+  //强行绑定左上角返回按钮
   const btnBack = document.getElementById('btn-back');
   if (btnBack) {
     btnBack.onclick = (e) => {
@@ -3560,7 +4426,7 @@ export function renderEditPoint({ params, query }) {
     const allPoints = store.getPoints();
     const allTasks = store.getTasks();
 
-    // 👇 统一解析出链：同时匹配纯文本和带有 data-link 的 span
+    //统一解析出链：同时匹配纯文本和带有 data-link 的 span
     const explanationHtml = point.explanation || '';
     const outLinks = [];
     // 匹配出 span 里的 data-link 属性，或者纯文本的 [[...]]
@@ -3576,7 +4442,7 @@ export function renderEditPoint({ params, query }) {
     // 去重
     const uniqueOutLinks = Array.from(new Set(outLinks.map(l => l.id))).map(id => outLinks.find(l => l.id === id));
 
-    // 👇 获取入链：找所有说明里包含当前卡片 ID 的其他卡片
+    //获取入链：找所有说明里包含当前卡片 ID 的其他卡片
     const inLinks = allPoints.filter(p => p.id !== point.id && p.explanation && p.explanation.includes(`:${point.id}:`));
 
     // ================= 渲染出链列表带管理 =================
@@ -3587,7 +4453,7 @@ export function renderEditPoint({ params, query }) {
       outlistContainer.innerHTML = '';
       const wrap = el('div');
 
-      // 👇 工具栏：全选/全不选/删除/复制/粘贴
+      //工具栏：全选/全不选/删除/复制/粘贴
       const toolbar = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px', flexWrap: 'wrap' } }, [
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => {
@@ -3608,7 +4474,7 @@ export function renderEditPoint({ params, query }) {
 
             selectedOutIds.forEach(id => {
               const raw = `\\[\\[(?:folder|point):${id}:[^\\]]+\\]\\]`;
-              // 👇 扒掉 span 的外壳，保留里面的文字
+              //扒掉 span 的外壳，保留里面的文字
               const spanRegex = new RegExp(`<span class="editor-link"[^>]*data-link="${raw}"[^>]*>(.*?)<\\/span>`, 'g');
               newHtml = newHtml.replace(spanRegex, '$1');
 
@@ -3672,7 +4538,7 @@ export function renderEditPoint({ params, query }) {
           el('div', { style: { display: 'flex', gap: '4px' } }, [
             el('button', {
               class: 'btn btn-sm btn-ghost', text: '🔦 高亮',
-              // 👇 修复：改用 onMouseDown
+              //改用 onMouseDown
               onMouseDown: (e) => { e.preventDefault(); e.stopPropagation(); if (window.flashLink) window.flashLink(l.id, true); },
               onMouseUp: (e) => { e.preventDefault(); if (window.flashLink) window.flashLink(l.id, false); },
               onMouseLeave: () => { if (window.flashLink) window.flashLink(l.id, false); }
@@ -3737,7 +4603,7 @@ export function renderEditPoint({ params, query }) {
           el('div', { style: { display: 'flex', gap: '4px' } }, [
             el('button', {
               class: 'btn btn-sm btn-ghost', text: '🔦 高亮',
-              // 👇 修复：改用 onMouseDown 防止焦点丢失，同时高亮 point.id（当前卡片）
+              //改用 onMouseDown 防止焦点丢失，同时高亮 point.id（当前卡片）
               onMouseDown: (e) => { e.preventDefault(); e.stopPropagation(); if (window.flashLink) window.flashLink(point.id, true); },
               onMouseUp: (e) => { e.preventDefault(); if (window.flashLink) window.flashLink(point.id, false); },
               onMouseLeave: () => { if (window.flashLink) window.flashLink(point.id, false); }
@@ -3788,7 +4654,7 @@ export function renderEditPoint({ params, query }) {
           onMouseEnter: (e) => e.currentTarget.style.background = 'rgba(142,202,230,0.2)',
           onMouseLeave: (e) => e.currentTarget.style.background = 'transparent',
           onClick: () => {
-            // 👇 点击搜索结果时：直接追加到编辑器末尾，并同步保存
+            //点击搜索结果时：直接追加到编辑器末尾，并同步保存
             const raw = `[[${item.type}:${item.id}:${item.name}]]`;
             const newHtml = (explainInput.innerHTML || '') + `<br>关联：<span class="editor-link" data-link="${raw}" style="color: #5C6BC0; font-weight: 500; cursor: pointer;">${item.name}</span>&nbsp;`;
 

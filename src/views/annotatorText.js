@@ -193,7 +193,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     ctx.clearRect(0, 0, W, H);
     items.forEach(item => {
       if (item.visible === false) return;
-      // 👇 核心：如果此时正在保存图片，就偷偷把选中状态抹掉
+      //如果此时正在保存图片，就偷偷把选中状态抹掉
       if (window.__isSavingImage && selectedId === item.id) {
         const oldId = selectedId;
         selectedId = null;
@@ -231,7 +231,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
     const angle = (it.rotation || 0) * Math.PI / 180;
     const handleX = cx + Math.sin(angle) * (it.h / 2 + 20);
     const handleY = cy - Math.cos(angle) * (it.h / 2 + 20);
-    if (Math.hypot(x - handleX, y - handleY) < 20) return { id: 'rotate', x: handleX, y: handleY };
+    if (Math.hypot(x - handleX, y - handleY) < 35) return { id: 'rotate', x: handleX, y: handleY };
     const local = [
       { id: 'nw', x: 0, y: 0 },
       { id: 'ne', x: it.w, y: 0 },
@@ -243,7 +243,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       const ly = h.y - it.h / 2;
       const rx = lx * Math.cos(angle) - ly * Math.sin(angle) + cx;
       const ry = lx * Math.sin(angle) + ly * Math.cos(angle) + cy;
-      if (Math.hypot(x - rx, y - ry) < 22) return { id: h.id, x: rx, y: ry };
+      if (Math.hypot(x - rx, y - ry) < 35) return { id: h.id, x: rx, y: ry };
     }
     return null;
   }
@@ -311,7 +311,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       items.splice(idx, 1);
       if (selectedId === item.id) selectedId = null;
 
-      // 👇 核心：关闭选中框显示，并强制重绘！
+      //关闭选中框显示，并强制重绘！
       window.__showTextSelection = false;
       save();
       redraw();
@@ -431,7 +431,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
         const checked = selected.has(item.id);
         const isFav = (item.favorited === true);
 
-        // 👇 核心：自定义的高对比度圆形勾选框
+        //自定义的高对比度圆形勾选框
         const checkCircle = el('div', {
           style: {
             width: '22px', height: '22px', borderRadius: '50%', // 圆形
@@ -552,6 +552,12 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
       ]),
     ]);
     document.body.appendChild(mask);
+  }
+
+  // 取消选中并重绘
+  function clearSelection() {
+    selectedId = null;
+    redraw();
   }
 
   return {

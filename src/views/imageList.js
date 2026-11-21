@@ -14,13 +14,13 @@ let sortOrder = 'desc'; // 'desc' 最新在前, 'asc' 最旧在前
 let forceExpandAll = false; // 用于一键全部展开
 let forceCollapseAll = false; // 用于一键全部收起
 
-// 👇 文件夹状态缓存
+//文件夹状态缓存
 const getCollapsed = () => JSON.parse(localStorage.getItem('kg_collapsed_groups') || '{}');
 const saveCollapsed = (data) => localStorage.setItem('kg_collapsed_groups', JSON.stringify(data));
 const getLocked = () => JSON.parse(localStorage.getItem('kg_locked_folders') || '{}');
 const saveLocked = (data) => localStorage.setItem('kg_locked_folders', JSON.stringify(data));
 
-// 👇 专门记录所有建过的文件夹（防止空文件夹消失）
+//专门记录所有建过的文件夹（防止空文件夹消失）
 const getAllFolders = () => JSON.parse(localStorage.getItem('kg_all_folders') || '[]');
 const saveAllFolders = (data) => localStorage.setItem('kg_all_folders', JSON.stringify(data));
 
@@ -35,7 +35,7 @@ export function renderImageList(point, onRefresh) {
     el('button', { class: 'btn btn-sm ' + (activeTab === 'images' ? 'btn-primary' : 'btn-ghost'), text: `🖼 图片`, onClick: () => { activeTab = 'images'; onRefresh(); } }),
     el('button', { class: 'btn btn-sm ' + (activeTab === 'pdfs' ? 'btn-primary' : 'btn-ghost'), text: `📄 PDF 文档`, onClick: () => { activeTab = 'pdfs'; onRefresh(); } }),
 
-    // 👇 挑选 PDF 按钮：去掉 marginLeft: 'auto'，它就紧贴后面了
+    //挑选 PDF 按钮：去掉 marginLeft: 'auto'，它就紧贴后面了
     el('button', {
       class: 'btn btn-sm btn-ghost',
       text: '📄 挑选 PDF',
@@ -68,7 +68,7 @@ export function renderImageList(point, onRefresh) {
           // 防止重复触发
           input.onchange = null;
 
-          // 👇 核心修复：获取当前知识点里已有的所有图片名，用于比对
+          //获取当前知识点里已有的所有图片名，用于比对
           const pt = store.getPoint(point.id);
           if (!pt.imageIds) pt.imageIds = [];
 
@@ -80,7 +80,7 @@ export function renderImageList(point, onRefresh) {
             await new Promise(r => { img.onload = r; img.src = url; });
             const id = uuid();
 
-            // 👇 核心逻辑：自动给重名文件加序号
+            //自动给重名文件加序号
             let baseName = f.name || '未命名图片';
             let ext = '';
             if (baseName.includes('.')) {
@@ -99,7 +99,7 @@ export function renderImageList(point, onRefresh) {
 
             await dbPut('images', {
               id,
-              name: finalName, // 👈 存入去重后的名称
+              name: finalName, //存入去重后的名称
               originalBlob: f,
               annotatedBlob: f,
               width: img.width,
@@ -140,7 +140,7 @@ export function renderImageList(point, onRefresh) {
           if (!pt.imageIds) pt.imageIds = [];
           if (!pt.pdfFiles) pt.pdfFiles = [];
 
-          // 👇 核心修复：先查出当前已有的 PDF 名字
+          //先查出当前已有的 PDF 名字
           const existingRecs = await Promise.all(pt.imageIds.map(id => dbGet('images', id)));
           const usedNames = new Set(existingRecs.map(r => r && r.pdfName).filter(Boolean));
 
@@ -153,7 +153,7 @@ export function renderImageList(point, onRefresh) {
 
             const fakeImgId = uuid();
 
-            // 👇 核心逻辑：自动给重名 PDF 加序号
+            //自动给重名 PDF 加序号
             let baseName = file.name || '未命名文档';
             let ext = '';
             if (baseName.includes('.')) {
@@ -173,8 +173,8 @@ export function renderImageList(point, onRefresh) {
             await dbPut('images', {
               id: fakeImgId,
               type: 'pdf_placeholder',
-              name: finalName,       // 👈 存入去重后的名称
-              pdfName: finalName,    // 👈 保持两个字段名称同步
+              name: finalName,       //存入去重后的名称
+              pdfName: finalName,    //保持两个字段名称同步
               originalBlob: new Blob([], { type: 'text/plain' }),
               annotatedBlob: new Blob([], { type: 'text/plain' }),
               width: 0, height: 0, dpr: 1,
@@ -293,7 +293,7 @@ export function renderImageList(point, onRefresh) {
       // 移动
       el('button', { class: 'btn btn-sm btn-primary', style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' }, text: '移动', onClick: () => openMoveModal(selected, onRefresh) }),
 
-      // 👇 导出功能（弹窗选择格式与方式）
+      //导出功能（弹窗选择格式与方式）
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '导出',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
@@ -382,7 +382,7 @@ export function renderImageList(point, onRefresh) {
         }
       }),
 
-      // 👇 重命名功能
+      //重命名功能
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '重命名',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
@@ -401,14 +401,14 @@ export function renderImageList(point, onRefresh) {
         }
       }),
 
-      // 👇 加密
+      //加密
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '加密',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
         onClick: () => { toastSuccess('密码加密功能正在接入中，敬请期待...'); }
       }),
 
-      // 👇 复制
+      //复制
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '复制',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
@@ -419,7 +419,7 @@ export function renderImageList(point, onRefresh) {
         }
       }),
 
-      // 👇 粘贴（带路径选择）
+      //粘贴（带路径选择）
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '粘贴',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
@@ -476,7 +476,7 @@ export function renderImageList(point, onRefresh) {
         }
       }),
 
-      // 👇 删除功能
+      //删除功能
       el('button', {
         class: 'btn btn-sm btn-danger', text: '删除',
         style: { padding: '2px 6px', fontSize: '12px', minHeight: '26px' },
@@ -497,7 +497,7 @@ export function renderImageList(point, onRefresh) {
       })
     ]) : null,
 
-    // 👇 6. 搜索框
+    //6. 搜索框
     el('input', {
       type: 'text', placeholder: '🔍 搜索文件...',
       value: searchQuery,
@@ -548,7 +548,7 @@ export function renderImageList(point, onRefresh) {
   }, 100);
 
   // ============ 内容区 ============
-  const contentWrap = el('div', { style: { marginTop: '-4px' } }); // 👈 强行往上顶，吃掉多余间隙
+  const contentWrap = el('div', { style: { marginTop: '-4px' } }); //强行往上顶，吃掉多余间隙
   wrap.appendChild(contentWrap);
 
   const loadAndRender = async () => {
@@ -592,7 +592,7 @@ export function renderImageList(point, onRefresh) {
       });
     }
 
-    // 👇 应用排序
+    //应用排序
     rawList.sort((a, b) => {
       const sizeA = (a.originalBlob && a.originalBlob.size) || 0;
       const sizeB = (b.originalBlob && b.originalBlob.size) || 0;
@@ -615,7 +615,7 @@ export function renderImageList(point, onRefresh) {
       return timeB - timeA;
     });
 
-    // 👇 3. 获取所有文件夹（不再自动清理空文件夹）
+    //3. 获取所有文件夹（不再自动清理空文件夹）
     let allFolders = getAllFolders();
     const renameTarget = sessionStorage.getItem('kg_rename_folder');
 
@@ -653,7 +653,7 @@ export function renderImageList(point, onRefresh) {
       // 未分组且没文件，直接跳过
       if (groupName === '' && groupFiles.length === 0) return;
 
-      // 👇 核心替换位置：优先判断全局的“强制展开/收起”开关
+      //优先判断全局的“强制展开/收起”开关
       let isCollapsed = false;
       if (window.forceExpandAll) {
         isCollapsed = false;
@@ -670,7 +670,7 @@ export function renderImageList(point, onRefresh) {
 
       const isNewFolder = (groupName === renameTarget);
 
-      // 👇 核心绝杀逻辑：找出所有真正拥有文件的文件夹
+      //找出所有真正拥有文件的文件夹
       const groupsWithFiles = Object.keys(groupedList).filter(k => k !== '' && groupedList[k].length > 0);
       // 如果当前有文件的文件夹只有 1 个，而且名字跟当前循环的一致，那就彻底跳过渲染
       const shouldHideHeader = (groupsWithFiles.length === 1 && groupsWithFiles[0] === groupName);
@@ -878,9 +878,9 @@ export function renderImageList(point, onRefresh) {
             }
           }) : null
         ]);
-      } // 👈 这是补上的 if (!shouldHideHeader) 闭合！
+      } //这是补上的 if (!shouldHideHeader) 闭合！
 
-      // 👇 如果刚才新建了，立刻弹出重命名
+      //如果刚才新建了，立刻弹出重命名
       if (isNewFolder) {
         sessionStorage.removeItem('kg_rename_folder');
         setTimeout(() => {
@@ -898,7 +898,7 @@ export function renderImageList(point, onRefresh) {
       // 如果未分组且里面没文件，直接跳过
       if (groupName === '' && groupFiles.length === 0) return;
 
-      // 👇 核心修复：只有生成了 header 才把它加进去
+      //只有生成了 header 才把它加进去
       if (header) {
         contentWrap.appendChild(header);
       }
@@ -1112,7 +1112,7 @@ export function renderImageList(point, onRefresh) {
 
     let isImmersive = false;
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.92)', padding: '20px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' } });
-    // 👇 核心修改：支持双指缩放与单指平移
+    //支持双指缩放与单指平移
     const imgEl = el('img', { src: url, style: { maxWidth: '100%', maxHeight: '100%', objectFit: 'contain', transition: 'transform 0.1s', transformOrigin: 'center center' } });
     const imgWrap = el('div', {
       style: { flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '100%', height: '100%', cursor: 'grab', overflow: 'hidden' }
@@ -1469,7 +1469,7 @@ function openPasteModal(pointId, onRefresh) {
         await dbPut('images', {
           ...rec,
           id: newId,
-          group: targetGroup || undefined, // 👈 放入指定文件夹
+          group: targetGroup || undefined, //放入指定文件夹
           createdAt: new Date().toISOString()
         });
         pt.imageIds.push(newId);

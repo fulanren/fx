@@ -72,7 +72,7 @@ const TOOLS = [
 ];
 
 const DEFAULT_TOP_BAR_CONFIG = {
-  'pdfNav': true, // 👈 默认显示
+  'pdfNav': true, //默认显示
   'zoomMenu': true,
   '←': false, '→': false, '↑': false, '↓': false,
   '🔍+': true, '🔍-': true, '1:1': true,
@@ -147,7 +147,6 @@ if (!document.getElementById(styleId)) {
   document.head.appendChild(style);
 }
 
-// 👇 在文件最顶部，或者 renderAnnotator 函数的最前面加上这个
 function showLoading(text = '正在保存并加载，请稍候...') {
   let mask = document.getElementById('global-loading-mask');
   if (mask) mask.remove(); // 防止重复创建
@@ -180,7 +179,7 @@ function hideLoading() {
 }
 
 export async function renderAnnotator({ params, query }) {
-  // 👇 核心修复：每次渲染前，强行清空之前的残留，且只声明一次 view
+  //每次渲染前，强行清空之前的残留，且只声明一次 view
   const view = document.getElementById('view');
   if (view) view.innerHTML = '';
 
@@ -194,7 +193,7 @@ export async function renderAnnotator({ params, query }) {
   const { dbGet, dbPut, dbAll } = await import('../db.js');
   let img = await dbGet('images', imageId);
 
-  // ============ 👇 强力兜底：如果直接查不到，开启多重搜图 ============
+  // ============如果直接查不到，开启多重搜图 ============
   if (!img && query && query.pdfId) {
     try {
       const allImages = await dbAll('images');
@@ -217,7 +216,7 @@ export async function renderAnnotator({ params, query }) {
     }
   }
 
-  // ============ 👇 如果没有图，直接去 PDF 里现场重绘！ ============
+  // ============如果没有图，直接去 PDF 里现场重绘！ ============
   if (!img && query && query.isPdf === 'true') {
     const pageTag = `pdf_${query.pdfId}_page_${query.page}`;
 
@@ -346,7 +345,7 @@ export async function renderAnnotator({ params, query }) {
   wrap.appendChild(modeBar);
 
   function openTopBarConfigPanel() {
-    // 👇 1. 强制从本地存储读取最新配置
+    //1. 强制从本地存储读取最新配置
     let topConfig = {};
     let modeConfig = {};
     try {
@@ -357,7 +356,7 @@ export async function renderAnnotator({ params, query }) {
       modeConfig = { ...DEFAULT_MODE_BAR_CONFIG };
     }
 
-    // 👇 核心补丁：强行覆盖全局变量，防止底下渲染时读取旧的默认配置
+    //强行覆盖全局变量，防止底下渲染时读取旧的默认配置
     window.__CURRENT_TOP_CONFIG = topConfig;
     window.__CURRENT_MODE_CONFIG = modeConfig;
 
@@ -508,7 +507,7 @@ export async function renderAnnotator({ params, query }) {
   let fixedZoomValue = parseFloat(localStorage.getItem('kg_zoom_value')) || 1;
   const savedZoom = sessionStorage.getItem(`kg_pdf_zoom_${query ? query.pdfId : ''}`);
 
-  // 👇 读取存下来的偏移位置
+  //读取存下来的偏移位置
   const savedOffsetX = sessionStorage.getItem(`kg_pdf_offsetX_${query ? query.pdfId : ''}`);
   const savedOffsetY = sessionStorage.getItem(`kg_pdf_offsetY_${query ? query.pdfId : ''}`);
 
@@ -520,7 +519,7 @@ export async function renderAnnotator({ params, query }) {
     if (zoomMode === 'remember' && savedZoom) {
       scale = parseFloat(savedZoom);
 
-      // 👇 核心修复：如果有记忆位置，就恢复它！没有的话再居中。
+      //如果有记忆位置，就恢复它！没有的话再居中。
       if (savedOffsetX !== null && savedOffsetY !== null) {
         offsetX = parseFloat(savedOffsetX);
         offsetY = parseFloat(savedOffsetY);
@@ -563,9 +562,9 @@ export async function renderAnnotator({ params, query }) {
   });
   canvasWrap.appendChild(base);
 
-    // ============ 3. 加载透明的笔迹层（高清 Retina 适配，带防爆上限） ============
+  // ============ 3. 加载透明的笔迹层（高清 Retina 适配，带防爆上限） ============
   const dpr = window.devicePixelRatio || 1; // 比如 iPad 是 2
-  const maxRenderWidth = 2000; // 👈 核心防爆参数：最大只渲染 2000px 宽
+  const maxRenderWidth = 2000; //核心防爆参数：最大只渲染 2000px 宽
   const renderScale = Math.min(dpr, 2.0, maxRenderWidth / W); // 取 DPR、2.0、和防爆比例的最小值
 
   const strokeCanvas = el('canvas', { class: 'annotator-stroke' });
@@ -835,7 +834,7 @@ export async function renderAnnotator({ params, query }) {
     canvasWrap.style.transformOrigin = 'top left';
     if (zoomLabel) zoomLabel.textContent = Math.round(scale * 100) + '%';
 
-    // 👇 核心修复：如果是记忆模式，把当前的缩放比例 AND 偏移位置全部存起来！
+    //如果是记忆模式，把当前的缩放比例 AND 偏移位置全部存起来！
     if (zoomMode === 'remember' && query && query.pdfId) {
       sessionStorage.setItem(`kg_pdf_zoom_${query.pdfId}`, scale);
       sessionStorage.setItem(`kg_pdf_offsetX_${query.pdfId}`, offsetX);
@@ -843,7 +842,7 @@ export async function renderAnnotator({ params, query }) {
     }
   }
 
-  // 👇 自动适应屏幕大小并完美居中
+  //自动适应屏幕大小并完美居中
   function initZoomToFit() {
     setTimeout(() => {
       // 准备完毕，瞬间显示，绝不闪烁
@@ -1018,7 +1017,7 @@ export async function renderAnnotator({ params, query }) {
     }, 1500); // 停笔 1.5 秒后自动保存
   }
 
-    async function saveAll(showToast = false) {
+  async function saveAll(showToast = false) {
     // 如果文字输入框还开着，说明用户正在打字，不要强制打断他！
     const isEditingText = document.querySelector('.inline-text-editor') || window.__isEditingText;
 
@@ -1043,12 +1042,12 @@ export async function renderAnnotator({ params, query }) {
 
     mctx.drawImage(baseImg, 0, 0, W, H);
     mctx.drawImage(paperCanvas, 0, 0, W, H);
-    
-    // 👇👇👇 核心修复：合成时务必加上 W, H，防止底层物理像素缩放导致笔迹变偏！
+
+    // 合成时务必加上 W, H，防止底层物理像素缩放导致笔迹变偏！
     mctx.drawImage(paperStrokeCanvas, 0, 0, W, H);
     mctx.drawImage(strokeCanvas, 0, 0, W, H);
 
-    // 👇👇👇 核心绝杀：绝对不截图 textCanvas！直接从数据里把文字画上去！
+    // 绝对不截图 textCanvas！直接从数据里把文字画上去！
     if (window.__textLayer) {
       const items = window.__textLayer.getItems();
       items.forEach(item => {
@@ -1136,7 +1135,7 @@ export async function renderAnnotator({ params, query }) {
     if (typeof setSaveStatus === 'function') setSaveStatus('saved');
   }
 
-    // ============ 返回（秒退优化版） ============
+  // ============ 返回（秒退优化版） ============
   async function goBack() {
     // 强制暴力清理可能残留在 iPad 屏幕上的文字框
     const strayEditor = document.querySelector('.inline-text-editor');
@@ -1148,10 +1147,10 @@ export async function renderAnnotator({ params, query }) {
       }
     }
 
-    // 👇 原有的强制失焦
+    //原有的强制失焦
     if (document.activeElement) document.activeElement.blur();
     if (window.__textLayer) window.__textLayer.select(null);
-    
+
     // 如果代码里有内联编辑器的变量，强制关闭它
     if (typeof closeInlineTextEditor === 'function' && inlineEditorEl) {
       closeInlineTextEditor();
@@ -1193,8 +1192,8 @@ export async function renderAnnotator({ params, query }) {
     class: 'annotator-toolbar',
     style: {
       position: 'relative',
-      zIndex: '99999', // 👈 强行置于最高层
-      pointerEvents: 'auto' // 👈 确保能接收点击
+      zIndex: '99999', //强行置于最高层
+      pointerEvents: 'auto' //确保能接收点击
     }
   });
   const toolBtns = [];
@@ -1204,7 +1203,7 @@ export async function renderAnnotator({ params, query }) {
       text: tool.label,
       title: tool.name,
       onClick: () => {
-        // 👇 核心修复：点的是当前已激活的工具
+        //点的是当前已激活的工具
         if (currentTool === tool.id) {
           // 切换面板的显示与隐藏
           panelVisible = !panelVisible;
@@ -1224,7 +1223,7 @@ export async function renderAnnotator({ params, query }) {
           return;
         }
 
-        // 👇 如果点的是新工具，解开锁，切换工具并强制弹出面板
+        //如果点的是新工具，解开锁，切换工具并强制弹出面板
         isManuallyCollapsed = false;
         setActiveTool(tool.id);
         panelVisible = true;
@@ -1239,7 +1238,7 @@ export async function renderAnnotator({ params, query }) {
   const settingPanelBtn = el('button', {
     class: 'tool-btn', text: '🎨', title: '颜色/粗细/工具设置',
     onClick: (e) => {
-      e.stopPropagation(); // 👈 阻止事件冒泡
+      e.stopPropagation(); //阻止事件冒泡
       panelVisible = !panelVisible;
       if (settingPanel) settingPanel.style.display = panelVisible ? 'flex' : 'none';
     },
@@ -1272,7 +1271,7 @@ export async function renderAnnotator({ params, query }) {
     class: 'btn btn-sm btn-ghost', text: '−',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
     onClick: () => {
-      // 👇 每次减 0.05，最小到 0.05，保留 2 位小数
+      //每次减 0.05，最小到 0.05，保留 2 位小数
       currentWidth = Math.max(0.05, Number((currentWidth - 0.05).toFixed(2)));
       widthRange.value = currentWidth;
       widthNum.value = currentWidth;
@@ -1283,7 +1282,7 @@ export async function renderAnnotator({ params, query }) {
     class: 'btn btn-sm btn-ghost', text: '+',
     style: { minWidth: '24px', padding: '0 4px', fontSize: '14px' },
     onClick: () => {
-      // 👇 每次加 0.05，最大 50，保留 2 位小数
+      //每次加 0.05，最大 50，保留 2 位小数
       currentWidth = Math.min(50, Number((currentWidth + 0.05).toFixed(2)));
       widthRange.value = currentWidth;
       widthNum.value = currentWidth;
@@ -1367,7 +1366,6 @@ export async function renderAnnotator({ params, query }) {
     window._updateSubToolbar = updateSubToolbar;
     subBar.innerHTML = "";
 
-    // 👇 就放在 updateSubToolbar 函数体内部，靠前的位置
     if (currentTool === 'pen') {
       subBar.appendChild(el('div', { class: 'tape-row' }, [
         el('span', { class: 'tape-label', text: '笔刷' }),
@@ -1867,7 +1865,7 @@ export async function renderAnnotator({ params, query }) {
             ].map(p => el('button', {
               class: 'tape-chip', text: p.name,
               onClick: (e) => {
-                e.stopPropagation(); // 👈 核心
+                e.stopPropagation(); //核心
                 sel.fontSize = p.fontSize; sel.color = p.color; sel.bgColor = p.bgColor; sel.noBg = p.noBg;
                 const lines = sel.text.split('\n');
                 sel.h = Math.max(40, lines.length * p.fontSize * (sel.lineHeight || 1.5) + 8);
@@ -1945,7 +1943,7 @@ export async function renderAnnotator({ params, query }) {
       }
     }
 
-    // 核心修复：只要有内容，就强制显示 subBar，并限制最大高度防止撑爆屏幕
+    // 只要有内容，就强制显示 subBar，并限制最大高度防止撑爆屏幕
     if (subBar.children.length > 0) {
       subBar.style.display = 'flex';
       subBar.style.flexDirection = 'column';
@@ -2154,7 +2152,7 @@ export async function renderAnnotator({ params, query }) {
         const isFav = p.favorited === true;
         const isLocked = p.locked === true;
 
-        // 👇 核心：放弃原生 checkbox，用自定义 div 画！
+        //放弃原生 checkbox，用自定义 div 画！
         const cb = el('div', {
           class: 'custom-shape-cb',
           style: {
@@ -2314,7 +2312,7 @@ export async function renderAnnotator({ params, query }) {
     const editor = document.createElement('textarea');
     editor.value = textItem.text || '';
     editor.className = 'inline-text-editor';
-        editor.style.cssText = `
+    editor.style.cssText = `
       position: fixed;
       left: ${rect.left + textItem.x * sx}px;
       top: ${rect.top + textItem.y * sy}px;
@@ -2336,7 +2334,7 @@ export async function renderAnnotator({ params, query }) {
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       box-sizing: border-box;
       
-      /* 👇 核心修复：专门针对 iPad 的触摸优化 */
+      /*专门针对 iPad 的触摸优化 */
       touch-action: auto !important; 
       -webkit-user-select: text !important; 
       user-select: text !important;
@@ -2422,7 +2420,7 @@ export async function renderAnnotator({ params, query }) {
   function closeInlineTextEditor() {
     if (inlineEditorEl) {
       const e = inlineEditorEl;
-      // 👇 核心修复：关闭前，强制帮它保存一下，防止文字丢失
+      //关闭前，强制帮它保存一下，防止文字丢失
       if (e._saveInlineText) {
         e._saveInlineText();
       }
@@ -2520,7 +2518,7 @@ export async function renderAnnotator({ params, query }) {
 
     renderList();
 
-    // 👈 顶部工具条：全选/全不选
+    //顶部工具条：全选/全不选
     const toolBar = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '8px' } }, [
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '全选',
@@ -2552,7 +2550,7 @@ export async function renderAnnotator({ params, query }) {
     const box = el('div', { class: 'confirm-box', style: { maxWidth: '360px' } }, [
       el('h3', { text: '🗂 画布列表' }),
       el('p', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '8px' }, text: '点击纸张行选中，可拖动、删除。' }),
-      toolBar, // 👈 插入工具条
+      toolBar, //插入工具条
       listWrap,
       el('div', { class: 'confirm-actions' }, [
         el('button', { class: 'btn btn-primary', text: '关闭', onClick: () => mask.remove() })
@@ -2644,7 +2642,7 @@ export async function renderAnnotator({ params, query }) {
       octx.fillRect(0, 0, newW, newH);
     }
 
-    // 核心修复：把原图按照原有的 W 和 H（比例）画在正中间，绝不拉伸变形
+    // 把原图按照原有的 W 和 H（比例）画在正中间，绝不拉伸变形
     octx.drawImage(baseImg, offsetX, offsetY, W, H);
 
     // 2. 生成新的笔迹、胶带、文字层，同样居中偏移
@@ -2730,12 +2728,12 @@ export async function renderAnnotator({ params, query }) {
       return b;
     };
 
-    // 👇 1. 读取顶栏配置
+    //1. 读取顶栏配置
     let topConfig = {};
     try { topConfig = JSON.parse(localStorage.getItem('kg_topbar_config') || '{}'); } catch { }
     topConfig = { ...DEFAULT_TOP_BAR_CONFIG, ...topConfig };
 
-    // 👇 2. 补回 PDF 翻页条
+    //2. 补回 PDF 翻页条
     if (query && query.pdfId && query.page) {
       const currentPdfId = query.pdfId;
       const currentPageNum = parseInt(query.page);
@@ -2876,13 +2874,13 @@ export async function renderAnnotator({ params, query }) {
       dynBar.appendChild(pdfNavGroup);
     }
 
-    // 👇 3. 原有的所有按钮渲染逻辑
+    //3. 原有的所有按钮渲染逻辑
     if (topConfig['←']) dynBar.appendChild(mk('←', '左移', () => { offsetX += 40; updateTransform(); }));
     if (topConfig['→']) dynBar.appendChild(mk('→', '右移', () => { offsetX -= 40; updateTransform(); }));
     if (topConfig['↑']) dynBar.appendChild(mk('↑', '上移', () => { offsetY += 40; updateTransform(); }));
     if (topConfig['↓']) dynBar.appendChild(mk('↓', '下移', () => { offsetY -= 40; updateTransform(); }));
 
-    // 👇 缩放工具栏（整合为一个组，受配置控制）
+    //缩放工具栏（整合为一个组，受配置控制）
     if (topConfig['zoomMenu'] !== false) {
       const zoomGroup = el('div', {
         style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.06)' }
@@ -2913,13 +2911,13 @@ export async function renderAnnotator({ params, query }) {
             }
           });
 
-          // 👇 修复菜单项生成逻辑，并加上关闭菜单的指令
+          //修复菜单项生成逻辑，并加上关闭菜单的指令
           const createMenuItem = (text, mode, value) => {
             const isActive = zoomMode === mode && (mode !== 'fixed' || fixedZoomValue === value);
             return el('button', {
               class: 'btn btn-sm ' + (isActive ? 'btn-primary' : 'btn-ghost'),
               style: { justifyContent: 'flex-start', fontSize: '13px', padding: '6px 10px' },
-              text: text, // 👈 直接使用 text 属性，不再套 span
+              text: text, //直接使用 text 属性，不再套 span
               onClick: (e) => {
                 e.stopPropagation();
                 zoomMode = mode;
@@ -2927,7 +2925,7 @@ export async function renderAnnotator({ params, query }) {
                 localStorage.setItem('kg_zoom_mode', zoomMode);
                 localStorage.setItem('kg_zoom_value', fixedZoomValue);
 
-                menu.remove(); // 👈 核心修复：点击后立刻销毁菜单
+                menu.remove(); // 点击后立刻销毁菜单
 
                 // 切换后立即刷新画布大小
                 if (zoomMode === 'remember' && savedZoom) {
@@ -2974,13 +2972,13 @@ export async function renderAnnotator({ params, query }) {
 
       // 2. 快捷缩放按钮
       if (topConfig['🔍+']) zoomGroup.appendChild(mk('＋', '放大', () => { scale = Math.min(10, scale * 1.25); updateTransform(); }));
-      if (topConfig['🔍-']) zoomGroup.appendChild(mk('－', '缩小', () => { scale = Math.max(0.05, scale / 1.25); updateTransform(); })); // 👈 把 0.3 改成 0.05
+      if (topConfig['🔍-']) zoomGroup.appendChild(mk('－', '缩小', () => { scale = Math.max(0.05, scale / 1.25); updateTransform(); })); //把 0.3 改成 0.05
       if (topConfig['1:1']) zoomGroup.appendChild(mk('1:1', '原始大小', () => { scale = 1; offsetX = 0; offsetY = 0; updateTransform(); }));
 
       dynBar.appendChild(zoomGroup);
     }
 
-    // 👇 撤销按钮
+    //撤销按钮
     if (topConfig['↶']) {
       const undoBtn = mk('↶', '撤销', undo);
       dynBar.appendChild(undoBtn);
@@ -3014,7 +3012,7 @@ export async function renderAnnotator({ params, query }) {
       else if (status === 'error') { saveStatusDot.style.background = '#EF476F'; saveStatusDot.title = '保存失败'; }
     };
 
-    // 👇 工具栏管理按钮
+    //工具栏管理按钮
     dynBar.appendChild(mk('⚙️', '工具栏管理', openTopBarConfigPanel));
   }
 
@@ -3432,7 +3430,7 @@ export async function renderAnnotator({ params, query }) {
 
     // 双指缩放
     if (pointers.size === 2) {
-      // 👇 核心修复：双指按下时，强行中断画笔/橡皮，防止画出乱码
+      //双指按下时，强行中断画笔/橡皮，防止画出乱码
       if (drawing === 'pen' || drawing === 'eraser' || drawing === 'circle-erase') {
         drawing = false;
         clearPreview(); // 清空画到一半的预览线
@@ -3576,12 +3574,30 @@ export async function renderAnnotator({ params, query }) {
 
     // ============ 文字 ============
     if (currentTool === 'text') {
+      //先检测是否点中了手柄（不管有没有选中，直接摸手柄就能缩放）
+      if (textLayer.getSelected()) {
+        const handle = textLayer.hitHandle(pt.x, pt.y);
+        if (handle) {
+          pushUndo();
+          if (handle.id === 'rotate') {
+            textDragOffset = textLayer.startRotate(pt.x, pt.y);
+            drawing = 'text-rotate';
+          } else {
+            textDragOffset = textLayer.startResize(handle.id, pt.x, pt.y);
+            drawing = 'text-resize';
+          }
+          strokeCanvas.setPointerCapture(e.pointerId);
+          e.preventDefault();
+          return;
+        }
+      }
+
       const hit = textLayer.hitTest(pt.x, pt.y);
 
       if (hit) {
         // ============ 情况 1：点中了已有的文字框 ============
-        // 👇 1. 判断双击，进入编辑
         const now = Date.now();
+        // 判断双击进入编辑
         if (now - lastTextClickTime < 300 && lastTextClickId === hit.id) {
           pushUndo();
           textLayer.select(hit);
@@ -3589,67 +3605,54 @@ export async function renderAnnotator({ params, query }) {
           panelVisible = true;
           if (settingPanel) settingPanel.style.display = 'flex';
           updateSubToolbar();
-          lastTextClickTime = 0; // 重置
+          lastTextClickTime = 0;
+          e.preventDefault();
           return;
         }
         lastTextClickTime = now;
         lastTextClickId = hit.id;
 
-        // 👇 2. 单击选中、面板显示与拖拽
-        const wasSelected = textLayer.getSelected() === hit;
+        // 单击选中、面板显示与拖拽
         textLayer.select(hit);
-
-        // 👇 只有没有被手动收起，才弹面板
         if (!isManuallyCollapsed) {
           panelVisible = true;
           if (settingPanel) settingPanel.style.display = 'flex';
         }
         updateSubToolbar();
 
-        if (wasSelected) {
-          const handle = textLayer.hitHandle(pt.x, pt.y);
-          if (handle) {
-            if (handle.id === 'rotate') {
-              textDragOffset = textLayer.startRotate(pt.x, pt.y);
-              drawing = 'text-rotate';
-            } else {
-              textDragOffset = textLayer.startResize(handle.id, pt.x, pt.y);
-              drawing = 'text-resize';
-            }
-            strokeCanvas.setPointerCapture(e.pointerId);
-            return;
-          }
-        }
+        // 开始拖动文字
+        pushUndo();
         drawing = 'text-drag';
         textDragOffset = { dx: pt.x - hit.x, dy: pt.y - hit.y, item: hit };
         strokeCanvas.setPointerCapture(e.pointerId);
+        e.preventDefault();
 
       } else {
         // ============ 情况 2：点中了画布空白处 ============
-        // 👇 核心修复：就是在这里新建！
-        // 如果之前有选中的文字，说明用户想“取消选中”，此时不新建
+        //点空白处，如果之前有选中的文字，强制取消选中！
         const currentSelected = textLayer.getSelected();
         if (currentSelected) {
           textLayer.select(null);
           if (settingPanel) settingPanel.style.display = 'none';
           panelVisible = false;
           updateSubToolbar();
+          e.preventDefault();
           return;
         }
 
-        // 如果之前没有选中的文字，说明用户是想“新建文字”
+        // 如果之前没有选中任何文字，才是真正的“新建文字”
         pushUndo();
         const newItem = textLayer.addText({
           x: pt.x, y: pt.y, text: '', fontSize: 20, fontFamily: 'sans-serif',
           lineHeight: 1.5, align: 'left', color: currentColor, bgColor: '#FFFFFF', noBg: true, w: 160, h: 40
         });
 
-        // 建完之后，立刻选中它，弹出输入框，并显示面板
         textLayer.select(newItem);
         openInlineTextEditor(newItem);
         panelVisible = true;
         if (settingPanel) settingPanel.style.display = 'flex';
         updateSubToolbar();
+        e.preventDefault();
         return;
       }
       return;
@@ -3675,7 +3678,7 @@ export async function renderAnnotator({ params, query }) {
 
       startPt = pt;
 
-      // 👇 核心修复：精准获取触控笔的压感
+      //精准获取触控笔的压感
       const initPressure = e.pointerType === 'pen' ? (e.pressure || 0.5) : 0.5;
       points = [{ ...pt, pressure: initPressure }];
 
@@ -3827,7 +3830,7 @@ export async function renderAnnotator({ params, query }) {
     // ============ 纸张拖动（极速联动版 + 辅助线） ============
     if (drawing === 'paper-drag' && paperDragOffset) {
       const p = paperDragOffset.paper;
-      const pt = canvasToImage(e.clientX, e.clientY); // 👈 必须加上这一行！计算鼠标当前坐标
+      const pt = canvasToImage(e.clientX, e.clientY); //必须加上这一行！计算鼠标当前坐标
 
       // 1. 更新纸张的实时位置
       p.x = pt.x - paperDragOffset.dx;
@@ -3919,16 +3922,16 @@ export async function renderAnnotator({ params, query }) {
       return;
     }
 
-        // ============ 画笔 / 橡皮 移动中 ============
+    // ============ 画笔 / 橡皮 移动中 ============
     if (drawing === 'pen' || drawing === 'eraser') {
-      
-      // 1. 获取高频采样点（核心修复：防止断触，减轻计算压力）
+
+      // 1. 获取高频采样点（防止断触，减轻计算压力）
       const events = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
-      
+
       // --- 橡皮逻辑 ---
       if (drawing === 'eraser') {
         const eraserRadius = currentWidth * 2 / Math.sqrt(W / 800);
-        
+
         for (const ev of events) {
           const p = canvasToImage(ev.clientX, ev.clientY);
           const lastPt = points.length > 0 ? points[points.length - 1] : p;
@@ -3938,7 +3941,7 @@ export async function renderAnnotator({ params, query }) {
           const dy = p.y - lastPt.y;
           const dist = Math.hypot(dx, dy);
           const steps = Math.max(1, Math.ceil(dist / (eraserRadius * 0.3)));
-          
+
           for (let i = 0; i <= steps; i++) {
             const t = i / steps;
             const px = lastPt.x + dx * t;
@@ -3970,14 +3973,14 @@ export async function renderAnnotator({ params, query }) {
         if (eraserShape === 'square') previewCtx.strokeRect(lastPt.x - eraserRadius, lastPt.y - eraserRadius, eraserRadius * 2, eraserRadius * 2);
         else { previewCtx.beginPath(); previewCtx.arc(lastPt.x, lastPt.y, eraserRadius, 0, Math.PI * 2); previewCtx.stroke(); }
         previewCtx.restore();
-        
+
         dirty = true;
         return;
       }
 
       // --- 画笔逻辑 ---
       else if (drawing === 'pen') {
-        // 👇 核心修复：只在这里收集一次点，避免重复 push
+        //只在这里收集一次点，避免重复 push
         for (const ev of events) {
           const p = canvasToImage(ev.clientX, ev.clientY);
           const pPressure = ev.pointerType === 'pen' ? (ev.pressure || 0.5) : 0.5;
@@ -3992,7 +3995,7 @@ export async function renderAnnotator({ params, query }) {
           if (!hitPaper._currentStroke) {
             hitPaper._currentStroke = { type: 'pen', points: [], color: currentColor, width: currentWidth };
           }
-          // 👇 核心修复：把新点加进去
+          //把新点加进去
           hitPaper._currentStroke.points.push({ x: lastPt.x - hitPaper.x, y: lastPt.y - hitPaper.y, pressure: lastPt.pressure });
 
           if (!window.__paperPenRaf) {
@@ -4001,7 +4004,7 @@ export async function renderAnnotator({ params, query }) {
               window.__paperPenRaf = null;
             });
           }
-        } 
+        }
         // 画在全局底图
         else {
           const scaleFactor = Math.sqrt(W / 800);
@@ -4027,8 +4030,8 @@ export async function renderAnnotator({ params, query }) {
       }
 
       dirty = true;
-      
-      // 👇 核心修复：加入保存防抖，不要每动一下都写盘
+
+      //加入保存防抖，不要每动一下都写盘
       if (window.__penSaveTimer) clearTimeout(window.__penSaveTimer);
       window.__penSaveTimer = setTimeout(() => {
         if (typeof triggerAutoSave === 'function') triggerAutoSave();
@@ -4299,7 +4302,7 @@ export async function renderAnnotator({ params, query }) {
     pointers.delete(e.pointerId);
     if (window.__panRaf) { cancelAnimationFrame(window.__panRaf); window.__panRaf = null; }
 
-    // 👇 这里不要提前把 drawing 设为 false，必须保留状态，让下面的分支去清空
+    //这里不要提前把 drawing 设为 false，必须保留状态，让下面的分支去清空
     if (drawing === 'pinch') { if (pointers.size < 2) drawing = false; return; }
     if (drawing === 'pan') { drawing = false; return; }
 
@@ -4331,7 +4334,7 @@ export async function renderAnnotator({ params, query }) {
       drawing = false;
       clearPreview();
 
-      // 👇 2. 核心修复：在保存前，强制清空所有选中状态（干掉蓝框）
+      //2. 在保存前，强制清空所有选中状态（干掉蓝框）
       if (window.__paperLayer) { window.__paperLayer.setShapeSelection([]); window.__paperLayer.select(null); }
       if (window.__tapeLayer) window.__tapeLayer.clearSelection();
       if (window.__textLayer) window.__textLayer.select(null);
@@ -4792,7 +4795,7 @@ export async function renderAnnotator({ params, query }) {
       window.__annotatorKeyHandler = null;
     }
 
-    // 3. 👇 核心修复：清空所有全局图层引用（防止第二次进入读到脏实例）
+    // 3.清空所有全局图层引用（防止第二次进入读到脏实例）
     window.__tapeLayer = null;
     window.__textLayer = null;
     window.__paperLayer = null;
@@ -4813,7 +4816,7 @@ export async function renderAnnotator({ params, query }) {
     if (btnBack) btnBack.onclick = null;
   };
 
-  // 👇 支持外部传入 highlightText 参数，自动高亮对应文字
+  //支持外部传入 highlightText 参数，自动高亮对应文字
   if (query.highlightText && textLayer) {
     const targetText = textLayer.getItems().find(t => t.id === query.highlightText);
     if (targetText) {

@@ -20,30 +20,102 @@ export function renderSettings() {
   document.getElementById('page-title').textContent = '设置';
   document.getElementById('btn-back').classList.remove('hidden');
 
-  // 👇 核心：每次离开设置页，自动刷新一次页面以更新顶栏
+  //每次离开设置页，自动刷新一次页面以更新顶栏
   document.getElementById('btn-back').onclick = () => {
     location.reload();
   };
 
-  // ============ 1. 外观 ============
+  // ============ 1. 外观与侧边栏 ============
   view.appendChild(el('div', { class: 'section' }, [
-    el('div', { class: 'section-head' }, [el('span', { text: '🎨 外观' })]),
-    el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
-      el('button', {
-        class: 'btn btn-ghost', text: '🌙 切换暗黑模式',
-        onClick: () => {
-          const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-          if (isDark) {
-            document.documentElement.removeAttribute('data-theme');
-            localStorage.setItem('kg_theme', 'light');
-            toastSuccess('已切换为浅色模式');
-          } else {
-            document.documentElement.setAttribute('data-theme', 'dark');
-            localStorage.setItem('kg_theme', 'dark');
-            toastSuccess('已切换为暗黑模式');
+    el('div', { class: 'section-head' }, [el('span', { text: '🎨 外观与侧边栏' })]),
+    el('div', { class: 'section-body', style: { paddingTop: '12px', display: 'flex', flexDirection: 'column', gap: '16px' } }, [
+
+      // 暗黑模式
+      el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+        el('span', { text: '🌙 暗黑模式', style: { fontSize: '14px', fontWeight: '500' } }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '切换主题',
+          onClick: () => {
+            const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+            if (isDark) {
+              document.documentElement.removeAttribute('data-theme');
+              localStorage.setItem('kg_theme', 'light');
+              toastSuccess('已切换为浅色模式');
+            } else {
+              document.documentElement.setAttribute('data-theme', 'dark');
+              localStorage.setItem('kg_theme', 'dark');
+              toastSuccess('已切换为暗黑模式');
+            }
           }
-        }
-      }),
+        })
+      ]),
+
+      // 分隔线
+      el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.1)' } }),
+
+      // 错题本位置
+      (() => {
+        let config = {};
+        try { config = JSON.parse(localStorage.getItem('kg_sidebar_config') || '{}'); } catch { }
+        const currentPos = config.errorBookPos || 'bottom';
+
+        return el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+          el('span', { text: '❌ 错题本在侧边栏的位置', style: { fontSize: '14px', fontWeight: '500' } }),
+          el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            ['top', 'middle', 'bottom'].map(pos => el('button', {
+              class: `btn btn-sm ${currentPos === pos ? 'btn-primary' : 'btn-ghost'}`,
+              text: pos === 'top' ? '顶部' : pos === 'middle' ? '中部' : '底部',
+              onClick: () => {
+                const newConfig = { ...config, errorBookPos: pos };
+                localStorage.setItem('kg_sidebar_config', JSON.stringify(newConfig));
+                toastSuccess('已保存，刷新后生效');
+                renderSettings(); // 重新渲染当前页以更新按钮状态
+              }
+            }))
+          )
+        ]);
+      })(),
+
+      // 倒计时位置与大小
+      (() => {
+        let config = {};
+        try { config = JSON.parse(localStorage.getItem('kg_sidebar_config') || '{}'); } catch { }
+        const currentPos = config.countdownPos || 'bottom';
+        const currentSize = config.countdownSize || 'medium';
+
+        return el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px' } }, [
+          el('span', { text: '⏰ 倒计时在侧边栏的显示', style: { fontSize: '14px', fontWeight: '500' } }),
+
+          // 位置
+          el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+            ['top', 'middle', 'bottom'].map(pos => el('button', {
+              class: `btn btn-sm ${currentPos === pos ? 'btn-primary' : 'btn-ghost'}`,
+              text: `位置：${pos === 'top' ? '顶部' : pos === 'middle' ? '中部' : '底部'}`,
+              onClick: () => {
+                const newConfig = { ...config, countdownPos: pos };
+                localStorage.setItem('kg_sidebar_config', JSON.stringify(newConfig));
+                toastSuccess('已保存，刷新后生效');
+                renderSettings(); // 重新渲染
+              }
+            }))
+          ),
+
+          // 大小
+          el('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' } },
+            ['small', 'medium', 'large'].map(size => el('button', {
+              class: `btn btn-sm ${currentSize === size ? 'btn-primary' : 'btn-ghost'}`,
+              text: `大小：${size === 'small' ? '小' : size === 'medium' ? '中' : '大'}`,
+              onClick: () => {
+                const newConfig = { ...config, countdownSize: size };
+                localStorage.setItem('kg_sidebar_config', JSON.stringify(newConfig));
+                toastSuccess('已保存，刷新后生效');
+                renderSettings(); // 重新渲染
+              }
+            }))
+          )
+        ]);
+      })()
+
     ])
   ]));
 
@@ -231,7 +303,7 @@ export function renderSettings() {
     });
   }
 
-  // ================= 👇 云同步面板 加在这里 =================
+  // =================云同步面板 加在这里 =================
   const davSettings = JSON.parse(localStorage.getItem('kg_webdav_settings') || '{}');
 
   view.appendChild(el('div', { class: 'section' }, [
@@ -254,7 +326,7 @@ export function renderSettings() {
         el('input', { id: 'dav-pass', type: 'password', placeholder: '生成的第三方应用密码', value: davSettings.pass || '' })
       ]),
 
-      // 👇 在按钮组的上面加自动同步勾选框
+      //在按钮组的上面加自动同步勾选框
       el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer', marginTop: '4px' } }, [
         el('input', {
           type: 'checkbox',
@@ -319,7 +391,7 @@ async function syncWebDAV(action) {
   if (action === 'upload') {
     toastSuccess('正在打包并上传云端...');
     try {
-      // 👇 核心防护 1：在上传前，先在本地备份一份当前的状态
+      //核心防护 1：在上传前，先在本地备份一份当前的状态
       const currentBackup = {
         kg_tasks: localStorage.getItem('kg_tasks') || '[]',
         kg_chapters: localStorage.getItem('kg_chapters') || '[]',
@@ -362,7 +434,7 @@ async function syncWebDAV(action) {
   else if (action === 'download') {
     toastSuccess('正在获取云端信息...');
     try {
-      // 👇 核心防护 2：先查再覆盖
+      //核心防护 2：先查再覆盖
       const res = await fetch(fileUrl, {
         method: 'GET',
         headers: { 'Authorization': auth }
@@ -605,7 +677,7 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
     });
     checkStorageSize();
 
-    // 👇 动态更新导出提示文字
+    //动态更新导出提示文字
     if (currentFormat === 'zip') {
       const hasImg = selectedModules.has('images');
       const hasPdf = selectedModules.has('pdfs');
@@ -693,7 +765,7 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
         el('span', { text: '其他格式（如 JSON/TXT）仅包含文字，导入后将无法还原图片和 PDF。' })
       ]),
 
-      // 👇 只有一个滚动容器（删掉了重复的那个）
+      //只有一个滚动容器（删掉了重复的那个）
       el('div', {
         style: { flex: '1', overflowY: 'auto', padding: '4px 12px 4px 4px', display: 'flex', flexDirection: 'column', gap: '16px' }
       }, [
@@ -702,13 +774,13 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
         // 1. 格式
         el('div', { class: 'section', style: { border: '1px solid rgba(0,0,0,.1)', boxShadow: 'none', flexShrink: '0' } }, [
           el('div', { class: 'section-body', style: { padding: '12px' } }, [
-            exportTip, // 👈 动态提示框插在这里
+            exportTip, //动态提示框插在这里
             el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '8px' }, text: '1. 导出格式' }),
             el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' } },
               [
                 ['zip', '📦 ZIP 完整包'], ['json', '📄 JSON 数据'], ['markdown', '📝 Markdown'],
                 ['txt', '📑 纯文本 TXT'], ['html', '🌐 网页 HTML'], ['pdf', '🖨️ 打印 PDF'],
-                ['docx', '📝 Word 文档 (.docx)'] 
+                ['docx', '📝 Word 文档 (.docx)']
               ].map(([fmt, label]) => el('label', { style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '13px' } }, [
                 el('input', {
                   type: 'radio', name: 'exportFmt', value: fmt, checked: currentFormat === fmt,
@@ -821,7 +893,7 @@ export function openExportModal(defaultTaskId = null, defaultChapterId = null) {
             if (currentFormat === 'zip' && selectedModules.size === 0) { toastError('至少选择一个模块'); return; }
             mask.remove();
             doExport(
-              currentFormat, // 👈 这里传的一定是最新的
+              currentFormat, //这里传的一定是最新的
               Array.from(selectedModules),
               Array.from(selectedTaskIds),
               Array.from(selectedChapterIds),
@@ -1088,7 +1160,7 @@ async function doExport(exportType, keysToExport, targetTaskIds, targetChapterId
       const htmlContent = await buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNamePrefix);
       zip.file(`${fileNamePrefix}_复习打印版.html`, htmlContent);
 
-      // 👇 因为纯前端直接生成中文 PDF 必乱码，ZIP 里只放排版完美的 HTML。
+      //因为纯前端直接生成中文 PDF 必乱码，ZIP 里只放排版完美的 HTML。
       // 提示用户：想要 PDF 直接打开这个 HTML 按 Ctrl+P 存为 PDF 即可。
       console.log('ZIP 中已包含排版完美的复习打印版 HTML');
     }
@@ -1232,7 +1304,7 @@ async function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = filename; // 👈 这里绝对忠实于传入的文件名，不会乱改后缀
+  a.download = filename; //这里绝对忠实于传入的文件名，不会乱改后缀
   document.body.appendChild(a);
   a.click();
   setTimeout(() => {
@@ -1587,7 +1659,7 @@ async function doImportFile(file, mask) {
       const total = pdf.numPages;
 
       let fullText = '';
-      const pageImages = []; // 👈 存储每一页的截图
+      const pageImages = []; //存储每一页的截图
 
       for (let i = 1; i <= total; i++) {
         statusEl.textContent = `正在读取第 ${i} / ${total} 页...`;
@@ -1636,7 +1708,7 @@ async function doImportFile(file, mask) {
         return;
       }
 
-      // 👇 将识别出的文字和生成的整页截图一起传给解析器
+      //将识别出的文字和生成的整页截图一起传给解析器
       await parseMarkdownOrText(fullText, file.name.replace(/\.[^/.]+$/, ""), pageImages);
 
     } catch (e) {
@@ -1650,7 +1722,7 @@ async function doImportFile(file, mask) {
   }
 }
 
-// 👇 智能解析纯文本 / Markdown（支持提取图片）
+//智能解析纯文本 / Markdown（支持提取图片）
 async function parseMarkdownOrText(text, filename, images = []) {
   const lines = text.split('\n');
   const pointsToAdd = [];
@@ -1676,7 +1748,7 @@ async function parseMarkdownOrText(text, filename, images = []) {
   const task = store.createTask({ name: `导入_${filename}` });
   const chapter = store.createChapter({ taskId: task.id, name: '导入内容' });
 
-  // 👇 遍历生成知识点，并分配图片
+  //遍历生成知识点，并分配图片
   for (let i = 0; i < pointsToAdd.length; i++) {
     const content = pointsToAdd[i].slice(0, 1000);
     const imageIds = [];
@@ -1698,7 +1770,7 @@ async function parseMarkdownOrText(text, filename, images = []) {
     store.createPoint({
       chapterId: chapter.id,
       content: content,
-      imageIds: imageIds // 👈 存入图文附件
+      imageIds: imageIds //存入图文附件
     });
   }
 
@@ -1706,7 +1778,7 @@ async function parseMarkdownOrText(text, filename, images = []) {
   setTimeout(() => window.location.reload(), 1000);
 }
 
-// 👇 智能解析 HTML
+//智能解析 HTML
 function parseHtml(html, filename) {
   const parser = new DOMParser();
   const doc = parser.parseFromString(html, "text/html");
@@ -1715,7 +1787,7 @@ function parseHtml(html, filename) {
   parseMarkdownOrText(text, filename);
 }
 
-// 👇 JSON 合并逻辑
+//JSON 合并逻辑
 function mergeImportedData(tasks, chapters, points) {
   const existingTasks = JSON.parse(localStorage.getItem('kg_tasks') || '[]');
   const existingChapters = JSON.parse(localStorage.getItem('kg_chapters') || '[]');
