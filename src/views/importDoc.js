@@ -399,7 +399,12 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
     // 3. 新建文件夹
     targetSection.appendChild(el('div', {
       style: { padding: '12px', background: targetMode === 'new' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${targetMode === 'new' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px' },
-      onClick: () => { targetMode = 'new'; renderTargetOptions(); }
+      onClick: (e) => {
+        // 👇 核心修复：如果点的是输入框或按钮，不触发重绘，避免打断输入
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
+        targetMode = 'new';
+        renderTargetOptions();
+      }
     }, [
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
         el('input', { type: 'radio', checked: targetMode === 'new', style: { width: '18px', height: '18px' }, readOnly: true }),
@@ -409,7 +414,10 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
         el('input', {
           type: 'text', placeholder: '请输入新文件夹名称...',
           value: newFolderName,
-          style: { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px' },
+          style: { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', outline: 'none' },
+          // 👇 核心修复：阻止点击和聚焦时的事件冒泡
+          onClick: (e) => e.stopPropagation(),
+          onFocus: (e) => e.stopPropagation(),
           onInput: (e) => { newFolderName = e.target.value; }
         }),
         el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' } }, [
@@ -417,7 +425,7 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '选择',
             onClick: (e) => {
-              e.stopPropagation();
+              e.stopPropagation(); // 防止按钮点击触发重绘
               const tasks = store.getTasks();
               const parentMask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
               const parentList = el('div', { style: { maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });

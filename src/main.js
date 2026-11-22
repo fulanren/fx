@@ -225,27 +225,36 @@ async function boot() {
 
   startRouter();
 
-  // ============ 返回按钮逻辑 ============
+    // ============ 返回按钮逻辑 ============
   const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
+    
     if (hash.startsWith('#/edit-task/')) {
+      // 编辑文件夹，返回首页
       navigate('#/');
+      
     } else if (hash.startsWith('#/edit-chapter/')) {
-      const m = hash.match(/taskId=([^&]+)/);
-      if (m) navigate(`#/chapter-list/${m[1]}`);
-      else history.back();
-    } else if (hash.startsWith('#/edit-point/')) {
-      const m = hash.match(/chapterId=([^&]+)/);
-      if (m) navigate(`#/chapter/${m[1]}`);
-      else history.back();
-    } else if (hash.startsWith('#/chapter/')) {
-      const chapterId = hash.split('/')[2]?.split('?')[0];
-      const chapter = store.getChapter(chapterId);
-      if (chapter) navigate(`#/chapter-list/${chapter.taskId}`);
-      else navigate('#/');
-    } else if (hash.startsWith('#/chapter-list/')) {
+      // 编辑章节（虽然隐藏了，但可能从别处进入），返回首页
       navigate('#/');
+      
+    } else if (hash.startsWith('#/edit-point/')) {
+      // 编辑知识点，直接返回它所属的卡片列表（章节详情）
+      const m = hash.match(/chapterId=([^&]+)/);
+      if (m) {
+        navigate(`#/chapter/${m[1]}`);
+      } else {
+        history.back();
+      }
+      
+    } else if (hash.startsWith('#/chapter/')) {
+      // 👇 核心修改：从卡片列表返回，直接回首页（文件夹列表），不再经过章节列表
+      navigate('#/');
+      
+    } else if (hash.startsWith('#/chapter-list/')) {
+      // 如果误入章节列表，直接重定向回首页
+      navigate('#/');
+      
     } else if (hash.startsWith('#/pdf-viewer/') || hash.startsWith('#/annotate/')) {
       const match = hash.match(/[?&]returnUrl=([^&]+)/);
       if (match) {
@@ -255,6 +264,7 @@ async function boot() {
       const pointMatch = hash.match(/[?&]pointId=([^&]+)/);
       if (pointMatch && pointMatch[1]) { navigate(`#/edit-point/${pointMatch[1]}`); return; }
       navigate('#/resources');
+      
     } else {
       if (history.length > 1) history.back();
       else navigate('#/');

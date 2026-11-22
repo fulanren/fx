@@ -118,7 +118,7 @@ function recycleCard(item) {
     ]) : null,
     el('div', { class: 'card-title', text: name }),
     el('div', { class: 'card-meta', style: { display: 'flex', gap: '12px', alignItems: 'center' } }, [
-      // 👇 解析时间并格式化
+      //解析时间并格式化
       el('span', {
         text: `删除于 ${(() => {
           const d = new Date(item.deletedAt);

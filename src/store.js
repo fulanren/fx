@@ -44,7 +44,6 @@ function write(key, val) {
   }
 }
 
-
 // ============ 保存状态 ============
 let status = 'saved';
 const statusListeners = [];

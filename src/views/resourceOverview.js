@@ -113,7 +113,7 @@ export async function renderResourceOverview() {
             multiBtn.textContent = isMulti ? '✕ 退出' : '☑ 多选';
             renderContent();
 
-            // 👇 点击多选时，动态显示或隐藏“全选”按钮
+            //点击多选时，动态显示或隐藏“全选”按钮
             if (isMulti) {
                 topBar.appendChild(selectAllBtn);
                 topBar.appendChild(deselectAllBtn);
@@ -199,7 +199,7 @@ export async function renderResourceOverview() {
             return;
         }
 
-        // 👇 加上这行标签过滤
+        //加上这行标签过滤
         if (currentTagFilter !== 'all') {
             filtered = filtered.filter(f => fileTags[f.id] && fileTags[f.id].includes(currentTagFilter));
         }
@@ -278,7 +278,7 @@ export async function renderResourceOverview() {
                 }));
             }
 
-            // 👇 核心：判断类型，分别获取缩略图
+            //判断类型，分别获取缩略图
             const thumbBox = el('div', { style: { width: '40px', height: '50px', borderRadius: '6px', overflow: 'hidden', background: '#eee', flexShrink: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(0,0,0,.08)' } });
 
             if (item.type === 'pdf') {
@@ -291,7 +291,7 @@ export async function renderResourceOverview() {
                     // 没有封面，先显示图标
                     thumbBox.appendChild(el('span', { style: { fontSize: '20px' }, text: '📄' }));
 
-                    // 👇 在后台悄悄生成第一页的缩略图
+                    //在后台悄悄生成第一页的缩略图
                     if (item.rec.blob) {
                         (async () => {
                             try {
@@ -328,7 +328,7 @@ export async function renderResourceOverview() {
 
             row.appendChild(thumbBox);
 
-            // 👇 修复文件名显示，PDF 用 pdfName，图片用 name
+            //修复文件名显示，PDF 用 pdfName，图片用 name
             const displayName = item.type === 'pdf' ? (item.rec.name || '未命名 PDF') : (item.rec.name || '未命名图片');
 
             row.appendChild(el('span', { style: { flex: '1', fontSize: '13px', fontWeight: '500', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }, text: displayName }));
@@ -422,7 +422,7 @@ export async function renderResourceOverview() {
                     el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '尺寸/页数' }), el('span', { text: dimensionText })]),
                     el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '关联章节' }), el('span', { text: `${item.taskName} - ${item.chapterName}`, style: { maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } })]),
                     el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [el('span', { style: { color: 'var(--text-2)' }, text: '创建时间' }), el('span', { text: item.rec.createdAt ? new Date(item.rec.createdAt).toLocaleString() : '未知' })]),
-                    // 👇 加上标签输入框
+                    //加上标签输入框
                     el('div', { style: { marginTop: '12px', borderTop: '1px solid rgba(0,0,0,.05)', paddingTop: '12px' } }, [
                         el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '6px' }, text: '自定义标签 (用逗号隔开)' }),
                         el('input', {

@@ -77,41 +77,28 @@ export function batchImportModal(chapterId = null) {
                     const list = el('div', { style: { maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
 
                     tasks.forEach(t => {
+                        // 渲染文件夹本身（点击直接选定该文件夹）
                         list.appendChild(el('div', {
-                            style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontWeight: '600', fontSize: '13px', padding: '8px 12px', background: 'rgba(142,202,230,.1)', borderRadius: '6px', cursor: 'pointer', marginTop: '4px' },
+                            style: { fontWeight: '600', fontSize: '13px', padding: '8px 12px', background: 'rgba(142,202,230,.1)', borderRadius: '6px', cursor: 'pointer', marginTop: '4px' },
+                            text: `📁 ${t.name}`,
                             onClick: () => {
                                 const chapters = store.getChapters(t.id);
-                                if (chapters.length > 0) {
-                                    selectedOtherChapterId = chapters[0].id;
+                                // 自动找它的“默认”章节，或者第一个章节
+                                const defChap = chapters.find(c => c.name === '默认' || c.name === '默认子模块') || chapters[0];
+
+                                if (defChap) {
+                                    selectedOtherChapterId = defChap.id;
                                 } else {
-                                    const newChap = store.createChapter({ taskId: t.id, name: t.name });
-                                    selectedOtherChapterId = newChap.id;
+                                    // 如果文件夹里面一个章节都没，直接给它建一个隐形默认章节
+                                    selectedOtherChapterId = store.createChapter({ taskId: t.id, name: '默认' }).id;
                                 }
+                                selectedOtherTaskId = t.id;
                                 selectedOtherTaskName = t.name;
                                 targetMode = 'other';
                                 mask.remove();
                                 renderTargetOptions();
                             }
-                        }, [
-                            el('span', { text: `📁 ${t.name}` }),
-                            el('span', { text: '👉 点此选中', style: { fontSize: '11px', color: 'var(--primary-dark)' } })
-                        ]));
-
-                        const chapters = store.getChapters(t.id);
-                        chapters.forEach(c => {
-                            const displayName = c.name === '默认子模块' ? t.name : c.name;
-                            list.appendChild(el('div', {
-                                style: { padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', marginLeft: '16px' },
-                                text: `📄 ${displayName}`,
-                                onClick: () => {
-                                    selectedOtherChapterId = c.id;
-                                    selectedOtherTaskName = displayName;
-                                    targetMode = 'other';
-                                    mask.remove();
-                                    renderTargetOptions();
-                                }
-                            }));
-                        });
+                        }));
                     });
 
                     const box = el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [

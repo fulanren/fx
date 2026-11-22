@@ -1341,8 +1341,12 @@ export function renderEditPoint({ params, query }) {
       // ================= 2. 已使用公式列表 =================
       formulaPanel.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.08)', marginTop: '4px', paddingTop: '6px' } }));
       const usedWrap = el('div');
+
       let usedExpanded = false;
-      const usedHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)' } });
+      let usedManageMode = false;
+      let selectedUsed = new Set();
+
+      const usedHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)', userSelect: 'none' } });
       const usedBody = el('div');
       usedWrap.appendChild(usedHeader);
       usedWrap.appendChild(usedBody);
@@ -1350,8 +1354,8 @@ export function renderEditPoint({ params, query }) {
 
       function renderUsedFormulas() {
         usedHeader.innerHTML = '';
+        usedBody.innerHTML = '';
 
-        // 抓取最新数据
         let usedList = [];
         explainInput.querySelectorAll('.math-node').forEach(node => {
           const latex = node.getAttribute('data-latex');
@@ -1367,62 +1371,59 @@ export function renderEditPoint({ params, query }) {
         usedHeader.appendChild(el('span', { text: usedExpanded ? '▾' : '▸' }));
         usedHeader.onclick = (e) => { e.stopPropagation(); usedExpanded = !usedExpanded; renderUsedFormulas(); };
 
-        if (!usedExpanded) { usedBody.innerHTML = ''; return; }
-        usedBody.innerHTML = '';
+        if (!usedExpanded) return;
 
         if (usedList.length === 0) {
           usedBody.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', padding: '4px', textAlign: 'center' }, text: '暂无已使用的公式' }));
           return;
         }
 
-        //批量操作栏
-        let usedManageMode = false;
-        let selectedUsed = new Set();
+        // 批量操作栏
         const usedToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
+        usedToolbar.appendChild(el('button', {
+          class: 'btn btn-sm btn-ghost', text: usedManageMode ? '完成' : '管理',
+          style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+          onClick: (e) => { e.stopPropagation(); usedManageMode = !usedManageMode; selectedUsed.clear(); renderUsedFormulas(); }
+        }));
 
-        const renderUsedToolbar = () => {
-          usedToolbar.innerHTML = '';
+        if (usedManageMode) {
+          // 👇 全选按钮
           usedToolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-ghost', text: usedManageMode ? '完成' : '管理',
+            class: 'btn btn-sm btn-ghost', text: '全选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: () => { usedManageMode = !usedManageMode; selectedUsed.clear(); renderUsedFormulas(); }
+            onClick: (e) => { e.stopPropagation(); usedList.forEach(l => selectedUsed.add(l)); renderUsedFormulas(); }
           }));
-          if (usedManageMode) {
-            usedToolbar.appendChild(el('button', {
-              class: 'btn btn-sm btn-ghost', text: '全选',
-              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-              onClick: () => { usedList.forEach(l => selectedUsed.add(l)); renderUsedFormulas(); }
-            }));
-            usedToolbar.appendChild(el('button', {
-              class: 'btn btn-sm btn-danger', text: `删除(${selectedUsed.size})`,
-              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
-              onClick: () => {
-                if (selectedUsed.size === 0) return;
-                // 从 DOM 中删除对应的节点
+          // 👇 全不选按钮（这次补上了！）
+          usedToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选',
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: (e) => { e.stopPropagation(); selectedUsed.clear(); renderUsedFormulas(); }
+          }));
+          // 👇 删除按钮
+          usedToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-danger', text: `删除(${selectedUsed.size})`,
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
+            onClick: async (e) => {
+              e.stopPropagation();
+              if (selectedUsed.size === 0) return toastError('请先勾选');
+              if (await confirmBox({ title: '删除公式', message: `确定从正文中删除选中的 ${selectedUsed.size} 个公式吗？` })) {
                 explainInput.querySelectorAll('.math-node').forEach(node => {
                   if (selectedUsed.has(node.getAttribute('data-latex'))) node.remove();
                 });
-                // 从纯文本中删除
                 let newText = explainInput.innerText || '';
                 selectedUsed.forEach(latex => {
                   newText = newText.replace(new RegExp(`\\$${latex.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\$`, 'g'), '');
                 });
-                // 如果使用了富文本，删除纯文本稍微复杂，这里建议用户直接编辑
-                if (explainInput.innerText !== newText) {
-                  explainInput.innerText = newText;
-                }
-
+                if (explainInput.innerText !== newText) explainInput.innerText = newText;
                 form.explanation = explainInput.innerHTML;
                 queueSave();
                 selectedUsed.clear();
                 renderUsedFormulas();
                 toastSuccess('已删除选中公式');
               }
-            }));
-          }
-        };
-
-        renderUsedToolbar();
+            }
+          }));
+        }
         usedBody.appendChild(usedToolbar);
 
         // 公式列表
@@ -1436,7 +1437,6 @@ export function renderEditPoint({ params, query }) {
                 if (isSel) selectedUsed.delete(latex); else selectedUsed.add(latex);
                 renderUsedFormulas();
               } else {
-                // 非管理模式下，点击直接预览
                 inputBox.value = latex; inputBox.dispatchEvent(new Event('input'));
               }
             }
@@ -1448,8 +1448,7 @@ export function renderEditPoint({ params, query }) {
                 innerHTML: window.katex ? window.katex.renderToString(latex, { throwOnError: false }) : latex
               })
             ]),
-            //收藏按钮
-            el('button', {
+            !usedManageMode ? el('button', {
               class: 'btn btn-sm btn-ghost', text: '⭐',
               style: { padding: '0 4px', fontSize: '12px', color: '#FFD166' },
               title: '收藏',
@@ -1459,24 +1458,25 @@ export function renderEditPoint({ params, query }) {
                 if (!list.some(f => f.latex === latex)) {
                   list.push({ id: Date.now(), latex });
                   saveFavFormulas(list);
-                  renderFavFormulas(); // 刷新收藏列表
+                  renderFavFormulas();
                   toastSuccess('已收藏');
                 } else { toastError('已在收藏列表中'); }
               }
-            })
+            }) : null
           ]));
         });
         usedBody.appendChild(listBox);
       }
       renderUsedFormulas();
 
-      // ================= 3. 公式收藏列表（带管理） =================
+      // ================= 3. 公式收藏列表 =================
       formulaPanel.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.08)', marginTop: '4px', paddingTop: '6px' } }));
       const favWrap = el('div');
       let favExpanded = false;
       let favManageMode = false;
-      const favSelected = new Set();
-      const favHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)' } });
+      let selectedFav = new Set();
+
+      const favHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)', userSelect: 'none' } });
       const favBody = el('div');
       favWrap.appendChild(favHeader);
       favWrap.appendChild(favBody);
@@ -1488,52 +1488,57 @@ export function renderEditPoint({ params, query }) {
       function renderFavFormulas() {
         const list = getFavFormulas();
         favHeader.innerHTML = '';
+        favBody.innerHTML = '';
+
         favHeader.appendChild(el('span', { text: `⭐ 公式收藏 (${list.length})` }));
         favHeader.appendChild(el('span', { text: favExpanded ? '▾' : '▸' }));
         favHeader.onclick = (e) => { e.stopPropagation(); favExpanded = !favExpanded; renderFavFormulas(); };
 
-        if (!favExpanded) { favBody.innerHTML = ''; return; }
-        favBody.innerHTML = '';
+        if (!favExpanded) return;
 
         if (list.length === 0) {
           favBody.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', padding: '4px', textAlign: 'center' }, text: '暂无收藏' }));
           return;
         }
 
-        //批量操作栏
-        let favManageMode = false;
-        let selectedFav = new Set();
+        // 批量操作栏
         const favToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
+        favToolbar.appendChild(el('button', {
+          class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
+          style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+          onClick: (e) => { e.stopPropagation(); favManageMode = !favManageMode; selectedFav.clear(); renderFavFormulas(); }
+        }));
 
-        const renderFavToolbar = () => {
-          favToolbar.innerHTML = '';
+        if (favManageMode) {
+          // 👇 全选按钮
           favToolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
+            class: 'btn btn-sm btn-ghost', text: '全选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: () => { favManageMode = !favManageMode; selectedFav.clear(); renderFavFormulas(); }
+            onClick: (e) => { e.stopPropagation(); list.forEach(f => selectedFav.add(f.id)); renderFavFormulas(); }
           }));
-          if (favManageMode) {
-            favToolbar.appendChild(el('button', {
-              class: 'btn btn-sm btn-ghost', text: '全选',
-              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-              onClick: () => { list.forEach(f => selectedFav.add(f.id)); renderFavFormulas(); }
-            }));
-            favToolbar.appendChild(el('button', {
-              class: 'btn btn-sm btn-danger', text: `删除(${selectedFav.size})`,
-              style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
-              onClick: () => {
-                if (selectedFav.size === 0) return;
+          // 👇 全不选按钮（补上了！）
+          favToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-ghost', text: '全不选',
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
+            onClick: (e) => { e.stopPropagation(); selectedFav.clear(); renderFavFormulas(); }
+          }));
+          // 👇 删除按钮
+          favToolbar.appendChild(el('button', {
+            class: 'btn btn-sm btn-danger', text: `删除(${selectedFav.size})`,
+            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
+            onClick: async (e) => {
+              e.stopPropagation();
+              if (selectedFav.size === 0) return toastError('请先勾选');
+              if (await confirmBox({ title: '删除收藏', message: `确定删除选中的 ${selectedFav.size} 个公式收藏吗？` })) {
                 const newList = list.filter(f => !selectedFav.has(f.id));
                 saveFavFormulas(newList);
                 selectedFav.clear();
                 renderFavFormulas();
                 toastSuccess('已删除选中收藏');
               }
-            }));
-          }
-        };
-
-        renderFavToolbar();
+            }
+          }));
+        }
         favBody.appendChild(favToolbar);
 
         const listBox = el('div', { style: { maxHeight: '150px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
@@ -1838,18 +1843,33 @@ export function renderEditPoint({ params, query }) {
     closePanels();
     if (!isHidden) return;
 
-    // 先保存选区，确保万无一失
     saveExplainRange();
     isPanelOpen = true;
 
     const rect = btn.getBoundingClientRect();
-    panel.style.top = (rect.bottom + 8) + 'px';
-    let left = rect.left;
-    if (left + 200 > window.innerWidth) left = window.innerWidth - 210; // 适配收窄后的面板
-    panel.style.left = left + 'px';
-    panel.style.display = 'flex'; // 注意这里改成 flex，配合你的面板样式
+    panel.style.display = 'flex';
     panel.innerHTML = '';
     htmlBuilder(panel);
+
+    // 获取面板渲染后的真实高度（用于判断下方空间是否足够）
+    const panelRect = panel.getBoundingClientRect();
+    const panelHeight = panelRect.height || 200;
+    const spaceBelow = window.innerHeight - rect.bottom;
+
+    // 定位逻辑
+    let top = rect.bottom + 8;
+    // 如果下方空间不够，且上方空间够，则把面板弹到按钮上方
+    if (spaceBelow < panelHeight && rect.top > panelHeight) {
+      top = rect.top - panelHeight - 8;
+    }
+    panel.style.top = Math.max(10, top) + 'px'; // 确保不超出屏幕顶端
+
+    let left = rect.left;
+    // 水平防溢出
+    if (left + 200 > window.innerWidth) {
+      left = window.innerWidth - 210;
+    }
+    panel.style.left = Math.max(10, left) + 'px';
   };
 
   // ==================== 1. 字号 ====================
@@ -2003,7 +2023,8 @@ export function renderEditPoint({ params, query }) {
 
           form.explanation = explainInput.innerHTML;
           queueSave();
-          recordToolbarAction();
+          // ❌ 删除了这里导致报错的 recordToolbarAction();
+
           requestAnimationFrame(() => updateFormatStatus());
           closePanels();
         }
@@ -2069,7 +2090,7 @@ export function renderEditPoint({ params, query }) {
           const val = lineCustomInput.value;
           if (!val) return closePanels();
 
-          //先恢复 savedRange，再操作
+          // 先恢复 savedRange，再操作
           explainInput.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();
@@ -2102,7 +2123,6 @@ export function renderEditPoint({ params, query }) {
 
           form.explanation = explainInput.innerHTML;
           queueSave();
-          recordToolbarAction();
           requestAnimationFrame(() => updateFormatStatus());
           closePanels();
         }
@@ -2150,7 +2170,7 @@ export function renderEditPoint({ params, query }) {
         style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px' },
         onMousedown: (e) => e.preventDefault(),
         onClick: () => {
-          //先恢复 savedRange，再操作
+          // 先恢复 savedRange，再操作
           explainInput.focus();
           const sel = window.getSelection();
           sel.removeAllRanges();
@@ -2167,7 +2187,6 @@ export function renderEditPoint({ params, query }) {
           form.explanation = explainInput.innerHTML;
           saveExplainRange();
           queueSave();
-          recordToolbarAction();
           requestAnimationFrame(() => updateFormatStatus());
           closePanels();
         }
@@ -3216,7 +3235,7 @@ export function renderEditPoint({ params, query }) {
           }
 
           // 2. 把当前散落卡片里的图片归入文件夹
-          const pt = store.getPoint(point.id);
+          const pt = store.getPoint(params.id);
           if (pt && pt.imageIds && pt.imageIds.length > 0) {
             toastSuccess(`正在将图片移入「${finalName}」...`);
 
@@ -4333,7 +4352,7 @@ export function renderEditPoint({ params, query }) {
     if (isNew) {
       store.createPoint({
         chapterId: chapterId,
-        content: form.content.trim(),
+        content: form.content,
         explanation: cleanExplanation, //保存纯净的富文本 HTML
         themeBg: finalBg,              //独立保存主题背景色
         difficulty: form.difficulty,
@@ -4345,7 +4364,7 @@ export function renderEditPoint({ params, query }) {
     } else {
       store.updatePoint(params.id, {
         chapterId: chapterId,
-        content: form.content.trim(),
+        content: form.content,
         explanation: cleanExplanation, //保存纯净的富文本 HTML
         themeBg: finalBg,              //独立保存主题背景色
         difficulty: form.difficulty,
@@ -4786,15 +4805,14 @@ function openFolderSelectModal(onSelect) {
         const newName = prompt('新建文件夹名称：', '未命名文件夹');
         if (!newName || !newName.trim()) return;
 
-        // 建文件夹并自动生成子模块
+        // 👇 核心修改 1：不再自动创建 '📁' 或 '默认子模块' 的章节
+        // 直接建文件夹
         const newTask = store.createTask({ name: newName.trim() });
 
-        // 把 '默认子模块' 改成 '📁'，这样界面上就像是一个图标，不再显示文字
-        const newChap = store.createChapter({ name: '📁', taskId: newTask.id });
-
         mask.remove();
-        onSelect(newChap.id);
-        toastSuccess(`已新建并归入「${newName}」`);
+        // 直接跳转到这个新文件夹，不需要强制关联子模块
+        onSelect(newTask.id);
+        toastSuccess(`已新建文件夹「${newName}」`);
       }
     }),
     el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() })

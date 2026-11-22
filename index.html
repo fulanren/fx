@@ -8,13 +8,14 @@
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#FAFAFB" />
 
-  <!-- 👇 核心 PWA 配置 -->
+  <!-- 核心 PWA 配置 -->
   <link rel="manifest" href="./manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes"> <!-- 补充新版 PWA 标准 -->
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="资料复习">
 
-  <!-- 👇 苹果专属图标 -->
+  <!-- 苹果专属图标 -->
   <link rel="apple-touch-icon" href="./assets/icons/icon-192.png">
 
   <title>资料复习</title>
@@ -49,7 +50,7 @@
   </div>
   <div id="toast-root"></div>
 
-  <!-- ================= 核心依赖库引入 ================= -->
+  <!-- ================= 核心依赖库引入（去重版） ================= -->
 
   <!-- 1. PDF.js (PDF 阅读核心) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -65,10 +66,9 @@
   <!-- 3. Tesseract.js (OCR 文字识别) -->
   <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
   <script>
-    // 👇 强制使用国内镜像下载中文语言包，防止卡死
     if (window.Tesseract) {
       window.Tesseract.workerOptions = {
-        langPath: 'https://tessdata.projectnaptha.com/4.0.0', // 官方备用镜像
+        langPath: 'https://tessdata.projectnaptha.com/4.0.0',
       };
     }
   </script>
@@ -82,16 +82,23 @@
   <!-- 6. jsPDF (生成导出 PDF) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
+  <!-- 7. html2canvas (网页截图转 PDF 核心，只保留一次) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-  <!-- 7. html2canvas (网页截图转 PDF 核心) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <!-- 8. html2pdf (html转pdf，结合 jspdf 使用) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+  <!-- 9. html-docx (导出 Word) -->
+  <script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
+
+  <!-- 10. KaTeX (公式渲染) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css">
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 
   <!-- ================= 项目主程序入口 ================= -->
   <script type="module" src="./src/main.js"></script>
 
-  <script src="https://cdn.jsdelivr.net/npm/html-docx-js/dist/html-docx.js"></script>
-
+  <!-- PWA Service Worker 注册 -->
   <script>
     if ('serviceWorker' in navigator) {
       window.addEventListener('load', () => {
@@ -99,12 +106,6 @@
       });
     }
   </script>
-
-  <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
-
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.css">
-<script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.10/dist/katex.min.js"></script>
 
 </body>
 

@@ -25,7 +25,7 @@ export function renderInbox() {
       return;
     }
 
-    // 👇 顶部操作栏
+    //顶部操作栏
     const topBar = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', padding: '0 16px' } }, [
       el('div', { style: { display: 'flex', gap: '8px' } }, [
         el('button', {
@@ -42,7 +42,7 @@ export function renderInbox() {
           onClick: () => { selected.clear(); renderList(); }
         }) : null
       ]),
-      // 👇 批量操作按钮
+      //批量操作按钮
       isMulti && selected.size > 0 ? el('div', { style: { display: 'flex', gap: '8px' } }, [
         el('button', {
           class: 'btn btn-sm btn-primary', text: `🗑 删除 (${selected.size})`,
@@ -58,7 +58,7 @@ export function renderInbox() {
     ]);
     view.appendChild(topBar);
 
-    // 👇 列表渲染
+    //列表渲染
     const list = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '8px', padding: '0 16px' } });
 
     items.forEach(item => {
