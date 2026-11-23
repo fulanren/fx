@@ -39,7 +39,10 @@ export function renderEditPoint({ params, query }) {
     : store.getPoint(params.id);
 
   if (!original) { navigate('#/'); return; }
-  const chapterId = isNew ? query.chapterId : original.chapterId;
+  // 同时兼容 taskId 和 chapterId
+  const currentTaskId = isNew
+    ? (query.taskId || query.chapterId)
+    : (original.taskId || original.chapterId);
   // 记录各个模块的折叠状态（默认全收起）
   let isInfoCollapsed = false; // 基本信息还是默认展开，方便打字
   let isImgCollapsed = true;   // 图文附件默认收起
@@ -341,7 +344,7 @@ export function renderEditPoint({ params, query }) {
     ocrBtn,
   ]);
 
-    // 使用 div 开启富文本编辑模式，并拦截回车键
+  // 使用 div 开启富文本编辑模式，并拦截回车键
   const explainInput = el('div', {
     contenteditable: 'true',
     placeholder: '文字解释（可选）',
@@ -375,16 +378,16 @@ export function renderEditPoint({ params, query }) {
       e.preventDefault();
       const text = (e.originalEvent || e).clipboardData.getData('text/plain');
       document.execCommand('insertText', false, text);
-      form.explanation = explainInput.innerHTML; 
+      form.explanation = explainInput.innerHTML;
       queueSave();
     },
     onBlur: () => {
       form.explanation = explainInput.innerHTML;
     },
-    
+
     // 👇 核心修复：拦截右键菜单和长按菜单
     onContextMenu: (e) => {
-      e.preventDefault(); 
+      e.preventDefault();
     },
     onTouchStart: (e) => {
       // 增加防误触，让选中文字更顺滑
@@ -1741,6 +1744,7 @@ export function renderEditPoint({ params, query }) {
   const createToolBtn = (svg, title, onClick) => {
     let pressTimer = null;
     let tooltipEl = null;
+    let isLongPressed = false; // 用来区分是“长按”还是“点击”
 
     // 显示提示气泡
     const showTooltip = () => {
@@ -1770,33 +1774,46 @@ export function renderEditPoint({ params, query }) {
       class: 'btn btn-sm btn-ghost',
       style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px', touchAction: 'manipulation' },
       title: title, // 电脑端悬停原生提示
-      
-      // 👇 核心修复：使用 pointerdown 替代 touchstart/mousedown，统一处理鼠标和手指
+
       onPointerdown: (e) => {
-        // 拦截默认行为，防止点击按钮时输入框的焦点（光标）丢失
+        // 阻止焦点丢失
         e.preventDefault(); 
-        // 400ms 后触发长按气泡提示
-        pressTimer = setTimeout(showTooltip, 400);
+        isLongPressed = false; // 重置状态
+        
+        // 400ms 后触发长按气泡
+        pressTimer = setTimeout(() => {
+          isLongPressed = true;
+          showTooltip();
+        }, 400);
       },
+
       onPointerup: (e) => {
         clearTimeout(pressTimer);
         if (navigator.vibrate) navigator.vibrate(0);
         setTimeout(hideTooltip, 1000); // 抬起后延迟 1 秒消失
       },
+
       onPointerleave: () => {
         clearTimeout(pressTimer);
         hideTooltip();
       },
+
       onPointermove: (e) => {
-        // 如果手指/鼠标滑动了，取消长按
+        // 如果滑动超过一定距离，取消长按
         clearTimeout(pressTimer);
         hideTooltip();
       },
 
-      // 👇 核心修复：绝不在这里 preventDefault，让平板正常触发 click
       onClick: (e) => {
         clearTimeout(pressTimer);
         hideTooltip();
+        
+        // 如果是长按触发的，就不要执行功能了
+        if (isLongPressed) {
+          isLongPressed = false;
+          return; 
+        }
+        
         onClick(); // 执行真正的点击逻辑
       }
     });
@@ -3203,14 +3220,23 @@ export function renderEditPoint({ params, query }) {
     // 展开后的内容
     const body = el('div', { style: { padding: '12px 16px' } });
 
-    const currentChapter = chapterId ? store.getChapter(chapterId) : null;
-    const currentTask = currentChapter ? store.getTask(currentChapter.taskId) : null;
+    const currentTask = currentTaskId ? store.getTask(currentTaskId) : null;
 
     const infoRow = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap', marginBottom: '12px' } });
     if (currentTask) {
-      infoRow.appendChild(el('span', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' }, text: `📁 ${currentTask.name}` }));
+      // 如果有父级文件夹，可以显示路径
+      const parentTask = currentTask.parentId ? store.getTask(currentTask.parentId) : null;
+      const pathText = parentTask ? `${parentTask.name} / ${currentTask.name}` : currentTask.name;
+
+      infoRow.appendChild(el('span', {
+        style: { fontSize: '14px', fontWeight: '600', color: 'var(--primary-dark)' },
+        text: `📁 ${pathText}`
+      }));
     } else {
-      infoRow.appendChild(el('span', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: '📄 散落卡片 (未分类)' }));
+      infoRow.appendChild(el('span', {
+        style: { fontSize: '13px', color: 'var(--text-2)' },
+        text: '📄 散落卡片 (未分类)'
+      }));
     }
     body.appendChild(infoRow);
 
@@ -4347,10 +4373,25 @@ export function renderEditPoint({ params, query }) {
     //提取纯背景色，存入独立字段（不再包裹 div 造成视觉套娃）
     const currentBg = explainInput.style.backgroundColor;
     const finalBg = (currentBg && currentBg !== 'var(--card)' && currentBg !== 'transparent' && currentBg !== 'rgba(0, 0, 0, 0)') ? currentBg : '';
+    
+        // 卡片重名检测
+    const currentFolderPoints = store.getPoints(currentTaskId);
+    const isDuplicate = currentFolderPoints.some(p => {
+      // 排除自己（如果是编辑旧卡片的话）
+      if (!isNew && p.id === params.id) return false;
+      // 去掉空格后比较名字
+      return p.content.trim() === form.content.trim();
+    });
+
+    if (isDuplicate) {
+      setStatus('当前文件夹已存在同名卡片', 'failed');
+      toastError('当前文件夹已存在同名卡片！');
+      return; // 拦截保存
+    }
 
     if (isNew) {
       store.createPoint({
-        taskId: chapterId,
+        taskId: currentTaskId,
         content: form.content,
         explanation: cleanExplanation, //保存纯净的富文本 HTML
         themeBg: finalBg,              //独立保存主题背景色
@@ -4362,7 +4403,7 @@ export function renderEditPoint({ params, query }) {
       toastSuccess('卡片已保存');
     } else {
       store.updatePoint(params.id, {
-        chapterId: chapterId,
+        taskId: currentTaskId,
         content: form.content,
         explanation: cleanExplanation, //保存纯净的富文本 HTML
         themeBg: finalBg,              //独立保存主题背景色
@@ -4380,19 +4421,16 @@ export function renderEditPoint({ params, query }) {
 
     clearDraft('point', entityId);
 
-    //主动释放本页的 document 级监听与面板
+    // 主动释放本页的 document 级监听与面板
     if (window.__editPointAbort) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;
     }
     document.querySelectorAll('.edit-point-panel').forEach(p => p.remove());
 
-    // 跳转逻辑
-    if (chapterId) {
-      const chapter = store.getChapter(chapterId);
-      const task = chapter ? store.getTask(chapter.taskId) : null;
-      const taskNameParam = task ? `?taskName=${encodeURIComponent(task.name)}` : '';
-      navigate(`#/chapter/${chapterId}${taskNameParam}`);
+    // 跳转到新的 #/folder/ 路由
+    if (currentTaskId) {
+      navigate(`#/folder/${currentTaskId}`);
     } else {
       navigate('#/');
     }
@@ -4403,19 +4441,16 @@ export function renderEditPoint({ params, query }) {
       saveDraft('point', entityId, form);
     }
 
-    //主动释放本页的 document 级监听与面板
+    // 主动释放本页的 document 级监听与面板
     if (window.__editPointAbort) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;
     }
     document.querySelectorAll('.edit-point-panel').forEach(p => p.remove());
 
-    // 跳转回上一级
-    if (chapterId) {
-      const chapter = store.getChapter(chapterId);
-      const task = chapter ? store.getTask(chapter.taskId) : null;
-      const taskNameParam = task ? `?taskName=${encodeURIComponent(task.name)}` : '';
-      navigate(`#/chapter/${chapterId}${taskNameParam}`);
+    // 跳转到新的 #/folder/ 路由
+    if (currentTaskId) {
+      navigate(`#/folder/${currentTaskId}`);
     } else {
       navigate('#/');
     }

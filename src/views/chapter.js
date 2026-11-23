@@ -96,172 +96,41 @@ function showExportMenu(scope, id) {
   }
 }
 
-// ============ 章节列表 ============
-let chMulti = false;
-const chSelected = new Set();
 
-// ============ 文件夹内部（子文件夹 + 卡片） ============
-export function renderFolderDetail({ params }) {
+// ============ 文件夹详情（子文件夹 + 卡片 + 全功能批量） ============
+let ptMulti = false;
+const ptSelected = new Set();
+
+export function renderFolderDetail({ params, query }) {
   const folderId = params.taskId;
   const currentFolder = store.getTask(folderId);
   if (!currentFolder) { navigate('#/'); return; }
 
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = currentFolder.name;
+
+  document.getElementById('page-title').textContent = ptMulti ? '批量选择' : currentFolder.name;
   document.getElementById('btn-back').classList.remove('hidden');
+
+  // 返回上一级逻辑
   document.getElementById('btn-back').onclick = () => {
-    // 返回上一级文件夹，如果是最顶层，就回首页
-    if (currentFolder.parentId) {
-      navigate(`#/folder/${currentFolder.parentId}`);
+    if (ptMulti) {
+      ptMulti = false;
+      ptSelected.clear();
+      renderFolderDetail({ params, query });
     } else {
-      navigate(`#/`);
+      if (currentFolder.parentId) {
+        navigate(`#/folder/${currentFolder.parentId}`);
+      } else {
+        navigate('#/');
+      }
     }
   };
 
-  // 1. 获取当前文件夹下的子文件夹
+  const points = store.getPoints(folderId);
   const subFolders = store.getTasks().filter(t => t.parentId === folderId);
 
-  // 2. 获取当前文件夹下的卡片
-  const points = store.getPoints(folderId);
-
-  // ================== 渲染子文件夹 ==================
-  if (subFolders.length > 0) {
-    const folderList = el('div', { style: { marginBottom: '20px' } });
-    subFolders.forEach(sub => {
-      folderList.appendChild(el('div', {
-        class: 'card',
-        style: { display: 'flex', alignItems: 'center', padding: '12px', cursor: 'pointer', marginBottom: '8px' },
-        onClick: () => navigate(`#/folder/${sub.id}`)
-      }, [
-        el('span', { text: '📁', style: { fontSize: '18px', marginRight: '10px' } }),
-        el('span', { text: sub.name, style: { fontSize: '15px', fontWeight: '600' } })
-      ]));
-    });
-    view.appendChild(folderList);
-  }
-
-  // ================== 渲染卡片 ==================
-  if (points.length > 0) {
-    const pointList = el('div', { id: 'point-list' });
-    points.forEach(p => pointList.appendChild(pointCard(p, folderId)));
-    view.appendChild(pointList);
-  }
-
-  // 空状态
-  if (subFolders.length === 0 && points.length === 0) {
-    view.appendChild(el('div', { class: 'empty' }, [
-      el('div', { class: 'empty-icon', text: '📂' }),
-      el('div', { text: '文件夹空空如也' }),
-      el('div', { text: '点击右下角 + 新建文件夹或卡片', style: { fontSize: '13px', marginTop: '8px' } }),
-    ]));
-  }
-
-  // ================== 右下角悬浮球 ==================
-  // currentFolderId 传入 folderId，这样新建的卡片和文件夹都会自动归入当前文件夹
-  renderFAB(view, folderId, folderId);
-}
-
-function chapterCard(c, taskId) {
-  const points = store.getPoints(c.id);
-  const isSelected = chSelected.has(c.id);
-  return el('div', {
-    class: 'card' + (isSelected ? ' selected' : ''),
-    'data-id': c.id,
-    // 强制覆盖全局样式，去掉多余留白
-    style: { padding: '12px 16px', minHeight: 'auto', marginBottom: '6px' },
-    onClick: (e) => {
-      if (e.target.closest('.card-actions') || e.target.closest('.move-btns') || e.target.closest('.select-box')) return;
-      if (chMulti) {
-        if (chSelected.has(c.id)) chSelected.delete(c.id); else chSelected.add(c.id);
-        renderChapterList({ params: { taskId } });
-      } else {
-        navigate(`#/chapter/${c.id}`);
-      }
-    },
-  }, [
-    chMulti ? el('div', { class: 'select-box' }, [
-      el('input', {
-        type: 'checkbox', checked: isSelected, onChange: (e) => {
-          if (e.target.checked) chSelected.add(c.id); else chSelected.delete(c.id);
-          renderChapterList({ params: { taskId } });
-        }
-      }),
-    ]) : null,
-    el('div', { class: 'card-title', text: c.name }),
-    el('div', { class: 'card-meta' }, [
-      c.book ? el('span', { text: `📚 ${c.book}` }) : null,
-      c.part ? el('span', { text: `📄 ${c.part}` }) : null,
-      el('span', { text: `💡 ${points.length} 知识点` }),
-    ]),
-    //章节专属附件提示区
-    (c.imageIds && c.imageIds.length > 0) || (c.pdfFiles && c.pdfFiles.length > 0)
-      ? el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } }, [
-        c.imageIds && c.imageIds.length > 0 ? el('div', {
-          class: 'btn btn-sm btn-ghost',
-          style: { padding: '2px 8px', fontSize: '12px', background: 'rgba(142,202,230,0.15)', color: 'var(--primary-dark)' },
-          text: `🖼 ${c.imageIds.length} 图`,
-          onClick: (e) => { e.stopPropagation(); navigate(`#/edit-chapter/${c.id}`); }
-        }) : null,
-        c.pdfFiles && c.pdfFiles.length > 0 ? el('div', {
-          class: 'btn btn-sm btn-ghost',
-          style: { padding: '2px 8px', fontSize: '12px', background: 'rgba(255,181,167,0.15)', color: 'var(--accent)' },
-          text: `📄 ${c.pdfFiles.length} PDF`,
-          onClick: (e) => { e.stopPropagation(); navigate(`#/edit-chapter/${c.id}`); }
-        }) : null
-      ])
-      : null,
-    !chMulti ? el('div', { class: 'card-actions' }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '编辑', onClick: () => navigate(`#/edit-chapter/${c.id}`) }),
-      //删除按钮
-      el('button', {
-        class: 'btn btn-sm btn-danger', text: '删除',
-        onClick: async () => {
-          if (await confirmBox({ title: '删除章节', message: `「${c.name}」及其知识点将进入回收站`, danger: true, confirmText: '删除' })) {
-            store.deleteChapter(c.id);
-            toastSuccess('已移入回收站');
-            renderChapterList({ params: { taskId } });
-          }
-        },
-      }),
-      // 缩小版的上下移按钮
-      el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'up'); renderChapterList({ params: { taskId } }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', style: { minWidth: '36px', padding: '0 8px' }, onClick: (e) => { e.stopPropagation(); store.moveChapter(c.id, 'down'); renderChapterList({ params: { taskId } }); } }),
-    ]) : null,
-  ]);
-}
-
-// ============ 章节详情 / 知识点列表 ============
-let ptMulti = false;
-const ptSelected = new Set();
-let activeFilterTag = null; //  记录当前选中的过滤标签
-
-export function renderChapterDetail({ params, query }) {
-  const chapterId = params.id;
-  const chapter = store.getChapter(chapterId);
-  const safeQuery = query || {};
-
-  localStorage.setItem('kg_last_chapter_id', chapterId);
-  if (!chapter) { navigate('#/'); return; }
-
-  const view = document.getElementById('view');
-  clear(view);
-
-  // 直接通过当前章节找到它所属的文件夹（Task）
-  const currentTask = store.getTask(chapter.taskId);
-  const displayTitle = currentTask ? currentTask.name : chapter.name;
-
-  document.getElementById('page-title').textContent = ptMulti ? '批量选择' : displayTitle;
-
-  document.getElementById('btn-back').classList.remove('hidden');
-  document.getElementById('btn-back').onclick = () => {
-    if (ptMulti) { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params, query }); }
-    else navigate(`#/`);
-  };
-
-  //统一变量名为 points，并且放在最外层
-  const points = store.getPoints(chapter.id);
-
+  // ================= 顶部操作区 =================
   if (ptMulti) {
     view.appendChild(el('div', { class: 'batch-bar' }, [
       el('span', { text: `已选 ${ptSelected.size} 项` }),
@@ -274,11 +143,12 @@ export function renderChapterDetail({ params, query }) {
           } else {
             points.forEach(p => ptSelected.add(p.id));
           }
-          renderChapterDetail({ params });
+          renderFolderDetail({ params, query });
         },
       }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query }); } }),
     ]));
+
     view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap' } }, [
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
@@ -287,15 +157,17 @@ export function renderChapterDetail({ params, query }) {
           const ids = [...ptSelected];
           const targetId = ids[0];
           const items = ids.map(id => store.getPoint(id));
-          await mergeModal({
-            title: '合并知识点', items, targetId,
-            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation) => {
-              store.mergePoints(sourceIds, targetId, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation);
-              toastSuccess('合并成功！');
-              ptMulti = false; ptSelected.clear();
-              renderChapterDetail({ params });
-            },
-          });
+          if (typeof mergeModal === 'function') {
+            await mergeModal({
+              title: '合并知识点', items, targetId,
+              onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation) => {
+                store.mergePoints(sourceIds, targetId, dedupe, newName, sortMode, mergeMode, saveMode, customExplanation);
+                toastSuccess('合并成功！');
+                ptMulti = false; ptSelected.clear();
+                renderFolderDetail({ params, query });
+              },
+            });
+          }
         },
       }),
       el('button', {
@@ -315,59 +187,64 @@ export function renderChapterDetail({ params, query }) {
           const copiedPoints = JSON.parse(raw);
           if (copiedPoints.length === 0) return toastError('剪贴板为空');
 
-          showPasteOptionsModal(
-            async (finalChapterId, targetName) => {
-              if (!finalChapterId) return toastError('请选择目标文件夹');
-              if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${copiedPoints.length} 张卡片粘贴到「${targetName}」吗？` })) {
-                copiedPoints.forEach(p => {
-                  store.createPoint({
-                    chapterId: finalChapterId, content: p.content, explanation: p.explanation,
-                    difficulty: p.difficulty, imageIds: p.imageIds
+          if (typeof showPasteOptionsModal === 'function') {
+            showPasteOptionsModal(
+              async (finalTaskId, targetName) => {
+                if (!finalTaskId) return toastError('请选择目标文件夹');
+                if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${copiedPoints.length} 张卡片粘贴到「${targetName}」吗？` })) {
+                  copiedPoints.forEach(p => {
+                    store.createPoint({
+                      taskId: finalTaskId, // 👈 对接新字段
+                      content: p.content, explanation: p.explanation,
+                      difficulty: p.difficulty, imageIds: p.imageIds
+                    });
                   });
-                });
-                toastSuccess('粘贴成功');
-                ptMulti = false; ptSelected.clear();
-                if (finalChapterId !== chapterId) navigate(`#/chapter/${finalChapterId}`);
-                else renderChapterDetail({ params });
-              }
-            }, chapterId
-          );
+                  toastSuccess('粘贴成功');
+                  ptMulti = false; ptSelected.clear();
+                  if (finalTaskId !== folderId) navigate(`#/folder/${finalTaskId}`);
+                  else renderFolderDetail({ params, query });
+                }
+              }, folderId
+            );
+          }
         }
       }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '🚚 移动到...',
         onClick: () => {
           if (ptSelected.size === 0) return toastError('请先勾选要移动的卡片');
-          showPasteOptionsModal(
-            async (finalChapterId, targetName) => {
-              if (!finalChapterId) return;
-              if (finalChapterId === chapterId) return toastSuccess('它们已经在当前文件夹了');
-              if (await confirmBox({ title: '移动卡片', message: `确定将 ${ptSelected.size} 张卡片移动到「${targetName}」吗？` })) {
-                ptSelected.forEach(id => { store.updatePoint(id, { chapterId: finalChapterId }); });
-                toastSuccess('移动成功');
-                ptMulti = false; ptSelected.clear();
-                renderChapterDetail({ params });
-              }
-            }, chapterId, '移动'
-          );
+          if (typeof showPasteOptionsModal === 'function') {
+            showPasteOptionsModal(
+              async (finalTaskId, targetName) => {
+                if (!finalTaskId) return;
+                if (finalTaskId === folderId) return toastSuccess('它们已经在当前文件夹了');
+                if (await confirmBox({ title: '移动卡片', message: `确定将 ${ptSelected.size} 张卡片移动到「${targetName}」吗？` })) {
+                  ptSelected.forEach(id => { store.updatePoint(id, { taskId: finalTaskId }); }); // 👈 对接新字段
+                  toastSuccess('移动成功');
+                  ptMulti = false; ptSelected.clear();
+                  renderFolderDetail({ params, query });
+                }
+              }, folderId, '移动'
+            );
+          }
         }
       }),
-      el('button', { class: 'btn btn-sm btn-primary', text: '全部记得', onClick: () => { store.batchRatePoints([...ptSelected], 'remember'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全部模糊', onClick: () => { store.batchRatePoints([...ptSelected], 'vague'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '全部忘了', onClick: () => { store.batchRatePoints([...ptSelected], 'forgot'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params }); } }),
+      el('button', { class: 'btn btn-sm btn-primary', text: '全部记得', onClick: () => { store.batchRatePoints([...ptSelected], 'remember'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '全部模糊', onClick: () => { store.batchRatePoints([...ptSelected], 'vague'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '全部忘了', onClick: () => { store.batchRatePoints([...ptSelected], 'forgot'); toastSuccess('已标记'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query }); } }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '设难度', onClick: () => {
           const d = prompt('输入难记度 1-10', '5');
           if (d && Number(d) >= 1 && Number(d) <= 10) {
             store.batchUpdatePoints([...ptSelected], { difficulty: Number(d) });
-            toastSuccess('已更新难度'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+            toastSuccess('已更新难度'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query });
           }
         }
       }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '今天复习', onClick: () => {
           store.batchUpdatePoints([...ptSelected], { nextReviewAt: new Date().toISOString() });
-          toastSuccess('已设为今天复习'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+          toastSuccess('已设为今天复习'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query });
         }
       }),
       el('button', {
@@ -375,23 +252,23 @@ export function renderChapterDetail({ params, query }) {
           if (ptSelected.size === 0) return;
           if (await confirmBox({ title: '删除', message: `删除 ${ptSelected.size} 个知识点？将进入回收站`, danger: true, confirmText: '删除' })) {
             store.batchDeletePoints([...ptSelected]);
-            toastSuccess('已移入回收站'); ptMulti = false; ptSelected.clear(); renderChapterDetail({ params });
+            toastSuccess('已移入回收站'); ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query });
           }
         }
       }),
     ]));
   } else {
-    //在这里加回了标签管理按钮
-    view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
+    view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '12px' } }, [
       el('button', {
         class: 'btn btn-sm btn-primary', text: '🎯 开始复习',
         onClick: () => {
+          if (points.length === 0) return toastError('当前文件夹没有卡片，无法复习');
           const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
           const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px', textAlign: 'center' } }, [
             el('h3', { text: '选择复习模式', style: { marginBottom: '16px' } }),
             el('div', { style: { display: 'flex', flexDirection: 'column', gap: '12px' } }, [
-              el('button', { class: 'btn btn-primary', text: '🖥️ 沉浸式模式 (全屏大字)', onClick: () => { mask.remove(); startReviewMode(points, chapter.id); } }),
-              el('button', { class: 'btn btn-ghost', text: '📋 专注列表模式 (在原列表操作)', onClick: () => { mask.remove(); startFocusListMode(points, chapter.id); } }),
+              el('button', { class: 'btn btn-primary', text: '🖥️ 沉浸式模式 (全屏大字)', onClick: () => { mask.remove(); if (typeof startReviewMode === 'function') startReviewMode(points, folderId); } }),
+              el('button', { class: 'btn btn-ghost', text: '📋 专注列表模式 (在原列表操作)', onClick: () => { mask.remove(); if (typeof startFocusListMode === 'function') startFocusListMode(points, folderId); } }),
               el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
             ])
           ]);
@@ -399,124 +276,105 @@ export function renderChapterDetail({ params, query }) {
           document.body.appendChild(mask);
         }
       }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderChapterDetail({ params, query }); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { ptMulti = true; renderFolderDetail({ params, query }); } }),
     ]));
   }
 
-  if (points.length === 0) {
+  // ================= 渲染子文件夹（直接一键递归） =================
+  if (subFolders.length > 0) {
+    const folderList = el('div', { style: { marginBottom: '20px' } });
+    // 我们只遍历当前文件夹的直接子级，更深的层级由 taskCard 里的递归自动处理
+    subFolders.forEach(sub => {
+      folderList.appendChild(taskCard(sub, folderId));
+    });
+    view.appendChild(folderList);
+  }
+
+  // ================= 渲染卡片 =================
+  if (points.length === 0 && subFolders.length === 0) {
     view.appendChild(el('div', { class: 'empty' }, [
-      el('div', { class: 'empty-icon', text: '📄' }),
+      el('div', { class: 'empty-icon', text: '📂' }),
       el('div', { text: '文件夹空空如也' }),
-      el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } })
+      el('div', { text: '点击右下角 + 新建文件夹或卡片', style: { fontSize: '13px', marginTop: '8px' } })
     ]));
-  } else {
+  } else if (points.length > 0) {
     const list = el('div', { id: 'point-list' });
-    points.forEach(p => list.appendChild(pointCard(p, chapter.id)));
+    points.forEach(p => list.appendChild(pointCard(p, folderId)));
     view.appendChild(list);
-    if (!ptMulti) {
+    if (!ptMulti && typeof makeSortable === 'function') {
       makeSortable(list, '.card', (orderedIds) => {
-        store.reorderPoints(chapter.id, orderedIds);
+        store.reorderPoints(folderId, orderedIds);
         toastSuccess('顺序已保存');
       });
     }
   }
 
+  // ================= 悬浮球 =================
   if (!ptMulti) {
-    renderFAB(view, chapter.id, chapter.taskId);
-  }
-
-  const savedScroll = sessionStorage.getItem('scroll_y_chapter');
-  if (savedScroll) {
-    setTimeout(() => {
-      window.scrollTo(0, parseInt(savedScroll));
-      sessionStorage.removeItem('scroll_y_chapter');
-    }, 50);
+    renderFAB(view, folderId);
   }
 }
 
 // ============ 极简卡片渲染 ============
-function pointCard(p, chapterId) {
+function pointCard(p, folderId) {
   let isExpanded = false;
   const isSelected = ptSelected.has(p.id);
 
-  //获取当前卡片的专属标签
   const allPts = JSON.parse(localStorage.getItem('kg_points') || '[]');
   const freshP = allPts.find(x => x.id === p.id) || p;
   const cardTags = freshP.tags || [];
 
-  // 展开的内容区（初始隐藏）
   const contentBox = el('div', {
     style: { display: 'none', marginTop: '12px', paddingTop: '12px', borderTop: '1px dashed rgba(0,0,0,.1)' }
   });
 
-  // 卡片主体
   const card = el('div', {
     class: 'card point-card-content' + (isSelected ? ' selected' : ''),
     style: {
-      cursor: 'pointer',
-      padding: '4px 8px', //  极限压缩：上下 4px，左右 8px
-      transition: 'all 0.2s',
-      background: 'var(--card)',
-      borderRadius: '6px', //  圆角改小一点，显得更紧凑
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      minHeight: 'auto',
-      marginBottom: '2px' //  卡片与卡片之间的间距也压到极低
+      cursor: 'pointer', padding: '4px 8px', transition: 'all 0.2s', background: 'var(--card)',
+      borderRadius: '6px', display: 'flex', flexDirection: 'column', justifyContent: 'center',
+      minHeight: 'auto', marginBottom: '2px'
     }
   });
 
   const header = el('div', {
     onClick: (e) => {
       if (e.target.closest('input') || e.target.closest('button')) return;
-
       if (ptMulti) {
         if (isSelected) ptSelected.delete(p.id); else ptSelected.add(p.id);
-        renderChapterDetail({ params: { id: chapterId } });
+        renderFolderDetail({ params: { taskId: folderId } });
         return;
       }
-
       isExpanded = !isExpanded;
       contentBox.style.display = isExpanded ? 'block' : 'none';
     },
-    //极限压缩：去掉所有上下间距，让标签和文字无缝贴合
     style: { display: 'flex', flexDirection: 'column', gap: '0px' }
   }, [
-    // 标签区域
     cardTags.length > 0 ? el('div', {
       style: { display: 'flex', flexWrap: 'wrap', gap: '2px', margin: '0', padding: '0' }
     }, cardTags.map(tag => el('span', {
       style: {
-        color: tag.color || '#ff4757',
-        backgroundColor: tag.bgColor || 'transparent',
+        color: tag.color || '#ff4757', backgroundColor: tag.bgColor || 'transparent',
         border: tag.borderColor !== 'transparent' ? `1px solid ${tag.borderColor}` : 'none',
-        padding: '0px 4px',
-        borderRadius: '2px',
-        fontSize: '11px',
-        fontWeight: 'bold',
-        lineHeight: '1', //  极限压缩行高
-        margin: '0'
+        padding: '0px 4px', borderRadius: '2px', fontSize: '11px', fontWeight: 'bold', lineHeight: '1', margin: '0'
       },
       innerHTML: tag.html || tag.text
     }))) : null,
 
-    // 内容区域
     el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center', justifyContent: 'space-between', marginTop: cardTags.length > 0 ? '2px' : '0' } }, [
       el('div', { style: { display: 'flex', gap: '4px', alignItems: 'center', flex: '1' } }, [
         ptMulti ? el('input', {
           type: 'checkbox', checked: isSelected, style: { margin: 0, flexShrink: '0' },
           onChange: (e) => {
             if (e.target.checked) ptSelected.add(p.id); else ptSelected.delete(p.id);
-            renderChapterDetail({ params: { id: chapterId } });
+            renderFolderDetail({ params: { taskId: folderId } });
           }
         }) : null,
         el('div', {
           style: { fontSize: '14px', fontWeight: '600', whiteSpace: 'pre-wrap', lineHeight: '1.2', wordBreak: 'break-word' },
-          innerHTML: parseLinks(p.content)
+          innerHTML: typeof parseLinks === 'function' ? parseLinks(p.content) : p.content
         })
       ]),
-
-      // 右侧组件
       el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'nowrap', flexShrink: '0', alignItems: 'center' } }, [
         (() => {
           const showDiff = freshP.showDifficultyBeforeExpand === true || freshP.showDifficultyBeforeExpand === 'true';
@@ -541,34 +399,25 @@ function pointCard(p, chapterId) {
         el('button', {
           class: 'btn btn-sm btn-ghost', text: '🏷️', title: '管理卡片专属标签',
           style: { padding: '0 2px', height: '18px', minHeight: 'auto', fontSize: '12px', opacity: '0.6' },
-          onClick: (e) => {
-            e.stopPropagation();
-            showCardTagManager(p.id);
-          }
+          onClick: (e) => { e.stopPropagation(); if (typeof showCardTagManager === 'function') showCardTagManager(p.id); }
         })
       ])
     ])
   ]);
 
-  // 展开后的详细内容
   if (p.explanation) {
     const bgStyle = p.themeBg || 'rgba(0,0,0,0.02)';
     contentBox.appendChild(el('div', {
       style: { fontSize: '14px', color: 'var(--text-2)', marginBottom: '12px', whiteSpace: 'pre-wrap', wordBreak: 'break-word', background: bgStyle, padding: '12px', borderRadius: '8px', lineHeight: '1.6' },
-      innerHTML: parseLinks(p.explanation)
+      innerHTML: typeof parseLinks === 'function' ? parseLinks(p.explanation) : p.explanation
     }));
   }
 
   const footerRow = el('div', {
-    style: {
-      display: 'flex',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      marginTop: '4px', //  从原来的 12px 压缩到 4px
-      flexWrap: 'wrap',
-      gap: '4px'
-    }
-  }); if (p.imageIds && p.imageIds.length > 0) {
+    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', flexWrap: 'wrap', gap: '4px' }
+  });
+
+  if (p.imageIds && p.imageIds.length > 0) {
     footerRow.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' }, text: `🖼 包含 ${p.imageIds.length} 张图文附件` }));
   } else {
     footerRow.appendChild(el('div'));
@@ -576,9 +425,9 @@ function pointCard(p, chapterId) {
 
   const actions = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
     el('button', { class: 'btn btn-sm btn-ghost', text: '✏️ 编辑', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-point/${p.id}`); } }),
-    el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async (e) => { e.stopPropagation(); if (await confirmBox({ title: '删除卡片', message: '确定删除这张卡片吗？', danger: true, confirmText: '删除' })) { store.deletePoint(p.id); toastSuccess('已移入回收站'); renderChapterDetail({ params: { id: chapterId } }); } } }),
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderChapterDetail({ params: { id: chapterId } }); } }),
-    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderChapterDetail({ params: { id: chapterId } }); } })
+    el('button', { class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async (e) => { e.stopPropagation(); if (await confirmBox({ title: '删除卡片', message: '确定删除这张卡片吗？', danger: true, confirmText: '删除' })) { store.deletePoint(p.id); toastSuccess('已移入回收站'); renderFolderDetail({ params: { taskId: folderId } }); } } }),
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬆️', title: '上移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'up'); renderFolderDetail({ params: { taskId: folderId } }); } }),
+    el('button', { class: 'btn btn-sm btn-ghost', text: '⬇️', title: '下移', onClick: (e) => { e.stopPropagation(); store.movePoint(p.id, 'down'); renderFolderDetail({ params: { taskId: folderId } }); } })
   ]);
 
   footerRow.appendChild(actions);
@@ -587,29 +436,13 @@ function pointCard(p, chapterId) {
   card.appendChild(header);
   card.appendChild(contentBox);
 
-  //在卡片最外层包裹一个带蓝条的容器
   const container = el('div', {
     class: 'point-card-container',
-    style: {
-      marginBottom: '6px',
-      position: 'relative', // 为了绝对定位底部的色条
-      overflow: 'hidden', // 裁剪圆角
-      borderRadius: '6px',
-      background: 'var(--card)' // 保持原底色
-    }
+    style: { marginBottom: '6px', position: 'relative', overflow: 'hidden', borderRadius: '6px', background: 'var(--card)' }
   }, [
     card,
-    //底部马卡龙蓝装饰条
     el('div', {
-      style: {
-        position: 'absolute',
-        bottom: '0',
-        left: '0',
-        width: '100%',
-        height: '4px', // 高度，觉得细可以改大
-        background: '#8ECAE6', // 马卡龙蓝
-        opacity: '0.6' // 透明度，觉得不够亮可以改1
-      }
+      style: { position: 'absolute', bottom: '0', left: '0', width: '100%', height: '4px', background: '#8ECAE6', opacity: '0.6' }
     })
   ]);
 
@@ -634,6 +467,7 @@ export function showCardTagManager(pointId) {
     starred: t.starred || false
   }));
 
+  // 1. 基础预设与本地存储读取
   const defaultColors = [
     { c: '#ff4757', s: false }, { c: '#2ed573', s: false }, { c: '#1e90ff', s: true },
     { c: '#ffa502', s: false }, { c: '#8e44ad', s: false }, { c: '#747d8c', s: false },
@@ -641,8 +475,18 @@ export function showCardTagManager(pointId) {
     { c: '#000000', s: false }, { c: '#000080', s: false }, { c: 'transparent', s: false }
   ];
 
-  // 1. 基础预设与本地存储读取
-  let presetColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
+  let storedColors = [];
+  try {
+    storedColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
+  } catch (e) {
+    storedColors = [];
+  }
+
+  // 如果读取出来是空数组，强制使用默认颜色，并写回本地存储
+  let presetColors = storedColors.length > 0 ? storedColors : JSON.parse(JSON.stringify(defaultColors));
+  if (storedColors.length === 0) {
+    localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+  }
 
   // 2. 定义你需要的 8 个「绝对防删」强制色
   const forcedColors = [
@@ -720,9 +564,25 @@ export function showCardTagManager(pointId) {
             e.preventDefault();
 
             const DEFAULT_WORDS = ['∵', '∴', '≈', '≠', '＜', '＞', '≤', '≥', '→', '←'];
-            let allWords = JSON.parse(localStorage.getItem('kg_common_words')) || [];
+
+            // 1. 安全读取本地存储
+            let allWords = [];
+            try {
+              allWords = JSON.parse(localStorage.getItem('kg_common_words')) || [];
+            } catch (e) {
+              allWords = [];
+            }
+
+            // 2. 拆分预设与自定义
             let presetWords = allWords.filter(w => DEFAULT_WORDS.includes(w));
             let customWords = allWords.filter(w => !DEFAULT_WORDS.includes(w));
+
+            // 如果预设字符被清空了，自动补全默认数学符号
+            if (presetWords.length === 0) {
+              presetWords = [...DEFAULT_WORDS];
+              allWords = [...presetWords, ...customWords];
+              localStorage.setItem('kg_common_words', JSON.stringify(allWords));
+            }
 
             const wordMask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.4)' } });
             const wordBox = el('div', { class: 'confirm-box', style: { maxWidth: '380px', width: '90%', padding: '16px', display: 'flex', flexDirection: 'column', background: 'var(--bg)' } });
@@ -730,14 +590,20 @@ export function showCardTagManager(pointId) {
             const insertChar = (w) => {
               wordMask.remove();
               setTimeout(() => {
-                const realEditor = document.getElementById('card-tag-editor');
+                // 这里把 card-tag-editor 改成了 tag-editor，才能抓取到正确的富文本框
+                const realEditor = document.getElementById('tag-editor');
                 if (realEditor) {
                   realEditor.focus();
-                  if (savedRange) { const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(savedRange); }
+                  if (savedRange) {
+                    const sel = window.getSelection();
+                    sel.removeAllRanges();
+                    sel.addRange(savedRange);
+                  }
                   const color = selectedColor === 'transparent' ? '#000000' : selectedColor;
                   document.execCommand('styleWithCSS', false, true);
                   document.execCommand('insertHTML', false, `<span style="color:${color}">${w}</span>`);
-                  currentHtmlContent = realEditor.innerHTML; saveSelection();
+                  currentHtmlContent = realEditor.innerHTML;
+                  saveSelection();
                 }
               }, 10);
             };
@@ -754,9 +620,19 @@ export function showCardTagManager(pointId) {
 
                 const grid = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px', maxHeight: '150px', overflowY: 'auto' } });
                 const renderGrid = () => {
-                  clear(grid); header.lastChild.textContent = isCollapsed ? '▸' : '▾';
+                  clear(grid);
+                  header.lastChild.textContent = isCollapsed ? '▸' : '▾';
                   if (isCollapsed) return;
-                  wordsArr.forEach(w => { grid.appendChild(el('button', { class: 'btn btn-sm btn-ghost', text: w, style: { fontSize: '16px', padding: '2px 10px', border: '1px solid #ccc' }, onMousedown: e => e.preventDefault(), onClick: () => insertChar(w) })); });
+
+                  wordsArr.forEach(w => {
+                    grid.appendChild(el('button', {
+                      class: 'btn btn-sm btn-ghost',
+                      text: w,
+                      style: { fontSize: '16px', padding: '2px 10px', border: '1px solid #ccc' },
+                      onMousedown: e => e.preventDefault(),
+                      onClick: () => insertChar(w)
+                    }));
+                  });
                 };
                 renderGrid(); block.appendChild(header); block.appendChild(grid); return block;
               };
@@ -1427,61 +1303,73 @@ function startReviewMode(points, chapterId) {
   mask.appendChild(cardArea);
 
   // 底部悬浮触控栏（平板专属）
-  const touchBar = el('div', {
-    id: 'review-touch-bar',
-    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.85)', backdropFilter: 'blur(10px)', padding: '8px 16px', borderRadius: '30px', display: 'flex', gap: '12px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center' }
-  }, [
-    // 上一个
-    el('button', {
-      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬆️',
-      title: '快捷键: ↑',
-      onClick: () => { if (currentIndex > 0) { currentIndex--; isExpanded = false; renderCard(); } }
-    }),
+  let isBarExpanded = false; // 👈 控制是否展开
 
-    // 翻开答案
-    el('button', {
-      class: 'btn btn-primary', style: { fontSize: '16px', padding: '8px 24px', borderRadius: '20px' }, text: '翻开答案 (空格)',
-      onClick: () => { isExpanded = !isExpanded; renderCard(); }
-    }),
+  const renderTouchBar = () => {
+    const oldBar = document.getElementById('review-touch-bar');
+    if (oldBar) oldBar.remove();
 
-    // 图片
-    el('button', {
-      class: 'btn btn-ghost', style: { color: '#fff' }, text: '🖼 图片 (I)',
-      title: '快捷键: I',
-      onClick: () => {
-        const p = points[currentIndex];
-        if (p.imageIds && p.imageIds.length > 0) openQuickImages(p.imageIds);
-        else toastSuccess('当前卡片无图片');
-      }
-    }),
-
-    // PDF
-    el('button', {
-      class: 'btn btn-ghost', style: { color: '#fff' }, text: '📄 PDF (P)',
-      title: '快捷键: P',
-      onClick: () => {
-        const p = points[currentIndex];
-        const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
-        const realPoint = allPoints.find(x => x.id === p.id) || p;
-        const pdfId = findPdfId(realPoint);
-
-        if (pdfId) {
-          window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
-          mask.remove(); window.onkeydown = null; document.body.style.overflow = '';
-        } else {
-          toastSuccess('当前卡片无 PDF');
+    const touchBar = el('div', {
+      id: 'review-touch-bar',
+      style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.9)', backdropFilter: 'blur(10px)', padding: '6px 12px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', maxWidth: '95vw', overflowX: 'auto' }
+    }, [
+      // 跳转输入框（始终显示，可以直接跳到某题）
+      el('input', {
+        type: 'number', min: 1, max: points.length, placeholder: `${currentIndex + 1}/${points.length}`,
+        style: { width: '60px', height: '28px', padding: '2px 6px', borderRadius: '14px', border: 'none', textAlign: 'center', fontSize: '12px', color: '#333', outline: 'none' },
+        onKeyDown: (e) => {
+          if (e.key === 'Enter') {
+            const val = parseInt(e.target.value);
+            if (val >= 1 && val <= points.length) {
+              currentIndex = val - 1;
+              isExpanded = false;
+              renderCard();
+              e.target.value = ''; // 清空
+              e.target.blur(); // 收起键盘
+            } else {
+              toastError('超出范围');
+            }
+          }
         }
-      }
-    }),
+      }),
+      
+      // 翻转（始终显示）
+      el('button', {
+        class: 'btn btn-sm btn-primary', style: { fontSize: '14px', padding: '6px 16px', borderRadius: '20px' }, text: '翻转',
+        onClick: () => { isExpanded = !isExpanded; renderCard(); }
+      }),
 
-    // 下一个
-    el('button', {
-      class: 'btn btn-ghost', style: { color: '#fff', fontSize: '20px', padding: '8px 16px' }, text: '⬇️',
-      title: '快捷键: ↓',
-      onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; isExpanded = false; renderCard(); } }
-    })
-  ]);
-  mask.appendChild(touchBar);
+      // 展开/收起按钮
+      el('button', {
+        class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '14px', padding: '4px 8px', fontWeight: 'bold' }, text: isBarExpanded ? '收起' : '展开',
+        onClick: () => { isBarExpanded = !isBarExpanded; renderTouchBar(); }
+      }),
+
+      // 展开后的按钮组
+      ...(isBarExpanded ? [
+        el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+        
+        // 上一个
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '18px', padding: '4px 8px' }, text: '⬆️', title: '上一个', onClick: () => { if (currentIndex > 0) { currentIndex--; isExpanded = false; renderCard(); } } }),
+        // 下一个
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '18px', padding: '4px 8px' }, text: '⬇️', title: '下一个', onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; isExpanded = false; renderCard(); } } }),
+        
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '16px', padding: '4px 8px' }, text: '🖼', title: '图片', onClick: () => { const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('当前无图片'); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '16px', padding: '4px 8px' }, text: '📄', title: 'PDF', onClick: () => { const p = points[currentIndex]; const realPoint = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p; const pdfId = findPdfId(realPoint); if (pdfId) { window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`; mask.remove(); } else toastSuccess('当前无 PDF'); } }),
+        
+        el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+        
+        // 打分按钮
+        el('button', { class: 'btn btn-sm btn-danger', style: { padding: '4px 8px', fontSize: '13px' }, text: '忘了', onClick: () => ratePoint('forgot') }),
+        el('button', { class: 'btn btn-sm btn-warning', style: { padding: '4px 8px', fontSize: '13px' }, text: '模糊', onClick: () => ratePoint('vague') }),
+        el('button', { class: 'btn btn-sm btn-success', style: { padding: '4px 8px', fontSize: '13px' }, text: '记得', onClick: () => ratePoint('remember') })
+      ] : [])
+    ]);
+
+    document.body.appendChild(touchBar);
+  };
+
+  renderTouchBar(); // 初始化
 
   document.body.appendChild(mask);
   document.body.style.overflow = 'hidden'; // 防止背景滚动
@@ -1599,7 +1487,7 @@ function startReviewMode(points, chapterId) {
     cardArea.appendChild(card);
   }
 
-  // 评分并切下一题
+    // 评分并切下一题
   function ratePoint(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
@@ -1609,12 +1497,22 @@ function startReviewMode(points, chapterId) {
       isExpanded = false;
       renderCard();
     } else {
-      // 最后一张：把界面关掉并刷新列表
-      alert('太棒了，该文件夹已复习完毕！');
-      mask.remove(); // 沉浸式用这个
-      // touchBar.remove(); // 专注列表模式用这个
-      window.onkeydown = null;
-      renderChapterDetail({ params: { id: chapterId } });
+      // 👈 核心修复：复习到最后一张时，询问是否循环
+      if (confirm('太棒了，该文件夹已复习完毕！\n点击“确定”从头循环复习，点击“取消”退出。')) {
+        currentIndex = 0;
+        isExpanded = false;
+        renderCard();
+      } else {
+        mask.remove(); // 沉浸式退出
+        window.onkeydown = null;
+        document.body.style.overflow = '';
+        // 👈 核心修复：改为调用新的文件夹渲染函数
+        if (typeof renderFolderDetail === 'function') {
+          renderFolderDetail({ params: { taskId: chapterId } });
+        } else {
+          window.location.reload();
+        }
+      }
     }
   }
 
@@ -1716,64 +1614,61 @@ function startFocusListMode(points, chapterId) {
 
   if (cardElements.length === 0) return;
 
-  // 2. 创建底部悬浮条
-  const touchBar = el('div', {
-    id: 'review-touch-bar',
-    style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.95)', backdropFilter: 'blur(10px)', padding: '8px 16px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }
-  }, [
-    el('button', {
-      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出', onClick: () => {
-        cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
-        touchBar.remove(); window.onkeydown = null;
-      }
-    }),
-    el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
-    el('button', {
-      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬆️', title: '快捷键: ↑', onClick: () => {
-        if (currentIndex > 0) { currentIndex--; highlightCard(); }
-      }
-    }),
-    el('button', {
-      class: 'btn btn-sm btn-primary', style: { padding: '4px 16px' }, text: '翻转 (空格)', onClick: () => {
-        isExpanded = !isExpanded; highlightCard();
-      }
-    }),
-    el('button', {
-      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '🖼 图片 (I)', onClick: () => {
-        const p = points[currentIndex];
-        if (p.imageIds && p.imageIds.length > 0) openQuickImages(p.imageIds);
-        else toastSuccess('当前无图片');
-      }
-    }),
-    el('button', {
-      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '📄 PDF (P)',
-      onClick: () => {
-        const p = points[currentIndex];
-        const allPoints = JSON.parse(localStorage.getItem('kg_points') || '[]');
-        const realPoint = allPoints.find(x => x.id === p.id) || p;
-        const pdfId = findPdfId(realPoint);
+    // 2. 创建底部悬浮条
+  let isBarExpanded = false; // 👈 控制是否展开
 
-        if (pdfId) {
-          window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`;
-          touchBar.remove(); window.onkeydown = null;
-        } else {
-          toastSuccess('当前无 PDF');
+  const renderFocusTouchBar = () => {
+    const oldBar = document.getElementById('review-touch-bar');
+    if (oldBar) oldBar.remove();
+
+    const touchBar = el('div', {
+      id: 'review-touch-bar',
+      style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.95)', backdropFilter: 'blur(10px)', padding: '6px 12px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }
+    }, [
+      el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出', onClick: () => { cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)'); touchBar.remove(); window.onkeydown = null; } }),
+      
+      // 跳转输入框
+      el('input', {
+        type: 'number', min: 1, max: points.length, placeholder: `${currentIndex + 1}/${points.length}`,
+        style: { width: '60px', height: '28px', padding: '2px 6px', borderRadius: '14px', border: 'none', textAlign: 'center', fontSize: '12px', color: '#333', outline: 'none' },
+        onKeyDown: (e) => {
+          if (e.key === 'Enter') {
+            const val = parseInt(e.target.value);
+            if (val >= 1 && val <= points.length) {
+              currentIndex = val - 1;
+              isExpanded = false;
+              highlightCard();
+              e.target.value = '';
+              e.target.blur();
+            } else { toastError('超出范围'); }
+          }
         }
-      }
-    }),
-    el('button', {
-      class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬇️', title: '快捷键: ↓', onClick: () => {
-        if (currentIndex < points.length - 1) { currentIndex++; highlightCard(); }
-      }
-    }),
-    el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
-    // 快速评分按钮
-    el('button', { class: 'btn btn-sm btn-danger', text: '1.忘了', onClick: () => rateCurrent('forgot') }),
-    el('button', { class: 'btn btn-sm btn-warning', text: '2.模糊', onClick: () => rateCurrent('vague') }),
-    el('button', { class: 'btn btn-sm btn-success', text: '3.记得', onClick: () => rateCurrent('remember') })
-  ]);
+      }),
 
-  document.body.appendChild(touchBar);
+      // 翻转
+      el('button', { class: 'btn btn-sm btn-primary', style: { padding: '4px 16px' }, text: '翻转', onClick: () => { isExpanded = !isExpanded; highlightCard(); } }),
+
+      // 展开/收起按钮
+      el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '14px', padding: '4px 8px', fontWeight: 'bold' }, text: isBarExpanded ? '收起' : '展开', onClick: () => { isBarExpanded = !isBarExpanded; renderFocusTouchBar(); } }),
+
+      // 展开后的按钮组
+      ...(isBarExpanded ? [
+        el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬆️', title: '上一个', onClick: () => { if (currentIndex > 0) { currentIndex--; highlightCard(); } } }),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬇️', title: '下一个', onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; highlightCard(); } } }),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '🖼', title: '图片', onClick: () => { const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('当前无图片'); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '📄', title: 'PDF', onClick: () => { const p = points[currentIndex]; const realPoint = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p; const pdfId = findPdfId(realPoint); if (pdfId) { window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`; touchBar.remove(); window.onkeydown = null; } else toastSuccess('当前无 PDF'); } }),
+        el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+        el('button', { class: 'btn btn-sm btn-danger', text: '1.忘了', onClick: () => rateCurrent('forgot') }),
+        el('button', { class: 'btn btn-sm btn-warning', text: '2.模糊', onClick: () => rateCurrent('vague') }),
+        el('button', { class: 'btn btn-sm btn-success', text: '3.记得', onClick: () => rateCurrent('remember') })
+      ] : [])
+    ]);
+
+    document.body.appendChild(touchBar);
+  };
+
+  renderFocusTouchBar(); // 初始化
 
   // 3. 高亮并滚动到当前卡片
   function highlightCard() {
@@ -1799,15 +1694,14 @@ function startFocusListMode(points, chapterId) {
     }
   }
 
-  // 4. 评分并切下一题
+    // 4. 评分并切下一题
   function rateCurrent(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
     if (rating === 'forgot') {
       store.incrementErrorCount(p.id);
 
-      //错题本联动：如果你之前在这个卡片里插入过 ❝ 引用块，那么它会被自动高亮或在错题本展示
-      // 如果你希望“忘了”时自动在卡片末尾补一个“🚨 易错点：”的引用块：
+      // 错题本联动
       if (!p.explanation || !p.explanation.includes('🚨 易错点')) {
         const newHtml = (p.explanation || '') + `<br><blockquote style="border-left: 4px solid #FFB5A7; margin: 8px 0; padding: 4px 12px; color: #EF476F; background: rgba(255,181,167,0.1); border-radius: 0 4px 4px 0;"><strong>🚨 易错点总结：</strong><br>请在编辑页补充这道题的错因...</blockquote>`;
         store.updatePoint(p.id, { explanation: newHtml });
@@ -1820,11 +1714,22 @@ function startFocusListMode(points, chapterId) {
       isExpanded = false;
       highlightCard();
     } else {
-      toastSuccess('复习完毕！');
-      cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
-      touchBar.remove();
-      window.onkeydown = null;
-      renderChapterDetail({ params: { id: chapterId } });
+      // 👈 核心修复：最后一张也支持循环
+      if (confirm('复习完毕！\n点击“确定”从头循环，点击“取消”退出。')) {
+        currentIndex = 0;
+        isExpanded = false;
+        highlightCard();
+      } else {
+        cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
+        touchBar.remove();
+        window.onkeydown = null;
+        // 👈 核心修复：改为调用新的文件夹渲染函数
+        if (typeof renderFolderDetail === 'function') {
+          renderFolderDetail({ params: { taskId: chapterId } });
+        } else {
+          window.location.reload();
+        }
+      }
     }
   }
 
@@ -1950,3 +1855,1392 @@ function findPdfId(point) {
 
   return null;
 }
+
+// 👈 核心修复：在 chapter.js 里手写一个折叠函数，不再依赖外部
+function handleFolderToggle(taskId) {
+  // 1. 从 localStorage 读取当前的折叠状态
+  let collapsed = [];
+  try {
+    collapsed = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]');
+  } catch (e) { }
+
+  const collapsedSet = new Set(collapsed);
+
+  // 2. 切换状态
+  if (collapsedSet.has(taskId)) {
+    collapsedSet.delete(taskId); // 如果折叠了，就展开
+  } else {
+    collapsedSet.add(taskId);    // 如果展开了，就折叠
+  }
+
+  // 3. 存回 localStorage
+  localStorage.setItem('kg_collapsed_folders', JSON.stringify([...collapsedSet]));
+
+  // 4. 如果是在首页，同步更新 home.js 里的全局变量（如果是同一份数据可以直接刷新）
+  if (typeof collapsedFolders !== 'undefined') {
+    if (collapsedFolders.has(taskId)) collapsedFolders.delete(taskId);
+    else collapsedFolders.add(taskId);
+  }
+}
+
+// ================= 全局通用文件夹卡片（支持无限嵌套） =================
+export function taskCard(task, currentFolderId, depth = 0) {
+  const subFolders = store.getTasks().filter(t => t.parentId === task.id);
+  const hasSub = subFolders.length > 0;
+
+  let collapsedList = [];
+  try {
+    collapsedList = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]');
+  } catch (e) { }
+  const isCollapsed = collapsedList.includes(task.id);
+
+  // 递归统计总卡片数
+  function countAllPoints(folderId) {
+    let count = store.getPoints(folderId).length;
+    const children = store.getTasks().filter(t => t.parentId === folderId);
+    children.forEach(child => { count += countAllPoints(child.id); });
+    return count;
+  }
+  const totalPointCount = countAllPoints(task.id);
+
+  const indent = depth > 0 ? depth * 16 : 0; // 缩进稍微改小一点
+
+  const cardEl = el('div', {
+    class: 'card',
+    'data-id': task.id,
+    style: {
+      display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer',
+      marginBottom: '4px', // 极限压缩外边距
+      marginLeft: indent + 'px',
+      borderLeft: depth > 0 ? '2px solid rgba(142,202,230,0.3)' : 'none',
+      padding: '6px 10px' // 👈 极限压缩内边距
+    },
+    onClick: (e) => {
+      if (e.target.closest('.toggle-btn') || e.target.closest('.card-actions')) return;
+      navigate(`#/folder/${task.id}`);
+    },
+  }, [
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
+      el('div', { style: { display: 'flex', alignItems: 'center', flex: '1', minWidth: 0 } }, [
+        // 折叠箭头
+        hasSub ? el('span', {
+          class: 'toggle-btn',
+          style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '12px', padding: '2px 6px', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+          text: isCollapsed ? '▸' : '▾',
+          onClick: (e) => {
+            e.preventDefault(); e.stopPropagation();
+            let current = [];
+            try { current = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]'); } catch (err) { }
+            const set = new Set(current);
+            if (set.has(task.id)) set.delete(task.id); else set.add(task.id);
+            localStorage.setItem('kg_collapsed_folders', JSON.stringify([...set]));
+
+            if (window.location.hash.includes('/folder/')) {
+              const currentId = window.location.hash.split('/').pop().split('?')[0];
+              renderFolderDetail({ params: { taskId: currentId } });
+            } else {
+              if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
+            }
+          }
+        }) : el('span', { style: { width: '24px', display: 'inline-block' } }),
+
+        el('div', {
+          class: 'card-title',
+          style: { display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', whiteSpace: 'nowrap', fontWeight: '600', fontSize: '14px' }
+        }, [
+          ...(task.statusTags || (task.statusIcon ? [{ text: task.statusIcon, color: task.statusColor }] : [])).map(tag =>
+            el('span', {
+              style: {
+                color: tag.color || '#ff4757', fontSize: '11px', padding: '0 4px', borderRadius: '4px',
+                background: 'transparent', border: `1px solid ${tag.borderColor !== undefined ? tag.borderColor : (tag.color || '#ff4757')}`,
+                flexShrink: 0, lineHeight: 1.2, fontWeight: '500'
+              },
+              innerHTML: tag.html || tag.text
+            })
+          ),
+          el('span', { text: `📁 ${task.name}`, style: { overflow: 'hidden', textOverflow: 'ellipsis' } })
+        ])
+      ]),
+
+      // 右侧操作按钮（按钮变小，空隙变小）
+      el('div', { class: 'card-actions', style: { display: 'flex', gap: '2px' } }, [
+        el('button', { class: 'btn btn-sm btn-ghost', text: '🏷️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '管理状态标签', onClick: (e) => { e.stopPropagation(); showStatusTagManager(task); } }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '➕📁', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '新建子文件夹',
+          onClick: (e) => {
+            e.stopPropagation();
+            const name = prompt('输入子文件夹名称：');
+            if (name && name.trim()) {
+              store.createTask({ name: name.trim(), parentId: task.id });
+              toastSuccess('子文件夹已创建');
+              if (window.location.hash.includes('/folder/')) {
+                const currentId = window.location.hash.split('/').pop().split('?')[0];
+                renderFolderDetail({ params: { taskId: currentId } });
+              } else {
+                if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
+              }
+            }
+          }
+        }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '编辑文件夹', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-task/${task.id}`); } }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '🗑', style: { padding: '0 4px', height: '24px', minHeight: '24px', color: 'var(--danger)' }, title: '删除文件夹',
+          onClick: async (e) => {
+            e.stopPropagation();
+            if (await confirmBox({ title: '删除文件夹', message: `「${task.name}」及其卡片将进入回收站`, danger: true, confirmText: '删除' })) {
+              store.deleteTask(task.id);
+              toastSuccess('已移入回收站');
+              if (window.location.hash.includes('/folder/')) {
+                const currentId = window.location.hash.split('/').pop().split('?')[0];
+                renderFolderDetail({ params: { taskId: currentId } });
+              } else {
+                if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
+              }
+            }
+          },
+        }),
+      ])
+    ]),
+
+    task.note ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.2' }, text: task.note }) : null,
+
+    // 底部统计
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0px', paddingLeft: '24px' } }, [
+      el('span', { style: { fontSize: '11px', color: 'var(--text-2)' }, text: `💡 ${totalPointCount} 张卡片` }),
+      hasSub ? el('span', { style: { fontSize: '11px', color: 'var(--primary)' }, text: `📁 ${subFolders.length} 个子文件夹` }) : null
+    ])
+  ]);
+
+  if (hasSub && !isCollapsed) {
+    const subContainer = el('div', { style: { paddingLeft: '12px' } });
+    subFolders.forEach(sub => {
+      subContainer.appendChild(taskCard(sub, currentFolderId, depth + 1));
+    });
+    return el('div', {}, [cardEl, subContainer]);
+  }
+
+  return cardEl;
+}
+
+// ================= 🏷️ 状态标签管理面板 =================
+function showStatusTagManager(task) {
+  // 颜色转换辅助函数
+  function hexToRgb(hex) {
+    if (!hex || hex === 'transparent') return '';
+    const r = parseInt(hex.slice(1, 3), 16);
+    const g = parseInt(hex.slice(3, 5), 16);
+    const b = parseInt(hex.slice(5, 7), 16);
+    return `${r}, ${g}, ${b}`;
+  }
+
+  // ==========================================
+  // 1. 初始化数据（分离展示：自己的标签可编辑，子文件夹标签仅展示）
+  // ==========================================
+  let currentTags = [];
+  let isListCollapsed = true; // 默认收起
+
+  // ① 先加自己的标签
+  if (Array.isArray(task.statusTags)) {
+    currentTags = JSON.parse(JSON.stringify(task.statusTags)).map(t => ({
+      html: t.html || null, text: t.text || '',
+      color: t.color || '#ff4757',
+      bgColor: t.bgColor || 'transparent',
+      borderColor: t.borderColor || 'transparent',
+      starred: t.starred || false,
+      isSubTag: false, isCardTag: false
+    }));
+  } else if (task.statusIcon) {
+    currentTags = [{
+      text: task.statusIcon, color: task.statusColor || '#ff4757',
+      html: null, bgColor: 'transparent', borderColor: 'transparent', starred: false,
+      isSubTag: false, isCardTag: false
+    }];
+  }
+
+  // ② 深度遍历所有子孙文件夹
+  let allRelatedTasks = [task];
+  let queue = [task.id];
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    const children = store.getTasks().filter(t => t.parentId === currentId);
+    children.forEach(child => {
+      allRelatedTasks.push(child);
+      queue.push(child.id);
+    });
+  }
+
+  // ③ 收集子文件夹的标签
+  let subTagsAdded = new Set(currentTags.map(t => t.text));
+  allRelatedTasks.forEach(subTask => {
+    if (subTask.id === task.id) return;
+    if (Array.isArray(subTask.statusTags)) {
+      subTask.statusTags.forEach(tag => {
+        if (!subTagsAdded.has(tag.text)) {
+          subTagsAdded.add(tag.text);
+          currentTags.push({
+            html: tag.html || null, text: tag.text || '',
+            color: tag.color || '#ff4757',
+            bgColor: tag.bgColor || 'transparent',
+            borderColor: tag.borderColor || 'transparent',
+            starred: tag.starred || false,
+            isSubTag: true,
+            isCardTag: false
+          });
+        }
+      });
+    }
+  });
+
+  // ④ 终极暴力收集：遍历所有未删除的卡片，只要卡片里有标签，就抓过来！
+  const allPoints = store.getPoints();
+
+  allPoints.forEach(p => {
+    // 只要卡片没有被删除，且有标签数据
+    if (!p.deletedAt && p.tags && Array.isArray(p.tags) && p.tags.length > 0) {
+      p.tags.forEach(tag => {
+        // 去重：如果这个标签还没加过
+        if (!currentTags.some(t => t.text === tag.text)) {
+          currentTags.push({
+            html: tag.html || null,
+            text: tag.text || '',
+            color: tag.color || '#ff4757',
+            bgColor: tag.bgColor || 'transparent',
+            borderColor: tag.borderColor || 'transparent',
+            starred: tag.starred || false,
+            isSubTag: false,
+            isCardTag: true // 这是来自卡片的标签
+          });
+        }
+      });
+    }
+  });
+
+  // ==========================================
+  // 2. 颜色库初始化
+  // ==========================================
+  // 1. 基础预设与本地存储读取
+  const defaultColors = [
+    { c: '#ff4757', s: false }, { c: '#2ed573', s: false }, { c: '#1e90ff', s: true },
+    { c: '#ffa502', s: false }, { c: '#8e44ad', s: false }, { c: '#747d8c', s: false },
+    { c: '#ff9ff3', s: false }, { c: '#f368e0', s: false },
+    { c: '#000000', s: false }, { c: '#000080', s: false }, { c: 'transparent', s: false }
+  ];
+
+  // 👈 核心修复：先安全读取，如果为空数组则强制用默认值补齐
+  let storedColors = [];
+  try {
+    storedColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
+  } catch (e) {
+    storedColors = [];
+  }
+
+  let presetColors = storedColors.length > 0 ? storedColors : JSON.parse(JSON.stringify(defaultColors));
+  if (storedColors.length === 0) {
+    localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+  }
+
+  // 2. 定义 8 个「绝对防删」强制色
+  const forcedColors = [
+    { c: '#000000', s: true, isForced: true }, // 黑
+    { c: '#000080', s: true, isForced: true }, // 藏青
+    { c: 'transparent', s: true, isForced: true }, // 透明
+    { c: '#1e90ff', s: true, isForced: true }, // 亮蓝
+    { c: '#ff4757', s: true, isForced: true }, // 红
+    { c: '#2ed573', s: true, isForced: true }, // 绿
+    { c: '#8e44ad', s: true, isForced: true }, // 紫
+    { c: '#f368e0', s: true, isForced: true }  // 粉
+  ];
+
+  // 3. 剥离旧的强制色，确保强制色永远排在最前面且带保护标记
+  forcedColors.forEach(fc => {
+    presetColors = presetColors.filter(p => p.c !== fc.c); // 去重
+    presetColors.unshift(fc); // 放在最前
+  });
+
+  // 4. 兼容并补齐你在 defaultColors 里定义的普通颜色（不覆盖强制色）
+  defaultColors.forEach(dc => {
+    if (!presetColors.some(p => p.c === dc.c)) {
+      presetColors.push(dc);
+    }
+  });
+
+  // 5. 将最终结果写回本地存储
+  localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+
+  // 3. 状态变量
+  let activeColorType = 'text'; // text | bg | border
+  let selectedColor = '#ff4757';
+  let selectedBgColor = 'transparent';
+  let selectedBorderColor = 'transparent';
+
+  let isColorManageMode = false;
+  let isStarredExpanded = false;
+  const selectedColorIndices = new Set();
+  const selectedIndices = new Set();
+  let editingIndex = -1;
+
+  let currentHtmlContent = editingIndex > -1 ? (currentTags[editingIndex].html || '') : '';
+  let savedRange = null;
+  let editorRef = null;
+
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+  const box = el('div', { class: 'confirm-box', style: { maxWidth: '460px', width: '95%', padding: '20px', maxHeight: '90vh', overflowY: 'auto' } });
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel.rangeCount > 0 && editorRef && editorRef.contains(sel.anchorNode)) {
+      savedRange = sel.getRangeAt(0).cloneRange();
+    }
+  };
+
+  const restoreSelection = () => {
+    if (editorRef) {
+      editorRef.focus();
+      if (savedRange) {
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(savedRange);
+      }
+    }
+  };
+
+  // ================= 统一刷新渲染 =================
+  //接收一个回显内容参数
+  const renderContent = (initialContent = null) => {
+    console.log("=== 准备渲染 renderContent ===");
+    console.log("接收到的 initialContent:", initialContent);
+    clear(box);
+
+    // 1. 顶部：仅标题
+    box.appendChild(el('h3', { text: '🏷️ 状态标签管理', style: { marginTop: 0, marginBottom: '12px' } }));
+
+    // ================= 2. 中部：输入区 =================
+    //在最外层声明，避免弹窗内外作用域冲突
+    const currentExternalChars = JSON.parse(localStorage.getItem('kg_external_chars')) || [];
+
+    const toolbar = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' } }, [
+      // 1. 常用字按钮（包含弹窗）
+      (() => {
+        const wrap = el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } });
+
+        wrap.appendChild(el('button', {
+          class: 'btn btn-sm btn-ghost',
+          text: '📝 常用字',
+          style: { fontWeight: 'bold', padding: '2px 8px' },
+          onMousedown: e => e.preventDefault(),
+          onClick: (e) => {
+            e.preventDefault();
+
+            // 弹窗读取最新数据
+            const DEFAULT_WORDS = ['∵', '∴', '≈', '≠', '＜', '＞', '≤', '≥', '→', '←'];
+            let allWords = [];
+            try {
+              allWords = JSON.parse(localStorage.getItem('kg_common_words')) || [];
+            } catch (e) { allWords = []; }
+
+            let presetWords = allWords.filter(w => DEFAULT_WORDS.includes(w));
+            let customWords = allWords.filter(w => !DEFAULT_WORDS.includes(w));
+
+            // 👈 核心修复：如果预设字符全部被清空或丢失了，强制把 DEFAULT_WORDS 补回去！
+            if (presetWords.length === 0) {
+              presetWords = [...DEFAULT_WORDS];
+              // 合并并保存回本地
+              allWords = [...presetWords, ...customWords];
+              localStorage.setItem('kg_common_words', JSON.stringify(allWords));
+            }
+            let externalChars = JSON.parse(localStorage.getItem('kg_external_chars')) || []; // 弹窗内单独的副本
+
+            const mask = el('div', { class: 'confirm-mask', style: { zIndex: 100000, display: 'flex', alignItems: 'center', justifyContent: 'center' } });
+            const box = el('div', { class: 'confirm-box', style: { maxWidth: '380px', width: '90%', padding: '16px', display: 'flex', flexDirection: 'column' } });
+
+            const insertChar = (w) => {
+              mask.remove(); // 关闭弹窗
+
+              // 给浏览器一丁点时间销毁弹窗，然后暴力抓取输入框
+              setTimeout(() => {
+                const realEditor = document.getElementById('tag-editor');
+                if (!realEditor) return;
+
+                realEditor.focus();
+                const color = selectedColor === 'transparent' ? '#000000' : selectedColor;
+                const htmlToInsert = `<span style="color:${color}">${w}</span>`;
+
+                // 恢复选区（如果存在）
+                const sel = window.getSelection();
+                if (savedRange && realEditor.contains(savedRange.commonAncestorContainer)) {
+                  try {
+                    sel.removeAllRanges();
+                    sel.addRange(savedRange);
+                  } catch (err) { }
+                }
+
+                // 强行插入
+                try {
+                  if (sel.rangeCount > 0) {
+                    document.execCommand('styleWithCSS', false, true);
+                    document.execCommand('insertHTML', false, htmlToInsert);
+                  } else {
+                    realEditor.innerHTML += htmlToInsert;
+                  }
+                } catch (err) {
+                  realEditor.innerHTML += htmlToInsert;
+                }
+
+                // 更新内容，并把光标塞到最后
+                currentHtmlContent = realEditor.innerHTML;
+
+                const finalSel = window.getSelection();
+                if (finalSel.rangeCount > 0) {
+                  const range = finalSel.getRangeAt(0);
+                  const span = range.startContainer.previousSibling;
+                  if (span && span.nodeType === 1 && span.tagName === 'SPAN') {
+                    const newRange = document.createRange();
+                    newRange.setStart(span.firstChild, span.firstChild.length);
+                    newRange.collapse(true);
+                    finalSel.removeAllRanges();
+                    finalSel.addRange(newRange);
+                  }
+                }
+                saveSelection();
+              }, 20);
+            };
+
+            const renderMainPanel = () => {
+              clear(box);
+              box.appendChild(el('h4', { text: '选择常用字符', style: { marginTop: 0, marginBottom: '12px' } }));
+
+              const createBlock = (title, wordsArr, defaultCollapsed = false) => {
+                if (wordsArr.length === 0) return null;
+                let isCollapsed = defaultCollapsed;
+                const block = el('div', { style: { marginBottom: '12px', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '6px' } });
+                const header = el('div', {
+                  style: { padding: '8px', background: 'var(--bg)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' },
+                  onClick: () => { isCollapsed = !isCollapsed; renderGrid(); }
+                }, [el('span', { text: title }), el('span', { text: isCollapsed ? '▸' : '▾' })]);
+
+                const grid = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '8px', maxHeight: '150px', overflowY: 'auto' } });
+                const renderGrid = () => {
+                  clear(grid);
+                  header.lastChild.textContent = isCollapsed ? '▸' : '▾';
+                  if (isCollapsed) return;
+
+                  wordsArr.forEach(w => {
+                    grid.appendChild(el('button', {
+                      class: 'btn btn-sm btn-ghost',
+                      text: w,
+                      style: { fontSize: '16px', padding: '2px 10px', border: '1px solid #ccc' },
+                      onMousedown: e => e.preventDefault(),
+                      onClick: () => insertChar(w)
+                    }));
+                  });
+                };
+                renderGrid();
+                block.appendChild(header);
+                block.appendChild(grid);
+                return block;
+              };
+
+              const customBlock = createBlock('➕ 自定义字符', customWords);
+              if (customBlock) box.appendChild(customBlock);
+              const presetBlock = createBlock('🌟 预设字符', presetWords, true);
+              if (presetBlock) box.appendChild(presetBlock);
+
+              if (!customBlock && !presetBlock) {
+                box.appendChild(el('div', { text: '暂无常用字符，请点击管理添加', style: { textAlign: 'center', color: 'var(--text-2)', padding: '20px' } }));
+              }
+
+              box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', marginTop: '8px' } }, [
+                el('button', { class: 'btn btn-sm btn-ghost', text: '⚙️ 管理', onClick: renderManagePanel }),
+                el('button', { class: 'btn btn-sm btn-ghost', text: '关闭', onClick: () => mask.remove() })
+              ]));
+            };
+
+            const renderManagePanel = () => {
+              clear(box);
+              box.appendChild(el('h4', { text: '📝 管理常用字符', style: { marginTop: 0, marginBottom: '12px' } }));
+
+              let selectedPreset = new Set();
+              let selectedCustom = new Set();
+              let selectedExternal = new Set();
+              let externalCollapsed = true;
+
+              const createManageBlock = (title, wordsArr, selectedSet, onDelete, collapsedState) => {
+                const wrapper = el('div', { style: { marginBottom: '12px', border: '1px solid rgba(0,0,0,0.1)', borderRadius: '6px' } });
+                let isCollapsed = collapsedState.value;
+                const header = el('div', {
+                  style: { padding: '8px', background: 'var(--bg)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', fontSize: '13px' },
+                  onClick: () => { isCollapsed = !isCollapsed; collapsedState.value = isCollapsed; renderAll(); }
+                }, [el('span', { text: title }), el('span', { text: isCollapsed ? '▸' : '▾' })]);
+
+                wrapper.appendChild(header);
+                if (!isCollapsed) {
+                  const tools = el('div', { style: { display: 'flex', gap: '6px', padding: '4px 8px', borderBottom: '1px solid rgba(0,0,0,0.05)', alignItems: 'center' } }, [
+                    el('button', {
+                      class: 'btn btn-sm btn-ghost', text: '📌 外置', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => {
+                        if (selectedSet.size === 0) return;
+                        selectedSet.forEach(i => {
+                          if (!externalChars.includes(wordsArr[i])) externalChars.push(wordsArr[i]);
+                        });
+                        localStorage.setItem('kg_external_chars', JSON.stringify(externalChars));
+                        renderAll();
+                      }
+                    }),
+                    el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => { wordsArr.forEach((_, i) => selectedSet.add(i)); renderAll(); } }),
+                    el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => { selectedSet.clear(); renderAll(); } }),
+                    el('button', {
+                      class: 'btn btn-sm btn-danger', text: '删除', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => {
+                        if (selectedSet.size === 0) return;
+                        onDelete();
+                      }
+                    })
+                  ]);
+                  wrapper.appendChild(tools);
+
+                  const grid = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px', maxHeight: '120px', overflowY: 'auto' } });
+                  wordsArr.forEach((w, i) => {
+                    const isChecked = selectedSet.has(i);
+                    grid.appendChild(el('div', {
+                      style: { padding: '2px 8px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', background: isChecked ? 'var(--primary)' : 'transparent', color: isChecked ? '#fff' : 'inherit' },
+                      onClick: () => { if (isChecked) selectedSet.delete(i); else selectedSet.add(i); renderAll(); }
+                    }, [el('span', { text: w })]));
+                  });
+                  if (wordsArr.length === 0) grid.appendChild(el('div', { text: '暂无字符', style: { fontSize: '12px', color: 'var(--text-2)' } }));
+                  wrapper.appendChild(grid);
+                }
+                return wrapper;
+              };
+
+              const presetCollapsed = { value: false };
+              const customCollapsed = { value: false };
+
+              const renderAll = () => {
+                clear(box);
+                box.appendChild(el('h4', { text: '📝 管理常用字符', style: { marginTop: 0, marginBottom: '12px' } }));
+
+                box.appendChild(createManageBlock('➕ 自定义字符', customWords, selectedCustom, () => {
+                  customWords = customWords.filter((_, i) => !selectedCustom.has(i));
+                  selectedCustom.clear();
+                  saveAllWords();
+                  renderAll();
+                }, customCollapsed));
+
+                box.appendChild(createManageBlock('🌟 预设字符', presetWords, selectedPreset, () => {
+                  presetWords = presetWords.filter((_, i) => !selectedPreset.has(i));
+                  selectedPreset.clear();
+                  saveAllWords();
+                  renderAll();
+                }, presetCollapsed));
+
+                const renderExternalBlock = () => {
+                  const wrapper = el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.1)', marginTop: '16px', paddingTop: '12px' } });
+                  const header = el('div', {
+                    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginBottom: '8px' },
+                    onClick: () => { externalCollapsed = !externalCollapsed; renderAll(); }
+                  }, [
+                    el('span', { text: '📌 外置快捷列表', style: { fontWeight: 'bold', fontSize: '13px' } }),
+                    el('span', { text: externalCollapsed ? '▸' : '▾', style: { fontSize: '14px' } })
+                  ]);
+                  wrapper.appendChild(header);
+
+                  if (!externalCollapsed) {
+                    const tools = el('div', { style: { display: 'flex', gap: '6px', padding: '4px 0', marginBottom: '8px' } }, [
+                      el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => { externalChars.forEach((_, i) => selectedExternal.add(i)); renderAll(); } }),
+                      el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => { selectedExternal.clear(); renderAll(); } }),
+                      el('button', {
+                        class: 'btn btn-sm btn-danger', text: '删除选中', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto' }, onClick: () => {
+                          if (selectedExternal.size === 0) return;
+                          externalChars = externalChars.filter((_, i) => !selectedExternal.has(i));
+                          selectedExternal.clear();
+                          localStorage.setItem('kg_external_chars', JSON.stringify(externalChars));
+                          renderAll();
+                        }
+                      }),
+                      el('div', { style: { flex: 1 } }),
+                      el('button', {
+                        class: 'btn btn-sm btn-ghost', text: '清空', style: { fontSize: '11px', padding: '2px 6px', height: '22px', minHeight: 'auto', color: 'var(--text-2)' }, onClick: () => {
+                          if (!confirm('确定清空所有外置字符吗？')) return;
+                          externalChars = [];
+                          selectedExternal.clear();
+                          localStorage.setItem('kg_external_chars', JSON.stringify(externalChars));
+                          renderAll();
+                        }
+                      })
+                    ]);
+                    wrapper.appendChild(tools);
+
+                    const grid = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '6px', padding: '8px', background: 'var(--bg)', borderRadius: '6px', border: '1px solid rgba(0,0,0,.05)', minHeight: '40px' } });
+
+                    if (externalChars.length === 0) {
+                      grid.appendChild(el('span', { text: '暂无外置字符', style: { fontSize: '12px', color: 'var(--text-2)' } }));
+                    } else {
+                      externalChars.forEach((w, i) => {
+                        const isChecked = selectedExternal.has(i);
+                        grid.appendChild(el('div', {
+                          style: { padding: '2px 8px', fontSize: '16px', border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer', background: isChecked ? 'var(--primary)' : 'transparent', color: isChecked ? '#fff' : 'inherit' },
+                          onClick: () => { if (isChecked) selectedExternal.delete(i); else selectedExternal.add(i); renderAll(); }
+                        }, [el('span', { text: w })]));
+                      });
+                    }
+                    wrapper.appendChild(grid);
+                  }
+                  return wrapper;
+                };
+                box.appendChild(renderExternalBlock());
+
+                const inputWrap = el('div', { style: { display: 'flex', gap: '8px', marginTop: '12px' } });
+                const inputEl = el('input', { type: 'text', style: { flex: 1, padding: '6px', borderRadius: '4px', border: '1px solid #ccc' }, placeholder: '输入自定义字符，回车添加' });
+                const addBtn = el('button', {
+                  class: 'btn btn-primary', text: '添加', onClick: () => {
+                    const val = inputEl.value.trim();
+                    if (!val) return;
+                    if (presetWords.includes(val) || customWords.includes(val)) return toastError('该字符已存在');
+                    customWords.push(val);
+                    saveAllWords();
+                    inputEl.value = '';
+                    renderAll();
+                  }
+                });
+                inputEl.onkeydown = (e) => { if (e.key === 'Enter') addBtn.click(); };
+                inputWrap.appendChild(inputEl);
+                inputWrap.appendChild(addBtn);
+                box.appendChild(inputWrap);
+
+                box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '16px', borderTop: '1px dashed rgba(0,0,0,.1)', paddingTop: '12px' } }, [
+                  el('button', { class: 'btn btn-sm btn-ghost', text: '完成', onClick: renderMainPanel })
+                ]));
+              };
+
+              const saveAllWords = () => {
+                const finalWords = [...presetWords, ...customWords];
+                localStorage.setItem('kg_common_words', JSON.stringify(finalWords));
+              };
+
+              renderAll();
+            };
+
+            renderMainPanel();
+            mask.appendChild(box);
+            mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
+            document.body.appendChild(mask);
+          }
+        }));
+
+        // 2. 渲染外置快捷字符
+        if (currentExternalChars.length > 0) {
+          currentExternalChars.forEach(w => {
+            wrap.appendChild(el('button', {
+              class: 'btn btn-sm btn-ghost',
+              text: w,
+              title: '快捷插入',
+              style: {
+                fontSize: '13px', padding: '0 5px', height: '22px', minHeight: 'auto',
+                background: 'var(--bg)', border: '1px solid rgba(0,0,0,0.12)',
+                borderRadius: '4px', color: 'var(--text-1)', cursor: 'pointer'
+              },
+              // 阻止默认事件，防止按下鼠标时输入框失去焦点
+              onMouseDown: (e) => e.preventDefault(),
+              onClick: (e) => {
+                e.preventDefault();
+
+                // 1. 实时获取输入框
+                const realEditor = document.getElementById('tag-editor');
+                if (!realEditor) return;
+
+                // 2. 强行抢焦点
+                realEditor.focus();
+
+                // 3. 获取当前颜色
+                const currentColor = selectedColor === 'transparent' ? '#000000' : selectedColor;
+                const htmlToInsert = `<span style="color:${currentColor}">${w}</span>`;
+
+                // 4. 还原光标（如果之前的丢了，就放最后面）
+                const sel = window.getSelection();
+                if (savedRange && realEditor.contains(savedRange.commonAncestorContainer)) {
+                  try {
+                    sel.removeAllRanges();
+                    sel.addRange(savedRange);
+                  } catch (err) { }
+                }
+
+                // 5. 执行插入（暴力兜底版）
+                try {
+                  if (sel.rangeCount > 0) {
+                    // 如果有选区，用 execCommand 插入
+                    document.execCommand('styleWithCSS', false, true);
+                    document.execCommand('insertHTML', false, htmlToInsert);
+                  } else {
+                    // 如果没有选区，直接拼接 HTML 到末尾
+                    realEditor.innerHTML += htmlToInsert;
+                  }
+                } catch (err) {
+                  // 如果 execCommand 报错，直接拼接
+                  realEditor.innerHTML += htmlToInsert;
+                }
+
+                // 6. 更新缓存内容
+                currentHtmlContent = realEditor.innerHTML;
+
+                // 7. 强行把光标移动到插入的内容后面（极其重要，否则你接着打字会回到最前面）
+                const finalSel = window.getSelection();
+                if (finalSel.rangeCount > 0) {
+                  const range = finalSel.getRangeAt(0);
+                  const span = range.startContainer.previousSibling;
+                  if (span && span.nodeType === 1 && span.tagName === 'SPAN') {
+                    const newRange = document.createRange();
+                    newRange.setStart(span.firstChild, span.firstChild.length);
+                    newRange.collapse(true);
+                    finalSel.removeAllRanges();
+                    finalSel.addRange(newRange);
+                  }
+                }
+
+                saveSelection();
+              }
+            }));
+          });
+        }
+
+        return wrap;
+      })(),
+
+      // 3. 分隔竖线
+      el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,0.15)', margin: '0 4px' } }),
+
+      // 4. 加粗、斜体
+      el('button', { class: 'btn btn-sm btn-ghost', text: 'B', style: { fontWeight: 'bold' }, onMousedown: e => e.preventDefault(), onClick: () => { document.execCommand('bold'); editorRef?.focus(); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: 'I', style: { fontStyle: 'italic' }, onMousedown: e => e.preventDefault(), onClick: () => { document.execCommand('italic'); editorRef?.focus(); } }),
+      el('span', { style: { fontSize: '12px', color: 'var(--text-2)', marginLeft: 'auto' }, text: '选中文字后点击颜色即可变色' })
+    ]);
+    box.appendChild(toolbar);
+
+    const editor = el('div', {
+      id: 'tag-editor', contentEditable: true,
+      style: {
+        width: '100%', boxSizing: 'border-box', padding: '10px 12px', borderRadius: '6px',
+        border: '1px solid rgba(0,0,0,0.15)', backgroundColor: 'var(--bg)',
+        outline: 'none', minHeight: '60px', maxHeight: '120px', overflowY: 'auto',
+        fontSize: '14px', fontWeight: 'bold', transition: 'border-color 0.2s'
+      },
+      onFocus: (e) => { e.target.style.borderColor = 'var(--primary)'; },
+      onBlur: (e) => { e.target.style.borderColor = 'rgba(0,0,0,0.15)'; },
+      onMouseUp: saveSelection,
+      onKeyUp: saveSelection,
+      ref: (el) => { editorRef = el; },
+
+      // 1. 拦截英文、数字，强行染色（不拦截，不 preventDefault，让浏览器自己插字）
+      onKeyDown: (e) => {
+        if (e.isComposing || e.key === 'Process' || e.ctrlKey || e.metaKey) return;
+        if (e.key === 'Backspace' || e.key === 'Delete' || e.key === 'Enter') return;
+
+        if (activeColorType === 'text' && selectedColor !== 'transparent' && e.key.length === 1) {
+          document.execCommand('styleWithCSS', false, true);
+          document.execCommand('foreColor', false, selectedColor);
+        }
+      },
+
+      // 2. 拦截中文输入法上屏瞬间，强行刷色
+      onCompositionEnd: (e) => {
+        if (activeColorType === 'text' && selectedColor !== 'transparent') {
+          // 直接触发原生命令，不需要 setTimeout，不需要替换节点
+          document.execCommand('styleWithCSS', false, true);
+          document.execCommand('foreColor', false, selectedColor);
+
+          // 兜底：如果是极个别不听话的输入法，直接把纯文本替换掉
+          setTimeout(() => {
+            const sel = window.getSelection();
+            if (!sel.rangeCount) return;
+            const range = sel.getRangeAt(0);
+            let node = range.startContainer;
+
+            if (node.nodeType === 3 && node.parentNode === e.target) {
+              const textContent = node.textContent;
+              const offset = range.startOffset;
+              const span = document.createElement('span');
+              span.style.color = selectedColor;
+              span.textContent = textContent;
+              node.parentNode.replaceChild(span, node);
+
+              const newRange = document.createRange();
+              newRange.setStart(span.firstChild, offset);
+              newRange.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(newRange);
+            }
+          }, 0);
+        }
+      },
+
+      // 3. 纯记录，不干预
+      onInput: (e) => {
+        currentHtmlContent = e.target.innerHTML;
+        saveSelection();
+      }
+    });
+    box.appendChild(editor);
+
+    //如果传入了编辑内容，等 50 毫秒后用原生 API 强塞进去！
+    if (initialContent !== null && initialContent !== '') {
+      setTimeout(() => {
+        const realEditor = document.getElementById('tag-editor');
+        if (realEditor) {
+          realEditor.innerHTML = initialContent;
+
+          // 把光标强行移到文字最后面
+          const range = document.createRange();
+          range.selectNodeContents(realEditor);
+          range.collapse(false);
+          const sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      }, 50);
+    }
+
+    // 3. 添加标签按钮（加入全局防报错兜底）
+    const actions = el('div', { style: { display: 'flex', gap: '8px', marginTop: '8px' } }, [
+      el('button', {
+        class: 'btn btn-sm btn-primary',
+        text: editingIndex === -1 ? '添加标签' : '保存修改',
+        style: { flex: '1' },
+        onClick: () => {
+          // 动态抓取真实的输入框
+          const realEditor = document.getElementById('tag-editor');
+          const text = (realEditor ? realEditor.textContent : '').trim();
+          let html = realEditor ? realEditor.innerHTML : currentHtmlContent;
+
+          if (!text) {
+            if (typeof toastError === 'function') toastError('标签内容不能为空');
+            else alert('标签内容不能为空');
+            return;
+          }
+
+          if (!html.includes('color:') && selectedColor !== 'transparent') {
+            html = `<span style="color:${selectedColor}">${text}</span>`;
+          }
+
+          const newTag = {
+            html: html, text: text,
+            color: selectedColor, bgColor: selectedBgColor, borderColor: selectedBorderColor, starred: false
+          };
+
+          if (editingIndex > -1) {
+            newTag.starred = currentTags[editingIndex].starred;
+            currentTags[editingIndex] = newTag;
+            editingIndex = -1;
+          } else {
+            if (!currentTags.some(t => t.text === text)) currentTags.push(newTag);
+            else {
+              if (typeof toastError === 'function') toastError('标签内容不能重复');
+              else alert('标签内容不能重复');
+              return;
+            }
+          }
+
+          // 清空状态
+          currentHtmlContent = '';
+          selectedBgColor = 'transparent';
+          selectedBorderColor = 'transparent';
+
+          //  刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
+          renderContent(null);
+        }
+      }),
+      editingIndex > -1 ? el('button', {
+        class: 'btn btn-sm btn-ghost',
+        text: '取消编辑',
+        onClick: () => {
+          editingIndex = -1;
+          currentHtmlContent = '';
+          selectedBgColor = 'transparent';
+          selectedBorderColor = 'transparent';
+
+          //  刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
+          renderContent(null);
+        }
+      }) : null
+    ]);
+    box.appendChild(actions);
+
+    // 4. 底部：颜色配置区
+    const colorContainer = el('div', { id: 'color-manager-wrap', style: { marginTop: '16px' } });
+    box.appendChild(colorContainer);
+    renderColorPanel(colorContainer);
+
+    // ================= 5. 标签列表（状态持久化折叠） =================
+    // 注意：需要在你这个函数外面（比如 renderContent 上面）定义 let isListCollapsed = true; 
+    // 这样才能在 renderContent 重绘时记住状态。
+
+    const currentList = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto', marginTop: '16px', marginBottom: '12px' } });
+    if (currentTags.length === 0) {
+      currentList.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '13px', padding: '12px', border: '1px dashed rgba(0,0,0,.1)', borderRadius: '6px' }, text: '暂无标签' }));
+    } else {
+      currentTags.forEach((tag, index) => {
+        const isSelected = selectedIndices.has(index);
+        currentList.appendChild(el('div', {
+          style: { display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '6px', border: '1px solid rgba(0,0,0,.04)' }
+        }, [
+          el('input', { type: 'checkbox', checked: isSelected, style: { margin: 0, width: '14px', height: '14px' }, onChange: (e) => { if (e.target.checked) selectedIndices.add(index); else selectedIndices.delete(index); renderContent(null); } }),
+          el('span', {
+            style: {
+              color: tag.color,
+              backgroundColor: tag.bgColor,
+              border: tag.borderColor !== 'transparent' ? `1px solid ${tag.borderColor}` : 'none',
+              padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: '600', flex: '1', lineHeight: '1.2'
+            },
+            //智能拼接：[卡] 或 [子] 标识 + 原本内容
+            innerHTML: (tag.isCardTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[卡]</span>' : '') +
+              (tag.isSubTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[子]</span>' : '') +
+              (tag.html || tag.text)
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '2px 6px', minHeight: 'auto' }, onClick: () => {
+              //如果这个标签属于子文件夹或卡片，就不允许在这里直接编辑
+              if (tag.isCardTag) return toastError('这是卡片的专属标签，请去卡片内修改');
+              if (tag.isSubTag) return toastError('这是子文件夹的专属标签，请去对应文件夹修改');
+
+              editingIndex = index;
+              currentHtmlContent = tag.html || tag.text;
+              selectedColor = tag.color; selectedBgColor = tag.bgColor; selectedBorderColor = tag.borderColor;
+              renderContent(currentHtmlContent);
+            }
+          }),
+          el('button', { class: 'btn btn-sm btn-ghost', text: tag.starred ? '⭐' : '☆', style: { padding: '2px 6px', minHeight: 'auto' }, onClick: () => { currentTags[index].starred = !currentTags[index].starred; renderContent(null); } })
+        ]));
+      });
+    }
+
+    const currentActions = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
+      el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { currentTags.forEach((_, i) => selectedIndices.add(i)); renderContent(null); } }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selectedIndices.clear(); renderContent(null); } }),
+      el('button', {
+        class: 'btn btn-sm btn-danger', text: '删除选中', disabled: selectedIndices.size === 0, onClick: () => {
+          if (selectedIndices.size === 0) return;
+          if (!confirm(`确定要删除选中的 ${selectedIndices.size} 个标签吗？`)) return;
+          currentTags = currentTags.filter((_, i) => !selectedIndices.has(i));
+          selectedIndices.clear(); renderContent(null);
+        }
+      })
+    ]);
+
+    //用 isListCollapsed 变量控制显示隐藏
+    const listContainer = el('div', { style: { display: isListCollapsed ? 'none' : 'block' } }, [
+      currentList,
+      currentActions
+    ]);
+    // 阻止内部点击冒泡导致意外触发外部重绘
+    listContainer.onclick = (e) => e.stopPropagation();
+
+    const listHeader = el('div', {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginTop: '16px', marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px dashed rgba(0,0,0,.1)' },
+      onClick: (e) => {
+        e.stopPropagation();
+        isListCollapsed = !isListCollapsed; //  修改状态
+        renderContent(null); //  重新渲染以应用状态
+      }
+    }, [
+      el('span', { text: `📁 当前文件夹标签 (${currentTags.length})`, style: { fontWeight: 'bold', fontSize: '13px', color: 'var(--text-2)' } }),
+      el('span', { text: isListCollapsed ? '▸' : '▾', style: { fontSize: '14px' } }) // 根据状态显示箭头
+    ]);
+
+    box.appendChild(listHeader);
+    box.appendChild(listContainer);
+
+    // 6. 保存/取消
+    box.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.1)', paddingTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' } }, [
+      el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+      el('button', {
+        class: 'btn btn-primary', text: '保存全部',
+        onClick: () => {
+          //  过滤掉卡片和子文件夹的标签
+          const ownTagsToSave = currentTags.filter(t => !t.isCardTag && !t.isSubTag).map(t => {
+            const { isCardTag, isSubTag, ...rest } = t;
+            return rest;
+          });
+
+          store.updateTask(task.id, { statusTags: ownTagsToSave });
+          toastSuccess('标签已更新');
+          if (typeof renderHome === 'function') renderHome();
+          mask.remove();
+        }
+      })
+    ]));
+  };
+
+  // ================= 颜色配置区渲染 =================
+  const renderColorPanel = (container) => {
+    clear(container);
+
+    // 类型切换与工具栏
+    const typeRow = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px', alignItems: 'center' } }, [
+      el('button', { class: `btn btn-sm ${activeColorType === 'text' ? 'btn-primary' : 'btn-ghost'}`, text: '文字', style: { padding: '2px 10px', fontSize: '12px' }, onClick: () => { activeColorType = 'text'; renderContent(null); } }),
+      el('button', { class: `btn btn-sm ${activeColorType === 'bg' ? 'btn-primary' : 'btn-ghost'}`, text: '背景', style: { padding: '2px 10px', fontSize: '12px' }, onClick: () => { activeColorType = 'bg'; renderContent(null); } }),
+      el('button', { class: `btn btn-sm ${activeColorType === 'border' ? 'btn-primary' : 'btn-ghost'}`, text: '边框', style: { padding: '2px 10px', fontSize: '12px' }, onClick: () => { activeColorType = 'border'; renderContent(null); } }),
+
+      el('div', { style: { width: '1px', height: '14px', background: 'rgba(0,0,0,0.1)', margin: '0 4px' } }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '⭐ 收藏当前颜色',
+        style: { padding: '2px 8px', fontSize: '11px', height: '22px', minHeight: 'auto', border: '1px dashed rgba(0,0,0,0.2)', borderRadius: '12px', color: 'var(--primary)' },
+        onClick: () => {
+          const targetColor = activeColorType === 'text' ? selectedColor : (activeColorType === 'bg' ? selectedBgColor : selectedBorderColor);
+
+          if (targetColor === 'transparent') {
+            if (typeof toastError === 'function') toastError('透明色无需收藏');
+            else alert('透明色无需收藏');
+            return;
+          }
+
+          const existingIndex = presetColors.findIndex(p => p.c.toLowerCase() === targetColor.toLowerCase());
+          if (existingIndex > -1) {
+            if (presetColors[existingIndex].s) {
+              if (typeof toastError === 'function') toastError('该颜色已在收藏中');
+              else alert('该颜色已在收藏中');
+              return;
+            }
+            presetColors[existingIndex].s = true;
+          } else {
+            presetColors.push({ c: targetColor, s: true });
+          }
+
+          localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+          isStarredExpanded = true;
+          renderContent(null);
+
+          if (typeof toastSuccess === 'function') toastSuccess('已加入收藏');
+          else alert('已加入收藏');
+        }
+      }),
+      el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '6px', marginLeft: 'auto', fontSize: '11px', color: 'var(--text-2)' },
+        title: '当前选中的颜色'
+      }, [
+        el('span', { text: '当前:' }),
+        el('div', {
+          id: 'current-color-preview',
+          style: {
+            width: '18px', height: '18px', borderRadius: '50%',
+            background: activeColorType === 'text' ? selectedColor : (activeColorType === 'bg' ? selectedBgColor : selectedBorderColor),
+            border: '1px solid rgba(0,0,0,0.2)',
+            backgroundImage: (activeColorType === 'bg' && selectedBgColor === 'transparent') || (activeColorType === 'border' && selectedBorderColor === 'transparent')
+              ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
+              : 'none',
+            backgroundSize: '8px 8px',
+            backgroundPosition: '0 0, 4px 4px'
+          }
+        })
+      ])
+    ]);
+    container.appendChild(typeRow);
+
+    // ================= 1. 预设颜色区 =================
+    const colorsWrap = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', padding: '10px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } });
+
+    presetColors.forEach(item => {
+      const c = item.c;
+      const isTransparent = c === 'transparent'; //  核心补丁，必须放在最前面
+
+      let isSelected = false;
+      if (activeColorType === 'text') isSelected = (selectedColor === c);
+      if (activeColorType === 'bg') isSelected = (selectedBgColor === c);
+      if (activeColorType === 'border') isSelected = (selectedBorderColor === c);
+
+      const colorCircle = el('div', {
+        style: {
+          width: '18px', height: '18px', borderRadius: '50%',
+          background: isTransparent ? 'var(--bg)' : c,
+          backgroundImage: isTransparent
+            ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
+            : 'none',
+          backgroundSize: '8px 8px',
+          backgroundPosition: '0 0, 4px 4px',
+          cursor: 'pointer',
+          border: isSelected ? '2px solid var(--primary)' : '2px solid transparent',
+          boxShadow: isSelected ? '0 0 0 1px rgba(0,0,0,0.1)' : 'none',
+          transform: isSelected ? 'scale(1.15)' : 'scale(1)',
+          transition: 'all 0.15s',
+          position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center'
+        },
+        onMouseDown: e => e.preventDefault(),
+        onClick: () => {
+          // 1. 更新颜色状态
+          if (activeColorType === 'text') selectedColor = c;
+          if (activeColorType === 'bg') selectedBgColor = c;
+          if (activeColorType === 'border') selectedBorderColor = c;
+
+          // 2. 局部更新右上角预览球
+          const previewEl = document.getElementById('current-color-preview');
+          if (previewEl) {
+            if (isTransparent) {
+              previewEl.style.background = 'var(--bg)';
+              previewEl.style.backgroundImage = 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)';
+              previewEl.style.backgroundSize = '8px 8px';
+              previewEl.style.backgroundPosition = '0 0, 4px 4px';
+            } else {
+              previewEl.style.background = c;
+              previewEl.style.backgroundImage = 'none';
+            }
+          }
+
+          // 3. 局部更新所有颜色圆圈的选中状态
+          Array.from(colorsWrap.children).forEach(child => {
+            if (child.dataset.isColorBlock) {
+              child.style.border = '2px solid transparent';
+              child.style.boxShadow = 'none';
+              child.style.transform = 'scale(1)';
+              const oldCheck = child.querySelector('.check-icon');
+              if (oldCheck) oldCheck.remove();
+            }
+          });
+
+          // 4. 给当前选中的圆圈加框和打勾
+          colorCircle.style.border = '2px solid var(--primary)';
+          colorCircle.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.1)';
+          colorCircle.style.transform = 'scale(1.15)';
+
+          if (!colorCircle.querySelector('.check-icon')) {
+            colorCircle.appendChild(el('span', {
+              class: 'check-icon', text: '✓',
+              style: { color: '#fff', fontSize: '12px', fontWeight: 'bold', position: 'absolute', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }
+            }));
+          }
+        }
+      }, [
+        isSelected ? el('span', {
+          class: 'check-icon', text: '✓',
+          style: { color: '#fff', fontSize: '12px', fontWeight: 'bold', position: 'absolute', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }
+        }) : null
+      ]);
+
+      colorCircle.dataset.isColorBlock = 'true';
+      colorsWrap.appendChild(colorCircle);
+    });
+
+    // 自定义颜色盘
+    const currentDefault = activeColorType === 'text' ? selectedColor : (activeColorType === 'bg' ? selectedBgColor : selectedBorderColor);
+    const customColorBox = el('div', {
+      style: {
+        width: '16px', height: '16px', borderRadius: '50%', position: 'relative',
+        border: '1px dashed #999', cursor: 'pointer', background: 'var(--bg-card)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center'
+      },
+      title: '自定义颜色'
+    }, [
+      el('div', { text: '🎨', style: { fontSize: '10px', pointerEvents: 'none' } }),
+      el('input', {
+        type: 'color',
+        style: { position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', opacity: 0, cursor: 'pointer' },
+        value: currentDefault === 'transparent' ? '#ffffff' : currentDefault,
+        onInput: (e) => {
+          const val = e.target.value;
+          if (activeColorType === 'text') {
+            selectedColor = val;
+            if (editorRef) {
+              editorRef.focus();
+              if (savedRange) {
+                const sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+              }
+              //纯净版：只调用原生命令
+              document.execCommand('styleWithCSS', false, true);
+              document.execCommand('foreColor', false, val);
+              currentHtmlContent = editorRef.innerHTML;
+              saveSelection();
+            }
+          } else if (activeColorType === 'bg') {
+            selectedBgColor = val;
+          } else if (activeColorType === 'border') {
+            selectedBorderColor = val;
+          }
+
+          const previewEl = document.getElementById('current-color-preview');
+          if (previewEl) {
+            previewEl.style.background = val;
+            previewEl.style.backgroundImage = 'none';
+          }
+        }
+      })
+    ]);
+    colorsWrap.appendChild(customColorBox);
+
+    if ((activeColorType === 'bg' || activeColorType === 'border')) {
+      colorsWrap.appendChild(el('button', {
+        class: 'btn btn-sm btn-ghost', text: '清除', style: { padding: '2px 6px', fontSize: '11px', height: '20px', minHeight: 'auto' },
+        onClick: () => {
+          if (activeColorType === 'bg') selectedBgColor = 'transparent';
+          if (activeColorType === 'border') selectedBorderColor = 'transparent';
+
+          const previewEl = document.getElementById('current-color-preview');
+          if (previewEl) {
+            previewEl.style.background = 'var(--bg)';
+            previewEl.style.backgroundImage = 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)';
+            previewEl.style.backgroundSize = '8px 8px';
+            previewEl.style.backgroundPosition = '0 0, 4px 4px';
+          }
+
+          // 把颜色圆圈的高亮也清空
+          Array.from(colorsWrap.children).forEach(child => {
+            if (child.dataset.isColorBlock) {
+              child.style.border = '2px solid transparent';
+              child.style.boxShadow = 'none';
+              child.style.transform = 'scale(1)';
+              const oldCheck = child.querySelector('.check-icon');
+              if (oldCheck) oldCheck.remove();
+            }
+          });
+        }
+      }));
+    }
+    colorsWrap.appendChild(el('div', { style: { width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 4px' } }));
+    container.appendChild(colorsWrap);
+
+    // ================= 2. 收藏颜色区 =================
+    //定义 starredColors
+    const starredColors = presetColors.filter(item => item.s);
+
+    // 分割线
+    container.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,0.1)', marginTop: '8px', marginBottom: '8px' } }));
+
+    const starHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--text-2)' } }, [
+      el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'bold' },
+        onClick: () => { isStarredExpanded = !isStarredExpanded; renderContent(null); }
+      }, [
+        el('span', { text: `⭐ 收藏颜色 (${starredColors.length})` }),
+        el('span', { text: isStarredExpanded ? '▾' : '▸' })
+      ]),
+      //管理工具条（带全选/非全选/删除/恢复默认/管理）
+      el('div', { style: { display: 'flex', gap: '4px' } }, [
+        isColorManageMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); presetColors.forEach((item, i) => { if (item.s) selectedColorIndices.add(i); }); renderContent(null); } }) : null,
+        isColorManageMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); selectedColorIndices.clear(); renderContent(null); } }) : null,
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-danger', text: `删除(${selectedColorIndices.size})`, style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => {
+            e.stopPropagation();
+            if (selectedColorIndices.size === 0) return;
+            if (!confirm('确定删除选中的收藏颜色吗？')) return;
+            selectedColorIndices.forEach(i => { if (presetColors[i]) presetColors[i].s = false; });
+            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+            selectedColorIndices.clear();
+            isColorManageMode = false;
+            renderContent(null);
+          }
+        }) : null,
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '恢复默认', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto', color: 'var(--primary)' }, onClick: (e) => {
+            e.stopPropagation();
+            if (!confirm('确定要恢复系统默认吗？')) return;
+            const defaultColorValues = defaultColors.map(d => d.c.toLowerCase());
+            const customColorsMap = new Map();
+            presetColors.forEach(p => { if (!defaultColorValues.includes(p.c.toLowerCase())) customColorsMap.set(p.c.toLowerCase(), p); });
+            presetColors = [...JSON.parse(JSON.stringify(defaultColors)), ...Array.from(customColorsMap.values())];
+            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+            selectedColorIndices.clear();
+            isColorManageMode = false;
+            isStarredExpanded = true;
+            renderContent(null);
+            if (typeof toastSuccess === 'function') toastSuccess('已恢复默认颜色'); else alert('已恢复默认颜色');
+          }
+        }) : null,
+        el('button', { class: 'btn btn-sm btn-primary', text: isColorManageMode ? '完成' : '管理', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); isColorManageMode = !isColorManageMode; selectedColorIndices.clear(); renderContent(null); } })
+      ])
+    ]);
+    container.appendChild(starHeader);
+
+    if (isStarredExpanded) {
+      const starBox = el('div', { style: { marginTop: '8px' } });
+      if (starredColors.length === 0) {
+        starBox.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', padding: '8px', background: 'var(--bg)', borderRadius: '6px', border: '1px dashed rgba(0,0,0,.1)' }, text: '暂无收藏颜色，请点击上方“恢复默认”或添加星标' }));
+      } else {
+        const starredWrap = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', padding: '10px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } });
+        starredColors.forEach((item) => {
+          const c = item.c;
+          const isTransparent = c === 'transparent';
+          const realIndex = presetColors.findIndex(p => p.c === c);
+          const isChecked = selectedColorIndices.has(realIndex);
+
+          let isSelected = false;
+          if (activeColorType === 'text') isSelected = (selectedColor === c);
+          if (activeColorType === 'bg') isSelected = (selectedBgColor === c);
+          if (activeColorType === 'border') isSelected = (selectedBorderColor === c);
+
+          const starCircle = el('div', {
+            style: {
+              width: '18px', height: '18px', borderRadius: '50%',
+              //透明色的渲染
+              background: isTransparent ? 'var(--bg)' : c,
+              backgroundImage: isTransparent
+                ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
+                : 'none',
+              backgroundSize: '8px 8px',
+              backgroundPosition: '0 0, 4px 4px',
+              cursor: 'pointer',
+              border: isChecked ? '2px solid #fff' : (isSelected ? '2px solid var(--primary)' : '2px solid transparent'),
+              boxShadow: isChecked ? '0 0 0 1px rgba(0,0,0,0.2)' : 'none',
+              transform: isSelected ? 'scale(1.15)' : 'scale(1)', transition: 'all 0.15s',
+              position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center'
+            },
+            onMouseDown: (e) => e.preventDefault(),
+            onClick: () => {
+              if (isColorManageMode) {
+                //管理模式：只负责勾选
+                if (selectedColorIndices.has(realIndex)) selectedColorIndices.delete(realIndex);
+                else selectedColorIndices.add(realIndex);
+                renderContent(null);
+              } else {
+                //普通模式：切换颜色
+                if (editorRef) currentHtmlContent = editorRef.innerHTML;
+
+                if (activeColorType === 'text') selectedColor = c;
+                else if (activeColorType === 'bg') selectedBgColor = c;
+                else if (activeColorType === 'border') selectedBorderColor = c;
+
+                if (editorRef && activeColorType === 'text') {
+                  restoreSelection();
+                  const sel = window.getSelection();
+                  if (sel.rangeCount > 0) {
+                    document.execCommand('styleWithCSS', false, true);
+                    document.execCommand('foreColor', false, isTransparent ? '#000000' : c);
+                  }
+                  currentHtmlContent = editorRef.innerHTML;
+                  saveSelection();
+                }
+
+                const previewEl = document.getElementById('current-color-preview');
+                if (previewEl) {
+                  if (isTransparent) {
+                    previewEl.style.background = 'var(--bg)';
+                    previewEl.style.backgroundImage = 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)';
+                    previewEl.style.backgroundSize = '8px 8px';
+                    previewEl.style.backgroundPosition = '0 0, 4px 4px';
+                  } else {
+                    previewEl.style.background = c;
+                    previewEl.style.backgroundImage = 'none';
+                  }
+                }
+
+                Array.from(starredWrap.children).forEach(child => {
+                  child.style.border = '2px solid transparent';
+                  child.style.boxShadow = 'none';
+                  child.style.transform = 'scale(1)';
+                });
+                starCircle.style.border = '2px solid var(--primary)';
+                starCircle.style.transform = 'scale(1.15)';
+              }
+            }
+          }, [
+            isChecked ? el('span', { text: '✓', style: { color: '#fff', fontSize: '12px', fontWeight: 'bold', position: 'absolute', textShadow: '0 1px 2px rgba(0,0,0,0.5)' } }) : null
+          ]);
+          starredWrap.appendChild(starCircle);
+        });
+        starBox.appendChild(starredWrap);
+      }
+      container.appendChild(starBox);
+    }
+  };
+
+  renderContent(null);
+  mask.appendChild(box);
+  mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
+  document.body.appendChild(mask);
+}
+// 把它挂载到全局，这样在 home.js 也能直接调用
+window.showStatusTagManager = showStatusTagManager;

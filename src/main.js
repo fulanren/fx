@@ -1005,7 +1005,7 @@ export function renderFAB(viewContainer, currentFolderId = null) {
     },
     onClick: () => {
       // 直接携带当前文件夹的 ID
-      const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/edit-point/new';
+const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/edit-point/new';
       navigate(url);
     },
   }));

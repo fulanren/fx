@@ -91,25 +91,42 @@ export function mergeModal({ title, items, targetId, onConfirm }) {
     };
     renderModeOptions();
 
-    // 5. 处理方式选择 (覆盖 / 另存)
+        // 5. 处理方式选择 (覆盖 / 另存)
     const saveModeBox = el('div', { style: { display: 'flex', gap: '10px', margin: '8px 0' } });
     const renderSaveOptions = () => {
       saveModeBox.innerHTML = '';
 
+      // 👇 核心修复：减小内边距，防止换行，字体缩小
+      const getOptionStyle = (isSelected) => ({
+        flex: '1', 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'center', 
+        gap: '6px', 
+        padding: '8px 10px', // 从 12px 减到了 8px
+        background: isSelected ? 'rgba(142,202,230,.15)' : 'var(--bg)', 
+        border: `1px solid ${isSelected ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, 
+        borderRadius: '8px', 
+        cursor: 'pointer', 
+        fontSize: '13px',
+        whiteSpace: 'nowrap', // 强制不换行
+        transition: 'all 0.2s'
+      });
+
       saveModeBox.appendChild(el('label', {
-        style: { flex: '1', display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', background: saveMode === 'overwrite' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${saveMode === 'overwrite' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px' },
+        style: getOptionStyle(saveMode === 'overwrite'),
         onClick: () => { saveMode = 'overwrite'; renderSaveOptions(); }
       }, [
-        el('input', { type: 'radio', checked: saveMode === 'overwrite', readOnly: true }),
-        el('span', { text: '覆盖原卡片' })
+        el('input', { type: 'radio', checked: saveMode === 'overwrite', readOnly: true, style: { margin: 0, width: '14px', height: '14px' } }),
+        el('span', { text: '覆盖原卡片', style: { color: saveMode === 'overwrite' ? 'var(--primary-dark)' : 'var(--text)' } })
       ]));
 
       saveModeBox.appendChild(el('label', {
-        style: { flex: '1', display: 'flex', alignItems: 'center', gap: '8px', padding: '12px', background: saveMode === 'saveAs' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${saveMode === 'saveAs' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', fontSize: '13px' },
+        style: getOptionStyle(saveMode === 'saveAs'),
         onClick: () => { saveMode = 'saveAs'; renderSaveOptions(); }
       }, [
-        el('input', { type: 'radio', checked: saveMode === 'saveAs', readOnly: true }),
-        el('span', { text: '另存为新卡片' })
+        el('input', { type: 'radio', checked: saveMode === 'saveAs', readOnly: true, style: { margin: 0, width: '14px', height: '14px' } }),
+        el('span', { text: '另存为新卡片', style: { color: saveMode === 'saveAs' ? 'var(--primary-dark)' : 'var(--text)' } })
       ]));
     };
     renderSaveOptions();
