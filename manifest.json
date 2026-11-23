@@ -2,23 +2,24 @@
   "name": "资料复习系统",
   "short_name": "资料复习",
   "description": "个人考公考研复习及 PDF 标注系统",
-  "start_url": "./index.html",
-  "display": "standalone", 
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
   "orientation": "any",
   "background_color": "#FAFAFB",
   "theme_color": "#8ECAE6",
   "icons": [
     {
-      "src": "./assets/icons/icon-192.png",
+      "src": "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect width='192' height='192' rx='40' fill='%238ECAE6'/%3E%3Ctext x='96' y='130' font-size='96' text-anchor='middle' fill='%23fff' font-family='sans-serif'%3E📚%3C/text%3E%3C/svg%3E",
       "sizes": "192x192",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "./assets/icons/icon-512.png",
+      "src": "data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect width='512' height='512' rx='100' fill='%238ECAE6'/%3E%3Ctext x='256' y='340' font-size='256' text-anchor='middle' fill='%23fff'%20font-family='sans-serif'%3E📚%3C/text%3E%3C/svg%3E",
       "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
+      "type": "image/svg+xml",
+      "purpose": "any"
     }
   ]
 }
