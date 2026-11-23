@@ -133,29 +133,84 @@ export function renderSettings() {
     ])
   ]));
 
-  // ============ 3. 存储用量 ============
-  const storageTitle = el('div', { class: 'section-head', style: { display: 'flex', alignItems: 'center', gap: '8px' } });
-  storageTitle.innerHTML = `<svg viewBox="0 0 24 24" width="18" height="18" stroke="var(--primary-dark)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg> 存储用量与瘦身`;
+  // ============ 3. 存储用量与瘦身 ============
+  let storageUsageEl = null;
+  let storageProgressEl = null;
 
-  const storageBody = el('div', { class: 'section-body', style: { paddingTop: '12px' } }, [
-    el('div', { id: 'storage-usage', style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '正在计算…' }),
-    el('button', {
-      class: 'btn btn-sm btn-danger',
-      text: '🧹 一键清理废弃图片',
-      onClick: async () => {
-        if (!confirm('确定要清理吗？这会删除所有未关联到任何卡片的图片和 PDF，释放大量空间。')) return;
-        toastSuccess('正在扫描并清理...');
-        const count = await store.cleanOrphanImages();
-        toastSuccess(`清理完成！共删除了 ${count} 个废弃文件。`);
-        location.reload(); // 刷新页面以更新存储用量
+  const updateStorageUsage = async () => {
+    try {
+      storageUsageEl = document.getElementById('storage-usage');
+      storageProgressEl = document.getElementById('storage-progress');
+
+      if (!storageUsageEl || !storageProgressEl) return;
+
+      if (navigator.storage && navigator.storage.persist) {
+        await navigator.storage.persist();
       }
-    })
+
+      if (navigator.storage && navigator.storage.estimate) {
+        const estimate = await navigator.storage.estimate();
+        const usageMB = (estimate.usage / (1024 * 1024)).toFixed(1);
+        const quotaMB = (estimate.quota / (1024 * 1024)).toFixed(0);
+        const percent = Math.min(100, (estimate.usage / estimate.quota) * 100).toFixed(1);
+
+        let displayStr;
+        // 检测是否在 PWA 独立模式运行
+        const isPWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone;
+        const modeText = isPWA ? '（独立 App 模式）' : '（普通网页模式）';
+
+        if (Number(quotaMB) <= 10500) {
+          displayStr = `已用 ${usageMB} MB / 额度上限 ${quotaMB} MB (${percent}%) ${modeText}。空间受设备余量影响。`;
+        } else {
+          displayStr = `已用 ${usageMB} MB / 实际额度 ${quotaMB} MB (${percent}%) ${modeText}`;
+        }
+
+        storageUsageEl.textContent = displayStr;
+        storageProgressEl.style.width = `${percent}%`;
+        storageProgressEl.style.background = Number(percent) > 80 ? 'var(--danger)' : 'var(--success)';
+      } else {
+        storageUsageEl.textContent = '当前浏览器不支持获取存储配额信息。';
+      }
+    } catch (e) {
+      console.error('获取存储信息失败', e);
+      if (storageUsageEl) storageUsageEl.textContent = '计算存储用量失败';
+    }
+  };
+
+  const storageCard = el('div', { class: 'card', style: { padding: '20px', marginBottom: '16px' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '600', fontSize: '15px', marginBottom: '16px' } }, [
+      (() => {
+        const icon = el('span', { style: { display: 'flex' } });
+        icon.innerHTML = `<svg viewBox="0 0 24 24" width="20" height="20" stroke="var(--primary-dark)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect><rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect><line x1="6" y1="6" x2="6.01" y2="6"></line><line x1="6" y1="18" x2="6.01" y2="18"></line></svg>`;
+        return icon;
+      })(),
+      el('span', { text: '存储用量与瘦身' })
+    ]),
+    el('div', { style: { background: 'var(--bg)', padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', border: '1px solid rgba(0,0,0,.04)' } }, [
+      el('div', { id: 'storage-usage', style: { fontSize: '13px', color: 'var(--text-1)', marginBottom: '8px', fontWeight: '500' }, text: '正在计算…' }),
+      el('div', { style: { width: '100%', height: '8px', background: 'rgba(0,0,0,0.06)', borderRadius: '4px', overflow: 'hidden' } }, [
+        el('div', { id: 'storage-progress', style: { width: '0%', height: '100%', background: 'var(--success)', borderRadius: '4px', transition: 'width 0.3s' } })
+      ])
+    ]),
+    el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' } }, [
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        style: { background: 'rgba(239,71,111,0.1)', color: 'var(--danger)', border: 'none' },
+        text: '🧹 一键清理废弃图片',
+        onClick: async () => {
+          if (!confirm('确定要清理吗？这会删除所有未关联到任何卡片的图片和 PDF，释放大量空间。')) return;
+          toastSuccess('正在扫描并清理...');
+          const count = await store.cleanOrphanImages();
+          toastSuccess(`清理完成！共删除了 ${count} 个废弃文件。`);
+          updateStorageUsage();
+        }
+      }),
+      el('div', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: '💡 清理未关联的废弃图片、PDF，可释放大量空间' })
+    ])
   ]);
 
-  view.appendChild(el('div', { class: 'section' }, [
-    storageTitle,
-    storageBody
-  ]));
+  view.appendChild(storageCard);
+  updateStorageUsage();
 
   // ============ 4. 自定义顶栏快捷按钮 ============
   view.appendChild(el('div', { class: 'section' }, [

@@ -400,7 +400,7 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
     targetSection.appendChild(el('div', {
       style: { padding: '12px', background: targetMode === 'new' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${targetMode === 'new' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px' },
       onClick: (e) => {
-        // 👇 核心修复：如果点的是输入框或按钮，不触发重绘，避免打断输入
+        //如果点的是输入框或按钮，不触发重绘，避免打断输入
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
         targetMode = 'new';
         renderTargetOptions();
@@ -415,7 +415,7 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           type: 'text', placeholder: '请输入新文件夹名称...',
           value: newFolderName,
           style: { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', outline: 'none' },
-          // 👇 核心修复：阻止点击和聚焦时的事件冒泡
+          //阻止点击和聚焦时的事件冒泡
           onClick: (e) => e.stopPropagation(),
           onFocus: (e) => e.stopPropagation(),
           onInput: (e) => { newFolderName = e.target.value; }

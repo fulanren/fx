@@ -18,11 +18,11 @@
     else if (k === 'text' || k === 'textContent') {
       node.textContent = v;
     }
-    // 👇 核心修复：补上对 innerHTML 的支持
+    //补上对 innerHTML 的支持
     else if (k === 'innerHTML') {
       node.innerHTML = v;
     }
-    // 👇 核心修复：安全处理事件监听
+    //安全处理事件监听
     else if (k.startsWith('on') && typeof v === 'function') {
       // 将 onClick 转换为 click，onTouchStart 转换为 touchstart
       const eventName = k.slice(2).toLowerCase();

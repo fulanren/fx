@@ -326,7 +326,7 @@ function chapterCard(c, taskId) {
 // ============ 章节详情 / 知识点列表 ============
 let ptMulti = false;
 const ptSelected = new Set();
-let activeFilterTag = null; // 👈 记录当前选中的过滤标签
+let activeFilterTag = null; //  记录当前选中的过滤标签
 
 export function renderChapterDetail({ params, query }) {
   const chapterId = params.id;
@@ -351,7 +351,7 @@ export function renderChapterDetail({ params, query }) {
     else navigate(`#/`);
   };
 
-  // 👇 修复：统一变量名为 points，并且放在最外层
+  //统一变量名为 points，并且放在最外层
   const points = store.getPoints(chapter.id);
 
   if (ptMulti) {
@@ -473,7 +473,7 @@ export function renderChapterDetail({ params, query }) {
       }),
     ]));
   } else {
-    // 👇 在这里加回了标签管理按钮
+    //在这里加回了标签管理按钮
     view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
       el('button', {
         class: 'btn btn-sm btn-primary', text: '🎯 开始复习',
@@ -534,7 +534,7 @@ function pointCard(p, chapterId) {
   let isExpanded = false;
   const isSelected = ptSelected.has(p.id);
 
-  // 👇 获取当前卡片的专属标签
+  //获取当前卡片的专属标签
   const allPts = JSON.parse(localStorage.getItem('kg_points') || '[]');
   const freshP = allPts.find(x => x.id === p.id) || p;
   const cardTags = freshP.tags || [];
@@ -545,23 +545,23 @@ function pointCard(p, chapterId) {
   });
 
   // 卡片主体
-    const card = el('div', {
+  const card = el('div', {
     class: 'card point-card-content' + (isSelected ? ' selected' : ''),
     style: {
       cursor: 'pointer',
-      padding: '4px 8px', // 👈 极限压缩：上下 4px，左右 8px
+      padding: '4px 8px', //  极限压缩：上下 4px，左右 8px
       transition: 'all 0.2s',
       background: 'var(--card)',
-      borderRadius: '6px', // 👈 圆角改小一点，显得更紧凑
+      borderRadius: '6px', //  圆角改小一点，显得更紧凑
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'center',
       minHeight: 'auto',
-      marginBottom: '2px' // 👈 卡片与卡片之间的间距也压到极低
+      marginBottom: '2px' //  卡片与卡片之间的间距也压到极低
     }
   });
 
-      const header = el('div', {
+  const header = el('div', {
     onClick: (e) => {
       if (e.target.closest('input') || e.target.closest('button')) return;
 
@@ -574,22 +574,22 @@ function pointCard(p, chapterId) {
       isExpanded = !isExpanded;
       contentBox.style.display = isExpanded ? 'block' : 'none';
     },
-    // 👇 极限压缩：去掉所有上下间距，让标签和文字无缝贴合
-    style: { display: 'flex', flexDirection: 'column', gap: '0px' } 
+    //极限压缩：去掉所有上下间距，让标签和文字无缝贴合
+    style: { display: 'flex', flexDirection: 'column', gap: '0px' }
   }, [
     // 标签区域
     cardTags.length > 0 ? el('div', {
       style: { display: 'flex', flexWrap: 'wrap', gap: '2px', margin: '0', padding: '0' }
     }, cardTags.map(tag => el('span', {
       style: {
-        color: tag.color || '#ff4757', 
+        color: tag.color || '#ff4757',
         backgroundColor: tag.bgColor || 'transparent',
         border: tag.borderColor !== 'transparent' ? `1px solid ${tag.borderColor}` : 'none',
-        padding: '0px 4px', 
-        borderRadius: '2px', 
-        fontSize: '11px', 
-        fontWeight: 'bold', 
-        lineHeight: '1', // 👈 极限压缩行高
+        padding: '0px 4px',
+        borderRadius: '2px',
+        fontSize: '11px',
+        fontWeight: 'bold',
+        lineHeight: '1', //  极限压缩行高
         margin: '0'
       },
       innerHTML: tag.html || tag.text
@@ -654,16 +654,16 @@ function pointCard(p, chapterId) {
     }));
   }
 
-  const footerRow = el('div', { 
-    style: { 
-      display: 'flex', 
-      justifyContent: 'space-between', 
-      alignItems: 'center', 
-      marginTop: '4px', // 👈 从原来的 12px 压缩到 4px
-      flexWrap: 'wrap', 
-      gap: '4px' 
-    } 
-  });  if (p.imageIds && p.imageIds.length > 0) {
+  const footerRow = el('div', {
+    style: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginTop: '4px', //  从原来的 12px 压缩到 4px
+      flexWrap: 'wrap',
+      gap: '4px'
+    }
+  }); if (p.imageIds && p.imageIds.length > 0) {
     footerRow.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' }, text: `🖼 包含 ${p.imageIds.length} 张图文附件` }));
   } else {
     footerRow.appendChild(el('div'));
@@ -679,22 +679,22 @@ function pointCard(p, chapterId) {
   footerRow.appendChild(actions);
   contentBox.appendChild(footerRow);
 
-    card.appendChild(header);
+  card.appendChild(header);
   card.appendChild(contentBox);
 
-  // 👇 在卡片最外层包裹一个带蓝条的容器
-  const container = el('div', { 
-    class: 'point-card-container', 
-    style: { 
+  //在卡片最外层包裹一个带蓝条的容器
+  const container = el('div', {
+    class: 'point-card-container',
+    style: {
       marginBottom: '6px',
       position: 'relative', // 为了绝对定位底部的色条
       overflow: 'hidden', // 裁剪圆角
       borderRadius: '6px',
       background: 'var(--card)' // 保持原底色
-    } 
+    }
   }, [
     card,
-    // 👇 底部马卡龙蓝装饰条
+    //底部马卡龙蓝装饰条
     el('div', {
       style: {
         position: 'absolute',
@@ -712,15 +712,15 @@ function pointCard(p, chapterId) {
 }
 
 export function showCardTagManager(pointId) {
-    const point = store.getPoint(pointId);
+  const point = store.getPoint(pointId);
   if (!point) return toastError('找不到该卡片');
 
-  // 👇 直接读取当前卡片自己的专属标签 (point.tags)
+  //直接读取当前卡片自己的专属标签 (point.tags)
   let currentTags = [];
   if (Array.isArray(point.tags)) {
     currentTags = JSON.parse(JSON.stringify(point.tags));
   }
-  
+
   currentTags = currentTags.map(t => ({
     html: t.html || null, text: t.text || '',
     color: t.color || '#ff4757',
@@ -736,14 +736,36 @@ export function showCardTagManager(pointId) {
     { c: '#000000', s: false }, { c: '#000080', s: false }, { c: 'transparent', s: false }
   ];
 
- let presetColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
-  if (!presetColors.some(p => p.c === '#000000')) presetColors.push({ c: '#000000', s: false });
-  if (!presetColors.some(p => p.c === '#000080')) presetColors.push({ c: '#000080', s: false });
-  //把 unshift 换成 push，让透明色跑到最后面
-  if (!presetColors.some(p => p.c === 'transparent')) {
-    presetColors.push({ c: 'transparent', s: false }); 
-  }
-  
+  // 1. 基础预设与本地存储读取
+  let presetColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
+
+  // 2. 定义你需要的 8 个「绝对防删」强制色
+  const forcedColors = [
+    { c: '#000000', s: true, isForced: true }, // 黑
+    { c: '#000080', s: true, isForced: true }, // 藏青
+    { c: 'transparent', s: true, isForced: true }, // 透明
+    { c: '#1e90ff', s: true, isForced: true }, // 亮蓝
+    { c: '#ff4757', s: true, isForced: true }, // 红
+    { c: '#2ed573', s: true, isForced: true }, // 绿
+    { c: '#8e44ad', s: true, isForced: true }, // 紫
+    { c: '#f368e0', s: true, isForced: true }  // 粉
+  ];
+
+  // 3. 合并去重：确保强制色在最前面，且带保护标记
+  forcedColors.forEach(fc => {
+    // 移除本地存储中可能与强制色冲突的旧数据
+    presetColors = presetColors.filter(p => p.c !== fc.c);
+    presetColors.unshift(fc); // 强制色插入到最前面
+  });
+
+  // 4. 兜底逻辑：如果本地存储是空的，或者为了兼容你原来的 defaultColors
+  // 把原本不在列表里的普通颜色（非强制色）补齐，以防数据为空时色盘太少
+  defaultColors.forEach(dc => {
+    if (!presetColors.some(p => p.c === dc.c)) {
+      presetColors.push(dc);
+    }
+  });
+
   localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
 
   let activeColorType = 'text';
@@ -991,7 +1013,7 @@ export function showCardTagManager(pointId) {
           }
         }));
 
-        // 👇 2. 渲染外置快捷字符（实时从 localStorage 读取）
+        //2. 渲染外置快捷字符（实时从 localStorage 读取）
         const currentExternalChars = JSON.parse(localStorage.getItem('kg_external_chars')) || [];
         if (currentExternalChars.length > 0) {
           currentExternalChars.forEach(w => {
@@ -1022,7 +1044,7 @@ export function showCardTagManager(pointId) {
         return wrap;
       })(),
 
-      // 👇 3. 分割线和 B、I 按钮
+      //3. 分割线和 B、I 按钮
       el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,0.15)', margin: '0 4px' } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: 'B', style: { fontWeight: 'bold' }, onMousedown: e => e.preventDefault(), onClick: () => { document.execCommand('bold'); editorRef?.focus(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: 'I', style: { fontStyle: 'italic' }, onMousedown: e => e.preventDefault(), onClick: () => { document.execCommand('italic'); editorRef?.focus(); } }),
@@ -1117,7 +1139,7 @@ export function showCardTagManager(pointId) {
           if (!html.includes('color:') && selectedColor !== 'transparent') html = `<span style="color:${selectedColor}">${text}</span>`;
 
           const newTag = { html: html, text: text, color: selectedColor, bgColor: selectedBgColor, borderColor: selectedBorderColor, starred: false };
-                    if (editingIndex > -1) {
+          if (editingIndex > -1) {
             newTag.starred = currentTags[editingIndex].starred;
             currentTags[editingIndex] = newTag;
             editingIndex = -1;
@@ -1129,10 +1151,10 @@ export function showCardTagManager(pointId) {
               return;
             }
           }
-          
-          // 👇 关键：立刻把 currentTags 存到 localStorage 里！
+
+          //立刻把 currentTags 存到 localStorage 里！
           store.updateTask(task.id, { statusTags: currentTags });
-          
+
           currentHtmlContent = '';
           selectedBgColor = 'transparent';
           selectedBorderColor = 'transparent';
@@ -1186,16 +1208,16 @@ export function showCardTagManager(pointId) {
     const colorsWrap = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', padding: '10px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } });
     presetColors.forEach(item => {
       const c = item.c;
-      const isTransparent = c === 'transparent'; // 👈 补上这个定义！
+      const isTransparent = c === 'transparent'; //  补上这个定义！
 
       let isSelected = false;
       if (activeColorType === 'text') isSelected = (selectedColor === c);
       if (activeColorType === 'bg') isSelected = (selectedBgColor === c);
       if (activeColorType === 'border') isSelected = (selectedBorderColor === c);
 
-      // 👇 把 el 赋给变量 colorCircle
+      //把 el 赋给变量 colorCircle
       const colorCircle = el('div', {
-        class: 'color-block', 
+        class: 'color-block',
         style: {
           width: '18px', height: '18px', borderRadius: '50%',
           background: isTransparent ? 'var(--bg)' : c,
@@ -1248,7 +1270,7 @@ export function showCardTagManager(pointId) {
           colorCircle.style.border = '2px solid var(--primary)';
           colorCircle.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.1)';
           colorCircle.style.transform = 'scale(1.15)';
-          
+
           if (!colorCircle.querySelector('.check-icon')) {
             colorCircle.appendChild(el('span', {
               class: 'check-icon',
@@ -1261,7 +1283,7 @@ export function showCardTagManager(pointId) {
         isSelected ? el('span', { class: 'check-icon', text: '✓', style: { color: '#fff', fontSize: '12px', fontWeight: 'bold', position: 'absolute', textShadow: '0 1px 2px rgba(0,0,0,0.5)' } }) : null
       ]);
 
-      // 👇 加上标记并挂载
+      //加上标记并挂载
       colorCircle.dataset.isColorBlock = 'true';
       colorsWrap.appendChild(colorCircle);
     });
@@ -1277,7 +1299,7 @@ export function showCardTagManager(pointId) {
           else if (activeColorType === 'bg') selectedBgColor = val;
           else if (activeColorType === 'border') selectedBorderColor = val;
 
-          // 👈 局部更新 UI
+          //  局部更新 UI
           const previewEl = document.getElementById('current-color-preview');
           if (previewEl) { previewEl.style.background = val; previewEl.style.backgroundImage = 'none'; }
         }
@@ -1285,68 +1307,68 @@ export function showCardTagManager(pointId) {
     ]));
     colorContainer.appendChild(colorsWrap);
 
-      // ================= 4. 收藏颜色区（带管理） =================
+    // ================= 4. 收藏颜色区（带管理） =================
     const starredColors = presetColors.filter(item => item.s);
     colorContainer.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,0.1)', marginTop: '8px', marginBottom: '8px' } }));
-    
-    // 👇 收藏颜色标题区 + 管理按钮
+
+    //收藏颜色标题区 + 管理按钮
     const starHeader = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: 'var(--text-2)' } }, [
-      el('div', { 
-        style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'bold' }, 
-        onClick: () => { isStarredExpanded = !isStarredExpanded; renderContent(null); } 
+      el('div', {
+        style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontWeight: 'bold' },
+        onClick: () => { isStarredExpanded = !isStarredExpanded; renderContent(null); }
       }, [
         el('span', { text: `⭐ 收藏颜色 (${starredColors.length})` }),
         el('span', { text: isStarredExpanded ? '▾' : '▸' })
       ]),
-      // 👇 管理工具条
+      //管理工具条
       el('div', { style: { display: 'flex', gap: '4px' } }, [
-        isColorManageMode ? el('button', { 
-          class: 'btn btn-sm btn-ghost', text: '全选', 
-          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, 
-          onClick: (e) => { 
-            e.stopPropagation(); 
-            presetColors.forEach((item, i) => { if (item.s) selectedColorIndices.add(i); }); 
-            renderContent(null); 
-          } 
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '全选',
+          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' },
+          onClick: (e) => {
+            e.stopPropagation();
+            presetColors.forEach((item, i) => { if (item.s) selectedColorIndices.add(i); });
+            renderContent(null);
+          }
         }) : null,
-        isColorManageMode ? el('button', { 
-          class: 'btn btn-sm btn-ghost', text: '非全选', 
-          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, 
-          onClick: (e) => { 
-            e.stopPropagation(); 
-            selectedColorIndices.clear(); 
-            renderContent(null); 
-          } 
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '非全选',
+          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' },
+          onClick: (e) => {
+            e.stopPropagation();
+            selectedColorIndices.clear();
+            renderContent(null);
+          }
         }) : null,
-        isColorManageMode ? el('button', { 
-          class: 'btn btn-sm btn-danger', text: `删除(${selectedColorIndices.size})`, 
-          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, 
-          onClick: (e) => { 
-            e.stopPropagation(); 
-            if (selectedColorIndices.size === 0) return; 
-            if (!confirm('确定删除选中的收藏颜色吗？')) return; 
-            selectedColorIndices.forEach(i => { if (presetColors[i]) presetColors[i].s = false; }); 
-            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors)); 
-            selectedColorIndices.clear(); 
-            isColorManageMode = false; 
-            renderContent(null); 
-          } 
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-danger', text: `删除(${selectedColorIndices.size})`,
+          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' },
+          onClick: (e) => {
+            e.stopPropagation();
+            if (selectedColorIndices.size === 0) return;
+            if (!confirm('确定删除选中的收藏颜色吗？')) return;
+            selectedColorIndices.forEach(i => { if (presetColors[i]) presetColors[i].s = false; });
+            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+            selectedColorIndices.clear();
+            isColorManageMode = false;
+            renderContent(null);
+          }
         }) : null,
-        el('button', { 
-          class: 'btn btn-sm btn-primary', text: isColorManageMode ? '完成' : '管理', 
-          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, 
-          onClick: (e) => { 
-            e.stopPropagation(); 
-            isColorManageMode = !isColorManageMode; 
-            selectedColorIndices.clear(); 
-            renderContent(null); 
-          } 
+        el('button', {
+          class: 'btn btn-sm btn-primary', text: isColorManageMode ? '完成' : '管理',
+          style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' },
+          onClick: (e) => {
+            e.stopPropagation();
+            isColorManageMode = !isColorManageMode;
+            selectedColorIndices.clear();
+            renderContent(null);
+          }
         })
       ])
     ]);
     colorContainer.appendChild(starHeader);
 
-        if (isStarredExpanded) {
+    if (isStarredExpanded) {
       const starBox = el('div', { style: { marginTop: '8px' } });
       if (starredColors.length === 0) {
         starBox.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', padding: '8px', background: 'var(--bg)', borderRadius: '6px', border: '1px dashed rgba(0,0,0,.1)' }, text: '暂无收藏颜色' }));
@@ -1368,11 +1390,11 @@ export function showCardTagManager(pointId) {
             onMouseDown: (e) => e.preventDefault(),
             onClick: () => {
               if (isColorManageMode) {
-                // 👇 管理模式：点击是勾选
+                //管理模式：点击是勾选
                 if (selectedColorIndices.has(realIndex)) selectedColorIndices.delete(realIndex); else selectedColorIndices.add(realIndex);
                 renderContent(null);
               } else {
-                // 👇 普通模式：点击是选色
+                //普通模式：点击是选色
                 if (activeColorType === 'text') selectedColor = c;
                 else if (activeColorType === 'bg') selectedBgColor = c;
                 else if (activeColorType === 'border') selectedBorderColor = c;
@@ -1387,7 +1409,7 @@ export function showCardTagManager(pointId) {
       colorContainer.appendChild(starBox);
     }
 
-        // ================= 5. 卡片标签列表（状态持久化折叠） =================
+    // ================= 5. 卡片标签列表（状态持久化折叠） =================
     const currentList = el('div', { style: { display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '160px', overflowY: 'auto' } });
     if (currentTags.length === 0) {
       currentList.appendChild(el('div', { text: '暂无标签', style: { textAlign: 'center', padding: '12px', color: 'var(--text-2)', fontSize: '13px' } }));
@@ -1395,9 +1417,9 @@ export function showCardTagManager(pointId) {
       currentTags.forEach((tag, index) => {
         const isSelected = selectedIndices.has(index);
         currentList.appendChild(el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '6px', border: '1px solid rgba(0,0,0,.04)' } }, [
-          el('input', { 
-            type: 'checkbox', checked: isSelected, style: { margin: 0, width: '14px', height: '14px' }, 
-            onChange: (e) => { if (e.target.checked) selectedIndices.add(index); else selectedIndices.delete(index); renderContent(); } 
+          el('input', {
+            type: 'checkbox', checked: isSelected, style: { margin: 0, width: '14px', height: '14px' },
+            onChange: (e) => { if (e.target.checked) selectedIndices.add(index); else selectedIndices.delete(index); renderContent(); }
           }),
           el('span', { style: { color: tag.color, backgroundColor: tag.bgColor, border: tag.borderColor !== 'transparent' ? `1px solid ${tag.borderColor}` : 'none', padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: '600', flex: '1' }, innerHTML: tag.html || tag.text }),
           el('button', { class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '2px 6px', minHeight: 'auto' }, onClick: () => { editingIndex = index; currentHtmlContent = tag.html || ''; selectedColor = tag.color; selectedBgColor = tag.bgColor; selectedBorderColor = tag.borderColor; renderContent(currentHtmlContent); } }),
@@ -1419,11 +1441,11 @@ export function showCardTagManager(pointId) {
       })
     ]);
 
-    // 👇 根据 isTagListCollapsed 的状态决定是否显示
-    const listContainer = el('div', { 
-      style: { display: isTagListCollapsed ? 'none' : 'block' } 
+    //根据 isTagListCollapsed 的状态决定是否显示
+    const listContainer = el('div', {
+      style: { display: isTagListCollapsed ? 'none' : 'block' }
     }, [currentList, listActions]);
-    
+
     // 阻止内部点击冒泡，防止误触外部重绘
     listContainer.onclick = (e) => e.stopPropagation();
 
@@ -1431,8 +1453,8 @@ export function showCardTagManager(pointId) {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginTop: '16px', marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px dashed rgba(0,0,0,.1)' },
       onClick: (e) => {
         e.stopPropagation();
-        isTagListCollapsed = !isTagListCollapsed; // 👈 切换状态
-        renderContent(); // 👈 重绘应用状态
+        isTagListCollapsed = !isTagListCollapsed; //  切换状态
+        renderContent(); //  重绘应用状态
       }
     }, [
       el('span', { text: `📁 当前卡片标签 (${currentTags.length})`, style: { fontWeight: 'bold', fontSize: '13px', color: 'var(--text-2)' } }),
@@ -1448,13 +1470,13 @@ export function showCardTagManager(pointId) {
       el('button', {
         class: 'btn btn-primary', text: '保存',
         onClick: () => {
-          // 👈 必须是 updatePoint，而不是 updateTask
+          //  必须是 updatePoint，而不是 updateTask
           store.updatePoint(pointId, { tags: currentTags });
           toastSuccess('卡片标签已更新');
           mask.remove();
           renderChapterDetail({ params: { id: point.chapterId } });
         }
-      })    ]));
+      })]));
   };
 
   renderContent(null);

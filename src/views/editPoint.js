@@ -1387,19 +1387,19 @@ export function renderEditPoint({ params, query }) {
         }));
 
         if (usedManageMode) {
-          // 👇 全选按钮
+          //全选按钮
           usedToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-ghost', text: '全选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
             onClick: (e) => { e.stopPropagation(); usedList.forEach(l => selectedUsed.add(l)); renderUsedFormulas(); }
           }));
-          // 👇 全不选按钮（这次补上了！）
+          //全不选按钮（这次补上了！）
           usedToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-ghost', text: '全不选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
             onClick: (e) => { e.stopPropagation(); selectedUsed.clear(); renderUsedFormulas(); }
           }));
-          // 👇 删除按钮
+          //删除按钮
           usedToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-danger', text: `删除(${selectedUsed.size})`,
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
@@ -1510,19 +1510,19 @@ export function renderEditPoint({ params, query }) {
         }));
 
         if (favManageMode) {
-          // 👇 全选按钮
+          //全选按钮
           favToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-ghost', text: '全选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
             onClick: (e) => { e.stopPropagation(); list.forEach(f => selectedFav.add(f.id)); renderFavFormulas(); }
           }));
-          // 👇 全不选按钮（补上了！）
+          //全不选按钮（补上了！）
           favToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-ghost', text: '全不选',
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
             onClick: (e) => { e.stopPropagation(); selectedFav.clear(); renderFavFormulas(); }
           }));
-          // 👇 删除按钮
+          //删除按钮
           favToolbar.appendChild(el('button', {
             class: 'btn btn-sm btn-danger', text: `删除(${selectedFav.size})`,
             style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
@@ -4805,7 +4805,7 @@ function openFolderSelectModal(onSelect) {
         const newName = prompt('新建文件夹名称：', '未命名文件夹');
         if (!newName || !newName.trim()) return;
 
-        // 👇 核心修改 1：不再自动创建 '📁' 或 '默认子模块' 的章节
+        // 不再自动创建 '📁' 或 '默认子模块' 的章节
         // 直接建文件夹
         const newTask = store.createTask({ name: newName.trim() });
 

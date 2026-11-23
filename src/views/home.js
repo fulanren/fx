@@ -465,7 +465,7 @@ function taskCard(task) {
         else selectedIds.add(task.id);
         renderHome();
       } else {
-        // 👇 核心修改：点击文件夹时，永远抓取或创建一个“默认”章节，直接进去
+        //点击文件夹时，永远抓取或创建一个“默认”章节，直接进去
         let targetChapterId;
         const defaultChapter = chapters.find(c => c.name === '默认' || c.name === '默认子模块' || c.name === '📁');
 
@@ -524,7 +524,7 @@ function taskCard(task) {
                 fontSize: '12px',
                 padding: '2px 6px',
                 borderRadius: '4px',
-                background: 'transparent', // 👈 强制透明
+                background: 'transparent', //  强制透明
                 border: `1px solid ${tag.borderColor !== undefined ? tag.borderColor : (tag.color || '#ff4757')}`,
                 flexShrink: 0,
                 lineHeight: 1.2,
@@ -599,7 +599,7 @@ function showStatusTagManager(task) {
   // 1. 初始化数据（分离展示：自己的标签可编辑，子文件夹标签仅展示）
   // ==========================================
   let currentTags = [];
-    let isListCollapsed = true; // 默认收起
+  let isListCollapsed = true; // 默认收起
 
   // ① 先加自己的标签
   if (Array.isArray(task.statusTags)) {
@@ -612,8 +612,8 @@ function showStatusTagManager(task) {
       isSubTag: false, isCardTag: false
     }));
   } else if (task.statusIcon) {
-    currentTags = [{ 
-      text: task.statusIcon, color: task.statusColor || '#ff4757', 
+    currentTags = [{
+      text: task.statusIcon, color: task.statusColor || '#ff4757',
       html: null, bgColor: 'transparent', borderColor: 'transparent', starred: false,
       isSubTag: false, isCardTag: false
     }];
@@ -631,7 +631,7 @@ function showStatusTagManager(task) {
     });
   }
 
-    // ③ 收集子文件夹的标签
+  // ③ 收集子文件夹的标签
   let subTagsAdded = new Set(currentTags.map(t => t.text));
   allRelatedTasks.forEach(subTask => {
     if (subTask.id === task.id) return;
@@ -655,7 +655,7 @@ function showStatusTagManager(task) {
 
   // ④ 终极暴力收集：遍历所有未删除的卡片，只要卡片里有标签，就抓过来！
   const allPoints = store.getPoints();
-  
+
   allPoints.forEach(p => {
     // 只要卡片没有被删除，且有标签数据
     if (!p.deletedAt && p.tags && Array.isArray(p.tags) && p.tags.length > 0) {
@@ -663,14 +663,14 @@ function showStatusTagManager(task) {
         // 去重：如果这个标签还没加过
         if (!currentTags.some(t => t.text === tag.text)) {
           currentTags.push({
-            html: tag.html || null, 
+            html: tag.html || null,
             text: tag.text || '',
             color: tag.color || '#ff4757',
             bgColor: tag.bgColor || 'transparent',
             borderColor: tag.borderColor || 'transparent',
             starred: tag.starred || false,
-            isSubTag: false, 
-            isCardTag: true // 👈 核心标记：这是来自卡片的标签
+            isSubTag: false,
+            isCardTag: true // 这是来自卡片的标签
           });
         }
       });
@@ -684,17 +684,38 @@ function showStatusTagManager(task) {
     { c: '#ff4757', s: false }, { c: '#2ed573', s: false }, { c: '#1e90ff', s: true },
     { c: '#ffa502', s: false }, { c: '#8e44ad', s: false }, { c: '#747d8c', s: false },
     { c: '#ff9ff3', s: false }, { c: '#f368e0', s: false },
-    { c: '#000000', s: false }, { c: '#000080', s: false },{ c: 'transparent', s: false },
+    { c: '#000000', s: false }, { c: '#000080', s: false }, { c: 'transparent', s: false }
   ];
 
-   let presetColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
-  if (!presetColors.some(p => p.c === '#000000')) presetColors.push({ c: '#000000', s: false });
-  if (!presetColors.some(p => p.c === '#000080')) presetColors.push({ c: '#000080', s: false });
-  //把 unshift 换成 push，让透明色跑到最后面
-  if (!presetColors.some(p => p.c === 'transparent')) {
-    presetColors.push({ c: 'transparent', s: false }); 
-  }
-  
+  // 1. 从本地读取
+  let presetColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
+
+  // 2. 定义 8 个「绝对防删」强制色
+  const forcedColors = [
+    { c: '#000000', s: true, isForced: true }, // 黑
+    { c: '#000080', s: true, isForced: true }, // 藏青
+    { c: 'transparent', s: true, isForced: true }, // 透明
+    { c: '#1e90ff', s: true, isForced: true }, // 亮蓝
+    { c: '#ff4757', s: true, isForced: true }, // 红
+    { c: '#2ed573', s: true, isForced: true }, // 绿
+    { c: '#8e44ad', s: true, isForced: true }, // 紫
+    { c: '#f368e0', s: true, isForced: true }  // 粉
+  ];
+
+  // 3. 剥离旧的强制色，确保强制色永远排在最前面且带保护标记
+  forcedColors.forEach(fc => {
+    presetColors = presetColors.filter(p => p.c !== fc.c); // 去重
+    presetColors.unshift(fc); // 放在最前
+  });
+
+  // 4. 兼容并补齐你在 defaultColors 里定义的普通颜色（不覆盖强制色）
+  defaultColors.forEach(dc => {
+    if (!presetColors.some(p => p.c === dc.c)) {
+      presetColors.push(dc);
+    }
+  });
+
+  // 5. 将最终结果写回本地存储
   localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
 
   // 3. 状态变量
@@ -735,7 +756,7 @@ function showStatusTagManager(task) {
   };
 
   // ================= 统一刷新渲染 =================
-  // 👇 接收一个回显内容参数
+  //接收一个回显内容参数
   const renderContent = (initialContent = null) => {
     console.log("=== 准备渲染 renderContent ===");
     console.log("接收到的 initialContent:", initialContent);
@@ -745,7 +766,7 @@ function showStatusTagManager(task) {
     box.appendChild(el('h3', { text: '🏷️ 状态标签管理', style: { marginTop: 0, marginBottom: '12px' } }));
 
     // ================= 2. 中部：输入区 =================
-    // 👇 在最外层声明，避免弹窗内外作用域冲突
+    //在最外层声明，避免弹窗内外作用域冲突
     const currentExternalChars = JSON.parse(localStorage.getItem('kg_external_chars')) || [];
 
     const toolbar = el('div', { style: { display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '6px', flexWrap: 'wrap' } }, [
@@ -1192,7 +1213,7 @@ function showStatusTagManager(task) {
     });
     box.appendChild(editor);
 
-    // 👇 👇 👇 终极必杀：如果传入了编辑内容，等 50 毫秒后用原生 API 强塞进去！
+    //如果传入了编辑内容，等 50 毫秒后用原生 API 强塞进去！
     if (initialContent !== null && initialContent !== '') {
       setTimeout(() => {
         const realEditor = document.getElementById('tag-editor');
@@ -1255,7 +1276,7 @@ function showStatusTagManager(task) {
           selectedBgColor = 'transparent';
           selectedBorderColor = 'transparent';
 
-          // 👈 刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
+          //  刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
           renderContent(null);
         }
       }),
@@ -1268,7 +1289,7 @@ function showStatusTagManager(task) {
           selectedBgColor = 'transparent';
           selectedBorderColor = 'transparent';
 
-          // 👈 刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
+          //  刷新界面，传入 null 避免把空字符串当成回显内容强行塞入
           renderContent(null);
         }
       }) : null
@@ -1294,24 +1315,24 @@ function showStatusTagManager(task) {
           style: { display: 'flex', alignItems: 'center', gap: '4px', padding: '6px 8px', background: 'var(--bg)', borderRadius: '6px', border: '1px solid rgba(0,0,0,.04)' }
         }, [
           el('input', { type: 'checkbox', checked: isSelected, style: { margin: 0, width: '14px', height: '14px' }, onChange: (e) => { if (e.target.checked) selectedIndices.add(index); else selectedIndices.delete(index); renderContent(null); } }),
-              el('span', {
+          el('span', {
             style: {
               color: tag.color,
               backgroundColor: tag.bgColor,
               border: tag.borderColor !== 'transparent' ? `1px solid ${tag.borderColor}` : 'none',
               padding: '2px 6px', borderRadius: '4px', fontSize: '13px', fontWeight: '600', flex: '1', lineHeight: '1.2'
             },
-            // 👇 智能拼接：[卡] 或 [子] 标识 + 原本内容
-            innerHTML: (tag.isCardTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[卡]</span>' : '') + 
-                       (tag.isSubTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[子]</span>' : '') + 
-                       (tag.html || tag.text)
+            //智能拼接：[卡] 或 [子] 标识 + 原本内容
+            innerHTML: (tag.isCardTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[卡]</span>' : '') +
+              (tag.isSubTag ? '<span style="color:#999;font-size:10px;margin-right:2px;">[子]</span>' : '') +
+              (tag.html || tag.text)
           }),
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '2px 6px', minHeight: 'auto' }, onClick: () => {
-              // 👇 核心防护：如果这个标签属于子文件夹或卡片，就不允许在这里直接编辑
+              //如果这个标签属于子文件夹或卡片，就不允许在这里直接编辑
               if (tag.isCardTag) return toastError('这是卡片的专属标签，请去卡片内修改');
               if (tag.isSubTag) return toastError('这是子文件夹的专属标签，请去对应文件夹修改');
-              
+
               editingIndex = index;
               currentHtmlContent = tag.html || tag.text;
               selectedColor = tag.color; selectedBgColor = tag.bgColor; selectedBorderColor = tag.borderColor;
@@ -1336,7 +1357,7 @@ function showStatusTagManager(task) {
       })
     ]);
 
-    // 👇 用 isListCollapsed 变量控制显示隐藏
+    //用 isListCollapsed 变量控制显示隐藏
     const listContainer = el('div', { style: { display: isListCollapsed ? 'none' : 'block' } }, [
       currentList,
       currentActions
@@ -1348,8 +1369,8 @@ function showStatusTagManager(task) {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', marginTop: '16px', marginBottom: '8px', paddingBottom: '4px', borderBottom: '1px dashed rgba(0,0,0,.1)' },
       onClick: (e) => {
         e.stopPropagation();
-        isListCollapsed = !isListCollapsed; // 👈 修改状态
-        renderContent(null); // 👈 重新渲染以应用状态
+        isListCollapsed = !isListCollapsed; //  修改状态
+        renderContent(null); //  重新渲染以应用状态
       }
     }, [
       el('span', { text: `📁 当前文件夹标签 (${currentTags.length})`, style: { fontWeight: 'bold', fontSize: '13px', color: 'var(--text-2)' } }),
@@ -1362,10 +1383,10 @@ function showStatusTagManager(task) {
     // 6. 保存/取消
     box.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.1)', paddingTop: '16px', display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' } }, [
       el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
-        el('button', {
+      el('button', {
         class: 'btn btn-primary', text: '保存全部',
         onClick: () => {
-          // 👈 过滤掉卡片和子文件夹的标签
+          //  过滤掉卡片和子文件夹的标签
           const ownTagsToSave = currentTags.filter(t => !t.isCardTag && !t.isSubTag).map(t => {
             const { isCardTag, isSubTag, ...rest } = t;
             return rest;
@@ -1448,10 +1469,10 @@ function showStatusTagManager(task) {
     // ================= 1. 预设颜色区 =================
     const colorsWrap = el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', padding: '10px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid rgba(0,0,0,.05)' } });
 
-      presetColors.forEach(item => {
+    presetColors.forEach(item => {
       const c = item.c;
-      const isTransparent = c === 'transparent'; // 👈 核心补丁，必须放在最前面
-      
+      const isTransparent = c === 'transparent'; //  核心补丁，必须放在最前面
+
       let isSelected = false;
       if (activeColorType === 'text') isSelected = (selectedColor === c);
       if (activeColorType === 'bg') isSelected = (selectedBgColor === c);
@@ -1509,7 +1530,7 @@ function showStatusTagManager(task) {
           colorCircle.style.border = '2px solid var(--primary)';
           colorCircle.style.boxShadow = '0 0 0 1px rgba(0,0,0,0.1)';
           colorCircle.style.transform = 'scale(1.15)';
-          
+
           if (!colorCircle.querySelector('.check-icon')) {
             colorCircle.appendChild(el('span', {
               class: 'check-icon', text: '✓',
@@ -1554,7 +1575,7 @@ function showStatusTagManager(task) {
                 sel.removeAllRanges();
                 sel.addRange(savedRange);
               }
-              // 👇 纯净版：只调用原生命令
+              //纯净版：只调用原生命令
               document.execCommand('styleWithCSS', false, true);
               document.execCommand('foreColor', false, val);
               currentHtmlContent = editorRef.innerHTML;
@@ -1579,7 +1600,7 @@ function showStatusTagManager(task) {
     if ((activeColorType === 'bg' || activeColorType === 'border')) {
       colorsWrap.appendChild(el('button', {
         class: 'btn btn-sm btn-ghost', text: '清除', style: { padding: '2px 6px', fontSize: '11px', height: '20px', minHeight: 'auto' },
-                onClick: () => {
+        onClick: () => {
           if (activeColorType === 'bg') selectedBgColor = 'transparent';
           if (activeColorType === 'border') selectedBorderColor = 'transparent';
 
@@ -1607,8 +1628,8 @@ function showStatusTagManager(task) {
     colorsWrap.appendChild(el('div', { style: { width: '1px', height: '18px', background: 'rgba(0,0,0,0.1)', margin: '0 4px' } }));
     container.appendChild(colorsWrap);
 
-        // ================= 2. 收藏颜色区 =================
-    // 👇 核心修复：定义 starredColors
+    // ================= 2. 收藏颜色区 =================
+    //定义 starredColors
     const starredColors = presetColors.filter(item => item.s);
 
     // 分割线
@@ -1622,40 +1643,44 @@ function showStatusTagManager(task) {
         el('span', { text: `⭐ 收藏颜色 (${starredColors.length})` }),
         el('span', { text: isStarredExpanded ? '▾' : '▸' })
       ]),
-      // 👇 管理工具条（带全选/非全选/删除/恢复默认/管理）
+      //管理工具条（带全选/非全选/删除/恢复默认/管理）
       el('div', { style: { display: 'flex', gap: '4px' } }, [
         isColorManageMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); presetColors.forEach((item, i) => { if (item.s) selectedColorIndices.add(i); }); renderContent(null); } }) : null,
         isColorManageMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); selectedColorIndices.clear(); renderContent(null); } }) : null,
-        isColorManageMode ? el('button', { class: 'btn btn-sm btn-danger', text: `删除(${selectedColorIndices.size})`, style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { 
-          e.stopPropagation(); 
-          if (selectedColorIndices.size === 0) return; 
-          if (!confirm('确定删除选中的收藏颜色吗？')) return; 
-          selectedColorIndices.forEach(i => { if (presetColors[i]) presetColors[i].s = false; }); 
-          localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors)); 
-          selectedColorIndices.clear(); 
-          isColorManageMode = false; 
-          renderContent(null); 
-        } }) : null,
-        isColorManageMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '恢复默认', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto', color: 'var(--primary)' }, onClick: (e) => { 
-          e.stopPropagation(); 
-          if (!confirm('确定要恢复系统默认吗？')) return; 
-          const defaultColorValues = defaultColors.map(d => d.c.toLowerCase()); 
-          const customColorsMap = new Map(); 
-          presetColors.forEach(p => { if (!defaultColorValues.includes(p.c.toLowerCase())) customColorsMap.set(p.c.toLowerCase(), p); }); 
-          presetColors = [...JSON.parse(JSON.stringify(defaultColors)), ...Array.from(customColorsMap.values())]; 
-          localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors)); 
-          selectedColorIndices.clear(); 
-          isColorManageMode = false; 
-          isStarredExpanded = true; 
-          renderContent(null); 
-          if (typeof toastSuccess === 'function') toastSuccess('已恢复默认颜色'); else alert('已恢复默认颜色'); 
-        } }) : null,
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-danger', text: `删除(${selectedColorIndices.size})`, style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => {
+            e.stopPropagation();
+            if (selectedColorIndices.size === 0) return;
+            if (!confirm('确定删除选中的收藏颜色吗？')) return;
+            selectedColorIndices.forEach(i => { if (presetColors[i]) presetColors[i].s = false; });
+            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+            selectedColorIndices.clear();
+            isColorManageMode = false;
+            renderContent(null);
+          }
+        }) : null,
+        isColorManageMode ? el('button', {
+          class: 'btn btn-sm btn-ghost', text: '恢复默认', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto', color: 'var(--primary)' }, onClick: (e) => {
+            e.stopPropagation();
+            if (!confirm('确定要恢复系统默认吗？')) return;
+            const defaultColorValues = defaultColors.map(d => d.c.toLowerCase());
+            const customColorsMap = new Map();
+            presetColors.forEach(p => { if (!defaultColorValues.includes(p.c.toLowerCase())) customColorsMap.set(p.c.toLowerCase(), p); });
+            presetColors = [...JSON.parse(JSON.stringify(defaultColors)), ...Array.from(customColorsMap.values())];
+            localStorage.setItem('kg_tag_colors', JSON.stringify(presetColors));
+            selectedColorIndices.clear();
+            isColorManageMode = false;
+            isStarredExpanded = true;
+            renderContent(null);
+            if (typeof toastSuccess === 'function') toastSuccess('已恢复默认颜色'); else alert('已恢复默认颜色');
+          }
+        }) : null,
         el('button', { class: 'btn btn-sm btn-primary', text: isColorManageMode ? '完成' : '管理', style: { padding: '2px 6px', fontSize: '11px', height: '22px', minHeight: 'auto' }, onClick: (e) => { e.stopPropagation(); isColorManageMode = !isColorManageMode; selectedColorIndices.clear(); renderContent(null); } })
       ])
     ]);
     container.appendChild(starHeader);
 
-        if (isStarredExpanded) {
+    if (isStarredExpanded) {
       const starBox = el('div', { style: { marginTop: '8px' } });
       if (starredColors.length === 0) {
         starBox.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', padding: '8px', background: 'var(--bg)', borderRadius: '6px', border: '1px dashed rgba(0,0,0,.1)' }, text: '暂无收藏颜色，请点击上方“恢复默认”或添加星标' }));
@@ -1674,13 +1699,13 @@ function showStatusTagManager(task) {
 
           const starCircle = el('div', {
             style: {
-              width: '18px', height: '18px', borderRadius: '50%', 
-              // 👇 透明色的渲染
+              width: '18px', height: '18px', borderRadius: '50%',
+              //透明色的渲染
               background: isTransparent ? 'var(--bg)' : c,
-              backgroundImage: isTransparent 
-                ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)' 
+              backgroundImage: isTransparent
+                ? 'linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc), linear-gradient(45deg, #ccc 25%, transparent 25%, transparent 75%, #ccc 75%, #ccc)'
                 : 'none',
-              backgroundSize: '8px 8px', 
+              backgroundSize: '8px 8px',
               backgroundPosition: '0 0, 4px 4px',
               cursor: 'pointer',
               border: isChecked ? '2px solid #fff' : (isSelected ? '2px solid var(--primary)' : '2px solid transparent'),
@@ -1691,12 +1716,12 @@ function showStatusTagManager(task) {
             onMouseDown: (e) => e.preventDefault(),
             onClick: () => {
               if (isColorManageMode) {
-                // 👇 管理模式：只负责勾选
+                //管理模式：只负责勾选
                 if (selectedColorIndices.has(realIndex)) selectedColorIndices.delete(realIndex);
                 else selectedColorIndices.add(realIndex);
                 renderContent(null);
               } else {
-                // 👇 普通模式：切换颜色
+                //普通模式：切换颜色
                 if (editorRef) currentHtmlContent = editorRef.innerHTML;
 
                 if (activeColorType === 'text') selectedColor = c;

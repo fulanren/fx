@@ -131,7 +131,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
         ctx.stroke();
       }
     } else if (p.style === 'grid') {
-      const gapXY = p.lineGap || 16; // 👈 动态读取间距，默认 16
+      const gapXY = p.lineGap || 16; //动态读取间距，默认 16
       ctx.strokeStyle = 'rgba(0,0,0,.06)';
       ctx.lineWidth = 1;
       for (let x = gapXY; x < p.w; x += gapXY) {
@@ -821,7 +821,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
       bar.appendChild(el('div', { class: 'tape-row' }, [el('span', { class: 'tape-label', text: '旋转' }), rotRange, rotNum, el('span', { text: '°' })]));
     }
 
-    // 👇 终极修复：将生成的新工具栏替换掉页面上旧的
+    //将生成的新工具栏替换掉页面上旧的
     const oldBar = document.querySelector('.tape-toolbar');
     if (oldBar && oldBar !== bar) {
       oldBar.replaceWith(bar);
