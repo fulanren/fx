@@ -248,7 +248,7 @@ async function boot() {
       }
       
     } else if (hash.startsWith('#/chapter/')) {
-      // 👇 核心修改：从卡片列表返回，直接回首页（文件夹列表），不再经过章节列表
+      //从卡片列表返回，直接回首页（文件夹列表），不再经过章节列表
       navigate('#/');
       
     } else if (hash.startsWith('#/chapter-list/')) {
