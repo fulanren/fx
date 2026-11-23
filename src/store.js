@@ -356,23 +356,26 @@ export function deleteChapter(id) {
 }
 
 // ============ 知识点 ============
-export function getPoints(chapterId) {
+export function getPoints(taskId) {
   const allPoints = read(K.points).filter(p => !p.deletedAt);
 
-  //如果传了 chapterId，就按章节过滤
-  if (chapterId !== undefined) {
-    return allPoints.filter(p => p.chapterId === chapterId).sort((a, b) => a.order - b.order);
+  // 如果传了 taskId，就按文件夹过滤（兼容旧版的 chapterId 数据）
+  if (taskId !== undefined) {
+    return allPoints.filter(p => (p.taskId === taskId || p.chapterId === taskId)).sort((a, b) => a.order - b.order);
   }
 
-  //如果没传参数，就返回所有未删除的卡片（用于首页散落卡片展示）
+  // 如果没传参数，就返回所有未删除的卡片（用于首页散落卡片展示）
   return allPoints.sort((a, b) => a.order - b.order);
 }
-export function getPoint(id) { return read(K.points).find(p => p.id === id); }
+
+export function getPoint(id) { 
+  return read(K.points).find(p => p.id === id); 
+}
 export function createPoint(patch) {
   const list = read(K.points);
   const p = {
     id: uuid(),
-    chapterId: patch.chapterId || null, //必须允许为 null，代表未分类卡片
+    taskId: patch.taskId || null, // 用 taskId 代替 chapterId
     content: patch.content || '未命名卡片',
     explanation: patch.explanation || '',
     imageIds: patch.imageIds || [],
@@ -384,7 +387,7 @@ export function createPoint(patch) {
     nextReviewAt: now(),
     reviewHistory: [],
     isErrorProne: patch.isErrorProne || false,
-    order: list.filter(x => x.chapterId === patch.chapterId && !x.deletedAt).length,
+    order: list.filter(x => x.taskId === patch.taskId && !x.deletedAt).length,
     createdAt: now(),
     updatedAt: now(),
   };
@@ -396,6 +399,11 @@ export function updatePoint(id, patch) {
   const list = read(K.points);
   const i = list.findIndex(p => p.id === id);
   if (i < 0) return null;
+  // 把 patch 里的 chapterId 转为 taskId（如果传了的话）
+  if (patch.chapterId !== undefined) {
+    patch.taskId = patch.chapterId;
+    delete patch.chapterId;
+  }
   list[i] = { ...list[i], ...patch, updatedAt: now() };
   write(K.points, list);
   return list[i];

@@ -9,6 +9,7 @@ import { makeSortable } from '../ui/sortable.js';
 import { getImageCached } from '../db.js';
 import { globalImportDocModal } from './importDoc.js';
 import { showPasteOptionsModal } from './importDoc.js';
+import { renderFAB } from '../main.js';
 
 
 function parseLinks(html) {
@@ -99,159 +100,66 @@ function showExportMenu(scope, id) {
 let chMulti = false;
 const chSelected = new Set();
 
-export function renderChapterList({ params }) {
-  const task = store.getTask(params.taskId);
-  if (!task) { navigate('#/'); return; }
+// ============ 文件夹内部（子文件夹 + 卡片） ============
+export function renderFolderDetail({ params }) {
+  const folderId = params.taskId;
+  const currentFolder = store.getTask(folderId);
+  if (!currentFolder) { navigate('#/'); return; }
+
   const view = document.getElementById('view');
   clear(view);
-  document.getElementById('page-title').textContent = chMulti ? '选择章节' : task.name;
+  document.getElementById('page-title').textContent = currentFolder.name;
   document.getElementById('btn-back').classList.remove('hidden');
   document.getElementById('btn-back').onclick = () => {
-    if (ptMulti) { ptMulti = false; ptSelected.clear(); renderChapterDetail({ params, query }); }
-    else navigate(`#/`);
+    // 返回上一级文件夹，如果是最顶层，就回首页
+    if (currentFolder.parentId) {
+      navigate(`#/folder/${currentFolder.parentId}`);
+    } else {
+      navigate(`#/`);
+    }
   };
 
-  const chapters = store.getChapters(task.id);
+  // 1. 获取当前文件夹下的子文件夹
+  const subFolders = store.getTasks().filter(t => t.parentId === folderId);
 
-  if (chMulti) {
-    view.appendChild(el('div', { class: 'batch-bar' }, [
-      el('span', { text: `已选 ${chSelected.size} 项` }),
-      el('button', {
-        class: 'btn btn-sm btn-ghost',
-        text: chapters.length > 0 && chSelected.size === chapters.length ? '取消全选' : '全选',
-        onClick: () => {
-          if (chapters.length > 0 && chSelected.size === chapters.length) {
-            chSelected.clear();
-          } else {
-            chapters.forEach(c => chSelected.add(c.id));
-          }
-          renderChapterList({ params });
-        },
-      }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { chMulti = false; chSelected.clear(); renderChapterList({ params }); } }),
-    ]));
-    view.appendChild(el('div', { class: 'batch-bar-actions' }, [
-      // 【粘贴章节】
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '📥 粘贴章节',
-        onClick: () => {
-          // 假设你复制章节时，存入的 key 叫 kg_clipboard_chapters
-          const raw = localStorage.getItem('kg_clipboard_chapters');
-          if (!raw) return toastError('剪贴板里没有章节');
+  // 2. 获取当前文件夹下的卡片
+  const points = store.getPoints(folderId);
 
-          let chapters = [];
-          try {
-            chapters = JSON.parse(raw);
-          } catch (e) { }
-
-          if (!chapters || chapters.length === 0) return toastError('剪贴板为空');
-
-          // 呼出通用弹窗
-          showPasteOptionsModal(
-            async (finalChapterId, targetName) => {
-              if (!finalChapterId) return toastError('请选择目标文件夹');
-
-              if (await confirmBox({ title: '粘贴章节', message: `确定要将 ${chapters.length} 个章节粘贴到「${targetName}」吗？` })) {
-                toastSuccess('正在粘贴...');
-
-                for (const c of chapters) {
-                  // 1. 在目标文件夹下创建新章节
-                  const newChapter = store.createChapter({
-                    taskId: store.getChapter(finalChapterId).taskId,
-                    name: c.name + ' (副本)'
-                  });
-
-                  // 2. 将原章节下的所有知识点复制到新章节
-                  const points = store.getPoints(c.id);
-                  points.forEach(p => {
-                    store.createPoint({
-                      chapterId: newChapter.id,
-                      content: p.content,
-                      explanation: p.explanation,
-                      difficulty: p.difficulty,
-                      imageIds: p.imageIds
-                    });
-                  });
-                }
-
-                toastSuccess(`成功粘贴 ${chapters.length} 个章节！`);
-                chMulti = false;
-                chSelected.clear();
-
-                // 粘贴完毕，重新刷新当前页面
-                renderChapterList({ params });
-              }
-            },
-            null // 章节批量选择时，通常没有当前章节 ID，传 null
-          );
-        }
-      }),
-
-      // 【合并选中章节】（保留你原来的）
-      el('button', {
-        class: 'btn btn-sm btn-primary', text: '合并选中',
-        onClick: async () => {
-          if (chSelected.size < 2) { alert('至少选择 2 个章节'); return; }
-          const ids = [...chSelected];
-          const targetId = ids[0];
-          const items = ids.map(id => store.getChapter(id));
-          await mergeModal({
-            title: '合并章节', items, targetId,
-            onConfirm: (sourceIds, dedupe, newName, sortMode, mergeMode) => {
-              store.mergeChapters(sourceIds, targetId, dedupe, newName, sortMode);
-              toastSuccess('已合并');
-              chMulti = false;
-              chSelected.clear();
-              renderChapterList({ params });
-            },
-          });
-        },
-      }),
-
-      // 【删除选中】
-      el('button', {
-        class: 'btn btn-sm btn-danger', text: '删除选中',
-        onClick: async () => {
-          if (chSelected.size === 0) return;
-          if (await confirmBox({ title: '删除', message: `删除 ${chSelected.size} 个章节？将进入回收站`, danger: true, confirmText: '删除' })) {
-            chSelected.forEach(id => store.deleteChapter(id));
-            toastSuccess('已移入回收站');
-            chMulti = false; chSelected.clear();
-            renderChapterList({ params });
-          }
-        },
-      }),
-    ]));
-  } else {
-    view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '8px' } }, [
-      // 【按模板导入：自动识别章节和知识点】
-      el('button', { class: 'btn btn-sm btn-ghost', text: '☑ 批量', onClick: () => { chMulti = true; renderChapterList({ params }); } }),
-    ]));
+  // ================== 渲染子文件夹 ==================
+  if (subFolders.length > 0) {
+    const folderList = el('div', { style: { marginBottom: '20px' } });
+    subFolders.forEach(sub => {
+      folderList.appendChild(el('div', {
+        class: 'card',
+        style: { display: 'flex', alignItems: 'center', padding: '12px', cursor: 'pointer', marginBottom: '8px' },
+        onClick: () => navigate(`#/folder/${sub.id}`)
+      }, [
+        el('span', { text: '📁', style: { fontSize: '18px', marginRight: '10px' } }),
+        el('span', { text: sub.name, style: { fontSize: '15px', fontWeight: '600' } })
+      ]));
+    });
+    view.appendChild(folderList);
   }
 
-  if (chapters.length === 0) {
+  // ================== 渲染卡片 ==================
+  if (points.length > 0) {
+    const pointList = el('div', { id: 'point-list' });
+    points.forEach(p => pointList.appendChild(pointCard(p, folderId)));
+    view.appendChild(pointList);
+  }
+
+  // 空状态
+  if (subFolders.length === 0 && points.length === 0) {
     view.appendChild(el('div', { class: 'empty' }, [
-      el('div', { class: 'empty-icon', text: '📖' }),
-      el('div', { text: '还没有章节' }),
+      el('div', { class: 'empty-icon', text: '📂' }),
+      el('div', { text: '文件夹空空如也' }),
+      el('div', { text: '点击右下角 + 新建文件夹或卡片', style: { fontSize: '13px', marginTop: '8px' } }),
     ]));
-  } else {
-    const list = el('div', { id: 'chapter-list' });
-    chapters.forEach(c => list.appendChild(chapterCard(c, task.id)));
-    view.appendChild(list);
-    if (!chMulti) {
-      makeSortable(list, '.card', (orderedIds) => {
-        store.reorderChapters(task.id, orderedIds);
-        toastSuccess('顺序已保存');
-      });
-    }
   }
 
-  if (!chMulti) {
-    view.appendChild(el('button', {
-      class: 'fab', text: '+', 'aria-label': '新建章节',
-      onClick: () => navigate(`#/edit-chapter/new?taskId=${task.id}`),
-    }));
-  }
+  // ================== 右下角悬浮球 ==================
+  // currentFolderId 传入 folderId，这样新建的卡片和文件夹都会自动归入当前文件夹
+  renderFAB(view, folderId, folderId);
 }
 
 function chapterCard(c, taskId) {
@@ -514,10 +422,7 @@ export function renderChapterDetail({ params, query }) {
   }
 
   if (!ptMulti) {
-    view.appendChild(el('button', {
-      class: 'fab', text: '+', 'aria-label': '新建卡片',
-      onClick: () => navigate(`#/edit-point/new?chapterId=${chapter.id}`),
-    }));
+    renderFAB(view, chapter.id, chapter.taskId);
   }
 
   const savedScroll = sessionStorage.getItem('scroll_y_chapter');

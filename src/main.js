@@ -7,7 +7,7 @@ import { initTheme } from './ui/theme.js';
 import { initShortcuts } from './ui/shortcuts.js';
 import { el } from './utils/dom.js';
 import { renderHome, renderSidebar } from './views/home.js';
-import { renderChapterList, renderChapterDetail } from './views/chapter.js';
+import { renderFolderDetail } from './views/chapter.js';
 import { renderEditTask } from './views/editTask.js';
 import { renderEditChapter } from './views/editChapter.js';
 import { renderEditPoint } from './views/editPoint.js';
@@ -201,12 +201,11 @@ async function boot() {
     });
   }
 
-  // ============ 路由注册 ============
+    // ============ 路由注册 ============
   register('/', renderHome);
-  register('/chapter-list/:taskId', renderChapterList);
-  register('/chapter/:id', renderChapterDetail);
+  register('/folder/:taskId', renderFolderDetail);
   register('/edit-task/:id', renderEditTask);
-  register('/edit-chapter/:id', renderEditChapter);
+  register('/edit-chapter/:id', renderEditChapter); // 兼容旧数据的编辑
   register('/edit-point/:id', renderEditPoint);
   register('/review', renderReview);
   register('/trash', renderRecycle);
@@ -980,4 +979,71 @@ function autoSnapshot() {
       console.warn('自动快照失败，可能是存储空间不足', e);
     }
   }
+}
+
+// ================= 全局通用悬浮球 (新建卡片 + 新建文件夹) =================
+export function renderFAB(viewContainer, currentFolderId = null) {
+  const oldFab = document.getElementById('global-fab-group');
+  if (oldFab) oldFab.remove();
+
+  const fabGroup = el('div', {
+    id: 'global-fab-group',
+    style: {
+      position: 'fixed', bottom: '30px', right: '30px',
+      display: 'flex', flexDirection: 'column', gap: '10px', zIndex: 99999, alignItems: 'center'
+    }
+  });
+
+  // 新建卡片按钮（蓝）
+  fabGroup.appendChild(el('button', {
+    class: 'fab', text: '+', 'aria-label': '新建卡片', title: '新建卡片',
+    style: { 
+      width: '40px', height: '40px', minHeight: '40px', padding: '0', 
+      fontSize: '24px', background: 'var(--primary)', color: '#fff',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: '0 4px 12px rgba(142, 202, 230, 0.4)', position: 'relative', right: '0', bottom: '0'
+    },
+    onClick: () => {
+      // 直接携带当前文件夹的 ID
+      const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/edit-point/new';
+      navigate(url);
+    },
+  }));
+
+  // 新建文件夹按钮（黄）
+  fabGroup.appendChild(el('button', {
+    class: 'fab', title: '新建文件夹',
+    style: { 
+      width: '40px', height: '40px', minHeight: '40px', padding: '0', 
+      background: '#FFD166', color: '#2B2D42',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      boxShadow: '0 4px 12px rgba(255, 209, 102, 0.4)', position: 'relative', right: '0', bottom: '0'
+    },
+    innerHTML: `<svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path><line x1="12" y1="11" x2="12" y2="17"></line><line x1="9" y1="14" x2="15" y2="14"></line></svg>`,
+    onClick: () => {
+      const folderName = prompt('请输入新建文件夹的名称：');
+      if (!folderName || !folderName.trim()) return;
+      const finalName = folderName.trim();
+
+      // 查重
+      const siblings = currentFolderId ? store.getTasks().filter(t => t.parentId === currentFolderId) : store.getTasks().filter(t => !t.parentId);
+      if (siblings.some(t => t.name === finalName)) {
+        return toastError('当前层级已存在同名文件夹！');
+      }
+
+      // 把当前文件夹作为父级，实现无限嵌套
+      store.createTask({ name: finalName, parentId: currentFolderId });
+      toastSuccess('文件夹创建成功');
+      
+      // 刷新页面
+      if (currentFolderId) {
+        // 如果是在文件夹内，重新触发路由渲染
+        navigate(`#/folder/${currentFolderId}`);
+      } else {
+        if (typeof renderHome === 'function') renderHome();
+      }
+    }
+  }));
+
+  viewContainer.appendChild(fabGroup);
 }

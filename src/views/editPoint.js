@@ -341,7 +341,7 @@ export function renderEditPoint({ params, query }) {
     ocrBtn,
   ]);
 
-  // 使用 div 开启富文本编辑模式，并拦截回车键
+    // 使用 div 开启富文本编辑模式，并拦截回车键
   const explainInput = el('div', {
     contenteditable: 'true',
     placeholder: '文字解释（可选）',
@@ -352,14 +352,14 @@ export function renderEditPoint({ params, query }) {
       background: 'transparent',
       outline: 'none', overflowY: 'auto',
       whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: '1.6',
-      userSelect: 'text', // 确保能选中文字
-      pointerEvents: 'auto' // 确保能点击
+      userSelect: 'text',
+      pointerEvents: 'auto',
+      WebkitTouchCallout: 'none' // 👈 核心修复：屏蔽 iOS Safari 原生的长按菜单弹窗
     },
 
-    //加上 onInput，让打字实时同步到表单数据
     onInput: (e) => {
       form.explanation = e.target.innerHTML;
-      queueSave(); // 触发草稿自动保存
+      queueSave();
     },
 
     onKeyDown: (e) => {
@@ -375,12 +375,22 @@ export function renderEditPoint({ params, query }) {
       e.preventDefault();
       const text = (e.originalEvent || e).clipboardData.getData('text/plain');
       document.execCommand('insertText', false, text);
-      form.explanation = explainInput.innerHTML; // 粘贴后也同步一下
+      form.explanation = explainInput.innerHTML; 
       queueSave();
     },
     onBlur: () => {
-      // 失焦时再兜底同步一次
       form.explanation = explainInput.innerHTML;
+    },
+    
+    // 👇 核心修复：拦截右键菜单和长按菜单
+    onContextMenu: (e) => {
+      e.preventDefault(); 
+    },
+    onTouchStart: (e) => {
+      // 增加防误触，让选中文字更顺滑
+      if (e.cancelable && !window.getSelection().toString()) {
+        // 这里不要直接 preventDefault，否则会导致光标无法移动，只是利用 CSS 属性搞定
+      }
     }
   });
   explainInput.innerHTML = form.explanation;
@@ -1727,7 +1737,7 @@ export function renderEditPoint({ params, query }) {
     eraseAll: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--danger)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`
   };
 
-  // ==================== 按钮生成器（带平板防误触长按提示） ====================
+    // ==================== 按钮生成器（带平板防误触长按提示） ====================
   const createToolBtn = (svg, title, onClick) => {
     let pressTimer = null;
     let tooltipEl = null;
@@ -1758,46 +1768,36 @@ export function renderEditPoint({ params, query }) {
 
     const b = el('button', {
       class: 'btn btn-sm btn-ghost',
-      style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '28px', height: '28px' },
-      title: title, // 保留自带的，电脑端悬停还能看
-      onMousedown: (e) => {
-        e.preventDefault(); // 防止点击时抢占富文本焦点
-        // 电脑端：按住 500ms 触发
-        if (e.pointerType === 'mouse') {
-          pressTimer = setTimeout(showTooltip, 500);
-        }
+      style: { padding: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: '32px', height: '32px', touchAction: 'manipulation' },
+      title: title, // 电脑端悬停原生提示
+      
+      // 👇 核心修复：使用 pointerdown 替代 touchstart/mousedown，统一处理鼠标和手指
+      onPointerdown: (e) => {
+        // 拦截默认行为，防止点击按钮时输入框的焦点（光标）丢失
+        e.preventDefault(); 
+        // 400ms 后触发长按气泡提示
+        pressTimer = setTimeout(showTooltip, 400);
       },
-      onMouseup: () => {
+      onPointerup: (e) => {
         clearTimeout(pressTimer);
         if (navigator.vibrate) navigator.vibrate(0);
-        setTimeout(hideTooltip, 1000); // 延迟 1 秒消失
+        setTimeout(hideTooltip, 1000); // 抬起后延迟 1 秒消失
       },
-      onMouseLeave: () => {
+      onPointerleave: () => {
         clearTimeout(pressTimer);
         hideTooltip();
       },
+      onPointermove: (e) => {
+        // 如果手指/鼠标滑动了，取消长按
+        clearTimeout(pressTimer);
+        hideTooltip();
+      },
+
+      // 👇 核心修复：绝不在这里 preventDefault，让平板正常触发 click
       onClick: (e) => {
-        e.preventDefault();
         clearTimeout(pressTimer);
         hideTooltip();
-        onClick();
-      },
-      //针对平板触控的专属拦截与触发
-      onTouchstart: (e) => {
-        // 强制阻断 iPad 的放大镜和系统菜单
-        if (e.cancelable) e.preventDefault();
-        pressTimer = setTimeout(showTooltip, 400); // 平板上 400ms 触发
-      },
-      onTouchend: (e) => {
-        if (e.cancelable) e.preventDefault();
-        clearTimeout(pressTimer);
-        setTimeout(hideTooltip, 1000);
-      },
-      onTouchmove: (e) => {
-        // 如果手指滑动了，就取消长按
-        if (e.cancelable) e.preventDefault();
-        clearTimeout(pressTimer);
-        hideTooltip();
+        onClick(); // 执行真正的点击逻辑
       }
     });
 
@@ -1806,7 +1806,6 @@ export function renderEditPoint({ params, query }) {
     // 关键 CSS 强杀系统菜单
     b.style.webkitTouchCallout = 'none';
     b.style.userSelect = 'none';
-    b.style.touchAction = 'manipulation';
 
     return b;
   };
@@ -4351,7 +4350,7 @@ export function renderEditPoint({ params, query }) {
 
     if (isNew) {
       store.createPoint({
-        chapterId: chapterId,
+        taskId: chapterId,
         content: form.content,
         explanation: cleanExplanation, //保存纯净的富文本 HTML
         themeBg: finalBg,              //独立保存主题背景色

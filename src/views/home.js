@@ -5,6 +5,7 @@ import { toastSuccess } from '../ui/toast.js';
 import { confirmBox } from '../ui/confirm.js';
 import { dbGet } from '../db.js';
 import { showPasteOptionsModal } from './importDoc.js';
+import { renderFAB } from '../main.js';
 
 // ============ 文件夹折叠状态 ============
 function getCollapsedFolders() {
@@ -425,13 +426,9 @@ export function renderHome() {
     view.appendChild(list);
   }
 
-  // 7. 右下角 + 号（新建卡片）
+  // 7. 悬浮球
   if (!multiSelectMode) {
-    view.appendChild(el('button', {
-      class: 'fab', text: '+', 'aria-label': '新建卡片',
-      style: { zIndex: 99999, fontSize: '28px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
-      onClick: () => navigate('#/edit-point/new'),
-    }));
+    renderFAB(view); // 👈 调用全局函数（注意：确保 renderFAB 被 import 进来了）
   }
 
   renderSidebar();
@@ -465,22 +462,8 @@ function taskCard(task) {
         else selectedIds.add(task.id);
         renderHome();
       } else {
-        //点击文件夹时，永远抓取或创建一个“默认”章节，直接进去
-        let targetChapterId;
-        const defaultChapter = chapters.find(c => c.name === '默认' || c.name === '默认子模块' || c.name === '📁');
-
-        if (defaultChapter) {
-          targetChapterId = defaultChapter.id;
-        } else if (chapters.length > 0) {
-          // 如果没有默认章节，但里面已经有了旧章节，就顺延使用第一个
-          targetChapterId = chapters[0].id;
-        } else {
-          // 如果是个空文件夹，自动建个不可见的“默认”章节
-          targetChapterId = store.createChapter({ name: '默认', taskId: task.id }).id;
-        }
-
-        // 直接跳转，不提示什么子模块
-        navigate(`#/chapter/${targetChapterId}?taskName=${encodeURIComponent(task.name)}`);
+              // 直接进入这个文件夹（Task）的内部
+        navigate(`#/folder/${task.id}`);
       }
     },
   }, [

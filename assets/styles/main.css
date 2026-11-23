@@ -1634,3 +1634,15 @@ button {
   -webkit-user-select: none !important;
   user-select: none !important;
 }
+
+/* 屏蔽 iPad 原生文本长按菜单（因为我们有自定义工具栏） */
+.rich-text-editor {
+  -webkit-touch-callout: none;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* 隐藏系统高亮选区背景，防止视觉干扰（可选，保留你的蓝色高亮也可以不隐藏） */
+.rich-text-editor::selection {
+  background: rgba(142, 202, 230, 0.3);
+}
