@@ -111,7 +111,6 @@ export function renderHelp() {
     <div style="margin-top: 12px;"><b>👉 平板的专属优化：</b><br>全局长按按钮 500ms 弹出功能名称。部分卡片支持左滑删除、右滑标星。输入框聚焦时自动躲避软键盘。</div>
   `));
 
-  container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习系统 · 祝你早日上岸' }));
   container.appendChild(createSection('📱 10. 全平台安装指南与数据迁移警告', `
     <div style="margin-bottom: 12px; color: var(--danger); font-weight: bold; font-size: 15px;">🚨 极其重要：数据安全与换浏览器须知</div>
     <div style="margin-bottom: 8px; background: rgba(239,71,111,0.08); padding: 10px; border-radius: 6px; border-left: 3px solid var(--danger);">
@@ -164,4 +163,7 @@ export function renderHelp() {
       <i>(这也是为什么强烈推荐用 Google Chrome 的原因！)</i>
     </div>
   `));
+
+  container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习系统 · 祝你早日上岸' }));
+  
 }
