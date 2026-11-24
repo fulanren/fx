@@ -353,16 +353,23 @@ export function renderHome() {
 
       // ================== 渲染文件夹列表（统一无限嵌套版） ==================
     if (tasks.length > 0) {
-      // （注意：这里保留你原本上方关于“标题栏”和“批量操作栏”的代码，不要删）
+      // 👇 核心修复：必须在这里把 renderHome 挂到 window 上，否则 taskCard 里调用不到
+      window.renderHomeGlobal = renderHome;
 
-      // 渲染文件夹列表
       const list = el('div', { id: 'task-list' });
+      
       // 因为 taskCard 内部自带了递归缩进，外层只需遍历顶级文件夹
       const rootTasks = tasks.filter(t => !t.parentId);
       rootTasks.forEach(t => {
         list.appendChild(taskCard(t, null, 0));
       });
       view.appendChild(list);
+    } else {
+      view.appendChild(el('div', { class: 'empty' }, [
+        el('div', { class: 'empty-icon', text: '📚' }),
+        el('div', { text: '资料库空空如也' }),
+        el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } }),
+      ]));
     }
 
     // 5. 全空占位图
@@ -381,8 +388,14 @@ export function renderHome() {
   }
 
   renderSidebar();
-}else {
+  } else {
     // ================== 6. 全局批量模式下的逻辑 ==================
+    // 1. 挂载全局状态（让卡片能感知到）
+    window.multiSelectMode = multiSelectMode;
+    window.selectedIds = selectedIds;
+    window.renderHomeGlobal = renderHome;
+
+    // 2. 渲染顶部操作栏
     view.appendChild(el('div', {
       style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(239,71,111,0.08)', borderRadius: '10px', marginBottom: '12px', border: '1px solid rgba(239,71,111,0.2)' }
     }, [
@@ -391,7 +404,16 @@ export function renderHome() {
       ]),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { tasks.forEach(t => selectedIds.add(t.id)); renderHome(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selectedIds.clear(); renderHome(); } }),
-      el('button', { class: 'btn btn-sm btn-ghost', text: '✖ 取消', onClick: () => { multiSelectMode = false; selectedIds.clear(); renderHome(); } }),
+                el('button', { 
+            class: 'btn btn-sm btn-ghost', text: '✖ 退出管理', 
+            onClick: () => { 
+              multiSelectMode = false; 
+              selectedIds.clear(); 
+              window.multiSelectMode = false; 
+              window.selectedIds = null; // 清理全局变量，彻底杜绝残留
+              renderHome(); 
+            } 
+          }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
           if (selectedIds.size === 0) return toastError('请先勾选文件夹');
@@ -439,7 +461,16 @@ export function renderHome() {
         }
       })
     ]));
-}
+
+    // 3. 👇 核心修复：渲染文件夹列表（把这段漏掉的补回来！）
+    const list = el('div', { id: 'task-list' });
+    const rootTasks = tasks.filter(t => !t.parentId);
+    rootTasks.forEach(t => {
+      // taskCard 内部会自动递归渲染子文件夹，并且在批量模式下自动展开
+      list.appendChild(taskCard(t, null, 0));
+    });
+    view.appendChild(list);
+  }
 }
 
 //补回了丢失的 swap 函数
@@ -462,11 +493,21 @@ export function renderSidebar() {
   let state;
   try { state = JSON.parse(localStorage.getItem('kg_sidebar_tree_state') || '{}'); } catch { state = {}; }
   if (!state.tasks) state.tasks = [];
+  // 👇 新增：用于记录展开了哪些卡片的解释
+  if (!state.points) state.points = []; 
 
   function saveState() { localStorage.setItem('kg_sidebar_tree_state', JSON.stringify(state)); }
+  
   function toggleTask(id) {
     const i = state.tasks.indexOf(id);
     if (i >= 0) state.tasks.splice(i, 1); else state.tasks.push(id);
+    saveState();
+    renderSidebar();
+  }
+
+  function togglePoint(id) {
+    const i = state.points.indexOf(id);
+    if (i >= 0) state.points.splice(i, 1); else state.points.push(id);
     saveState();
     renderSidebar();
   }
@@ -482,44 +523,24 @@ export function renderSidebar() {
 
   // ================= 2. 生成小组件 DOM =================
   const errorBookWidget = el('div', {
-    style: {
-      marginTop: '24px',
-      paddingTop: '12px',
-      borderTop: '1px dashed rgba(0,0,0,.08)'
-    }
+    style: { marginTop: '24px', paddingTop: '12px', borderTop: '1px dashed rgba(0,0,0,.08)' }
   }, [
     el('div', {
-      style: {
-        padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger)',
-        fontSize: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.85
-      },
-      onClick: () => {
-        navigate('#/error-book');
-        if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
-      }
-    }, [
-      el('span', { text: '❗', style: { fontSize: '10px' } }),
-      el('span', { text: '错题本' })
-    ])
+      style: { padding: '6px 10px', borderRadius: '6px', cursor: 'pointer', color: 'var(--danger)', fontSize: '12px', fontWeight: '500', display: 'flex', alignItems: 'center', gap: '6px', opacity: 0.85 },
+      onClick: () => { navigate('#/error-book'); if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open'); }
+    }, [el('span', { text: '❗', style: { fontSize: '10px' } }), el('span', { text: '错题本' })])
   ]);
 
-  // 生成倒计时组件 (支持多倒计时)
   const countdownWidget = el('div', { style: { marginTop: '12px', marginBottom: '12px' } });
   try {
     const countdowns = JSON.parse(localStorage.getItem('kg_exam_countdowns') || '[]');
     countdowns.forEach(cd => {
-      //如果明确关闭了侧边栏显示（isPinned === false），直接跳过
       if (cd.isPinned === false) return;
-
       const diff = new Date(cd.date).getTime() - Date.now();
       if (diff > 0) {
         const days = Math.ceil(diff / (1000 * 60 * 60 * 24));
         countdownWidget.appendChild(el('div', {
-          style: {
-            padding: '8px', background: 'rgba(142,202,230,.15)', borderRadius: '8px', marginBottom: '6px',
-            textAlign: 'center', fontWeight: '600', color: 'var(--primary-dark)',
-            fontSize: config.countdownSize === 'small' ? '12px' : config.countdownSize === 'large' ? '18px' : '14px'
-          }
+          style: { padding: '8px', background: 'rgba(142,202,230,.15)', borderRadius: '8px', marginBottom: '6px', textAlign: 'center', fontWeight: '600', color: 'var(--primary-dark)', fontSize: config.countdownSize === 'small' ? '12px' : config.countdownSize === 'large' ? '18px' : '14px' }
         }, [
           el('div', { text: cd.name, style: { fontSize: '11px', color: 'var(--text-2)', marginBottom: '2px' } }),
           el('div', { text: `距离还有 ${days} 天` })
@@ -529,41 +550,89 @@ export function renderSidebar() {
   } catch (e) { }
 
   // ================= 3. 组装侧边栏 =================
-  // 容器：用来放所有的文件夹
   const folderContainer = el('div', { style: { marginTop: '8px' } });
-
-  // 根据配置决定组件的插入位置
-  // 如果在顶部或中部，先插进去；如果在底部，等文件夹渲染完再插。
 
   const insertWidgets = (position, container) => {
     if (config.errorBookPos === position) container.appendChild(errorBookWidget);
     if (config.countdownPos === position) container.appendChild(countdownWidget);
   };
 
-  // 顶部插入
   const topWrapper = el('div');
   insertWidgets('top', topWrapper);
   if (topWrapper.hasChildNodes()) tree.appendChild(topWrapper);
 
-  // 中部插入（我们把它放在文件夹列表的中间，这里简化为放在文件夹列表的前面）
   const middleWrapper = el('div');
   insertWidgets('middle', middleWrapper);
   if (middleWrapper.hasChildNodes()) tree.appendChild(middleWrapper);
 
-    // 渲染文件夹树（侧边栏）
+  // 👇 核心新增：渲染侧边栏的迷你卡片
+  const renderMiniPoints = (taskId, depth) => {
+    const points = store.getPoints(taskId); // 获取该文件夹下的所有卡片
+    points.forEach(p => {
+      const isExpanded = state.points.includes(p.id);
+      const hasExplanation = p.explanation && p.explanation.trim() !== '';
+
+      // 卡片行
+      const pointRow = el('div', {
+        style: { 
+          display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', 
+          paddingLeft: (depth * 16 + 24) + 'px', paddingTop: '4px', paddingBottom: '4px',
+          fontSize: '12px', color: 'var(--text-2)', borderBottom: '1px dashed rgba(0,0,0,.04)'
+        },
+        onClick: () => {
+          if (hasExplanation) {
+            togglePoint(p.id);
+          } else {
+            navigate(`#/edit-point/${p.id}`);
+            if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
+          }
+        }
+      }, [
+        // 展开箭头
+        el('span', { 
+          style: { width: '12px', textAlign: 'center', fontSize: '10px' }, 
+          text: hasExplanation ? (isExpanded ? '▾' : '▸') : '•' 
+        }),
+        // 卡片内容（截断）
+        el('span', { 
+          style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
+          text: p.content.replace(/<[^>]+>/g, '').slice(0, 20) // 去除 HTML 标签并截断
+        })
+      ]);
+      
+      folderContainer.appendChild(pointRow);
+
+      // 如果展开了解释，渲染解释内容
+      if (isExpanded && hasExplanation) {
+        folderContainer.appendChild(el('div', {
+          style: { 
+            paddingLeft: (depth * 16 + 40) + 'px', paddingRight: '8px', 
+            paddingTop: '4px', paddingBottom: '8px', fontSize: '11px', color: 'var(--text-2)',
+            lineHeight: '1.4', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+            background: 'rgba(0,0,0,0.02)', borderRadius: '4px', marginBottom: '4px'
+          },
+          innerHTML: p.explanation // 保留富文本格式
+        }));
+      }
+    });
+  };
+
+  // 渲染文件夹树
   const tasks = store.getTasks();
   const renderTree = (parentId, depth) => {
     const currentLevel = tasks.filter(t => (t.parentId || null) === parentId);
     currentLevel.forEach(task => {
-      // 补全展开状态和子文件夹判断
       const taskOpen = state.tasks.includes(task.id);
       const subFolders = tasks.filter(t => t.parentId === task.id);
-      const hasSub = subFolders.length > 0;
+      // 只要该文件夹下有卡片，就允许展开
+      const hasPoints = store.getPoints(task.id).length > 0; 
+      const hasSub = subFolders.length > 0 || hasPoints;
 
       const taskRow = el('div', {
         class: 'tree-task-name',
         style: { display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', paddingLeft: (depth * 16) + 'px', paddingTop: '6px', paddingBottom: '6px' },
         onClick: () => {
+          // 如果点击文件夹名字，依然跳转到主界面
           navigate(`#/folder/${task.id}`);
           if (window.innerWidth < 1024) document.body.classList.remove('sidebar-open');
         }
@@ -584,18 +653,21 @@ export function renderSidebar() {
       
       folderContainer.appendChild(taskRow);
 
-      // 如果展开了，且里面有子文件夹，就递归向下画
-      if (taskOpen && hasSub) {
-        renderTree(task.id, depth + 1);
+      // 如果展开了，先渲染子文件夹，再渲染卡片
+      if (taskOpen) {
+        if (subFolders.length > 0) {
+          renderTree(task.id, depth + 1);
+        }
+        if (hasPoints) {
+          renderMiniPoints(task.id, depth + 1);
+        }
       }
     });
   };
 
-  // 开始遍历顶级文件夹
   renderTree(null, 0);
   tree.appendChild(folderContainer);
 
-  // 如果没有文件夹，显示空状态
   if (tasks.length === 0) {
     folderContainer.appendChild(el('div', {
       style: { marginTop: '8px', paddingTop: '8px', borderTop: '1px dashed rgba(0,0,0,.08)', fontSize: '12px', color: 'var(--text-2)', padding: '6px 10px' },
@@ -603,7 +675,6 @@ export function renderSidebar() {
     }));
   }
 
-  // 底部插入
   const bottomWrapper = el('div');
   insertWidgets('bottom', bottomWrapper);
   if (bottomWrapper.hasChildNodes()) tree.appendChild(bottomWrapper);

@@ -1883,18 +1883,18 @@ function handleFolderToggle(taskId) {
   }
 }
 
-// ================= 全局通用文件夹卡片（支持无限嵌套） =================
+// ================= 全局通用文件夹卡片（支持无限嵌套 + 批量模式） =================
 export function taskCard(task, currentFolderId, depth = 0) {
+  const isBatchMode = window.multiSelectMode === true;
+  const isSelected = isBatchMode && window.selectedIds && window.selectedIds.has(task.id);
+
   const subFolders = store.getTasks().filter(t => t.parentId === task.id);
   const hasSub = subFolders.length > 0;
 
   let collapsedList = [];
-  try {
-    collapsedList = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]');
-  } catch (e) { }
-  const isCollapsed = collapsedList.includes(task.id);
+  try { collapsedList = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]'); } catch (e) { }
+  const isCollapsed = isBatchMode ? false : collapsedList.includes(task.id);
 
-  // 递归统计总卡片数
   function countAllPoints(folderId) {
     let count = store.getPoints(folderId).length;
     const children = store.getTasks().filter(t => t.parentId === folderId);
@@ -1902,28 +1902,63 @@ export function taskCard(task, currentFolderId, depth = 0) {
     return count;
   }
   const totalPointCount = countAllPoints(task.id);
-
-  const indent = depth > 0 ? depth * 16 : 0; // 缩进稍微改小一点
+  const indent = depth > 0 ? depth * 16 : 0;
 
   const cardEl = el('div', {
-    class: 'card',
+    class: 'card' + (isSelected ? ' selected' : ''),
     'data-id': task.id,
     style: {
       display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer',
-      marginBottom: '4px', // 极限压缩外边距
-      marginLeft: indent + 'px',
+      marginBottom: '4px', marginLeft: indent + 'px',
       borderLeft: depth > 0 ? '2px solid rgba(142,202,230,0.3)' : 'none',
-      padding: '6px 10px' // 👈 极限压缩内边距
+      padding: '6px 10px',
+      // 👇 核心修复：强制去掉了外层巨厚的白边，普通状态下背景透明，批量选中时才有边框
+      background: 'transparent', 
+      border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.05)'
     },
-    onClick: (e) => {
-      if (e.target.closest('.toggle-btn') || e.target.closest('.card-actions')) return;
-      navigate(`#/folder/${task.id}`);
+        onClick: (e) => {
+      console.log("=== 文件夹被点击了 ===", task.id); // 👈 这里加个日志看有没有触发
+      
+      if (e.target.closest('.toggle-btn') || e.target.closest('.card-actions') || e.target.closest('input')) return;
+      
+      if (isBatchMode) {
+        if (isSelected) window.selectedIds.delete(task.id); else window.selectedIds.add(task.id);
+        if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal();
+        return;
+      }
+      
+      try {
+        let targetChapterId;
+        const chapters = store.getChapters(task.id);
+        console.log("当前文件夹的章节列表:", chapters); // 👈 看有没有拿到数据
+
+        if (chapters.length > 0) {
+          targetChapterId = chapters[0].id; 
+        } else {
+          const newChap = store.createChapter({ name: '默认', taskId: task.id });
+          targetChapterId = newChap.id;
+        }
+
+        console.log("准备跳转到:", `#/chapter/${targetChapterId}`); // 👈 看目标路径对不对
+        window.location.hash = `#/chapter/${targetChapterId}?taskName=${encodeURIComponent(task.name)}`;
+        
+      } catch (err) {
+        console.error("跳转出错:", err);
+        alert("跳转失败，请看控制台");
+      }
     },
   }, [
     el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } }, [
       el('div', { style: { display: 'flex', alignItems: 'center', flex: '1', minWidth: 0 } }, [
-        // 折叠箭头
-        hasSub ? el('span', {
+        isBatchMode ? el('input', {
+          type: 'checkbox', checked: isSelected, style: { marginRight: '6px', flexShrink: '0' },
+          onChange: (e) => {
+            if (e.target.checked) window.selectedIds.add(task.id); else window.selectedIds.delete(task.id);
+            if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal();
+          }
+        }) : null,
+
+        (!isBatchMode && hasSub) ? el('span', {
           class: 'toggle-btn',
           style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '12px', padding: '2px 6px', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' },
           text: isCollapsed ? '▸' : '▾',
@@ -1934,15 +1969,9 @@ export function taskCard(task, currentFolderId, depth = 0) {
             const set = new Set(current);
             if (set.has(task.id)) set.delete(task.id); else set.add(task.id);
             localStorage.setItem('kg_collapsed_folders', JSON.stringify([...set]));
-
-            if (window.location.hash.includes('/folder/')) {
-              const currentId = window.location.hash.split('/').pop().split('?')[0];
-              renderFolderDetail({ params: { taskId: currentId } });
-            } else {
-              if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
-            }
+            if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
           }
-        }) : el('span', { style: { width: '24px', display: 'inline-block' } }),
+        }) : el('span', { style: { width: isBatchMode ? '0' : '24px', display: 'inline-block' } }),
 
         el('div', {
           class: 'card-title',
@@ -1950,11 +1979,7 @@ export function taskCard(task, currentFolderId, depth = 0) {
         }, [
           ...(task.statusTags || (task.statusIcon ? [{ text: task.statusIcon, color: task.statusColor }] : [])).map(tag =>
             el('span', {
-              style: {
-                color: tag.color || '#ff4757', fontSize: '11px', padding: '0 4px', borderRadius: '4px',
-                background: 'transparent', border: `1px solid ${tag.borderColor !== undefined ? tag.borderColor : (tag.color || '#ff4757')}`,
-                flexShrink: 0, lineHeight: 1.2, fontWeight: '500'
-              },
+              style: { color: tag.color || '#ff4757', fontSize: '11px', padding: '0 4px', borderRadius: '4px', background: 'transparent', border: `1px solid ${tag.borderColor !== undefined ? tag.borderColor : (tag.color || '#ff4757')}`, flexShrink: 0, lineHeight: 1.2, fontWeight: '500' },
               innerHTML: tag.html || tag.text
             })
           ),
@@ -1962,10 +1987,9 @@ export function taskCard(task, currentFolderId, depth = 0) {
         ])
       ]),
 
-      // 右侧操作按钮（按钮变小，空隙变小）
       el('div', { class: 'card-actions', style: { display: 'flex', gap: '2px' } }, [
-        el('button', { class: 'btn btn-sm btn-ghost', text: '🏷️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '管理状态标签', onClick: (e) => { e.stopPropagation(); showStatusTagManager(task); } }),
-        el('button', {
+        !isBatchMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '🏷️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '管理状态标签', onClick: (e) => { e.stopPropagation(); showStatusTagManager(task); } }) : null,
+        !isBatchMode ? el('button', {
           class: 'btn btn-sm btn-ghost', text: '➕📁', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '新建子文件夹',
           onClick: (e) => {
             e.stopPropagation();
@@ -1973,50 +1997,40 @@ export function taskCard(task, currentFolderId, depth = 0) {
             if (name && name.trim()) {
               store.createTask({ name: name.trim(), parentId: task.id });
               toastSuccess('子文件夹已创建');
-              if (window.location.hash.includes('/folder/')) {
-                const currentId = window.location.hash.split('/').pop().split('?')[0];
-                renderFolderDetail({ params: { taskId: currentId } });
-              } else {
-                if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
-              }
+              if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
             }
           }
-        }),
-        el('button', { class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '编辑文件夹', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-task/${task.id}`); } }),
-        el('button', {
+        }) : null,
+        !isBatchMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '✏️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '编辑文件夹', onClick: (e) => { e.stopPropagation(); navigate(`#/edit-task/${task.id}`); } }) : null,
+        !isBatchMode ? el('button', {
           class: 'btn btn-sm btn-ghost', text: '🗑', style: { padding: '0 4px', height: '24px', minHeight: '24px', color: 'var(--danger)' }, title: '删除文件夹',
           onClick: async (e) => {
             e.stopPropagation();
             if (await confirmBox({ title: '删除文件夹', message: `「${task.name}」及其卡片将进入回收站`, danger: true, confirmText: '删除' })) {
               store.deleteTask(task.id);
               toastSuccess('已移入回收站');
-              if (window.location.hash.includes('/folder/')) {
-                const currentId = window.location.hash.split('/').pop().split('?')[0];
-                renderFolderDetail({ params: { taskId: currentId } });
-              } else {
-                if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
-              }
+              if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
             }
           },
-        }),
+        }) : null,
       ])
     ]),
 
     task.note ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.2' }, text: task.note }) : null,
 
-    // 底部统计
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0px', paddingLeft: '24px' } }, [
+    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0px', paddingLeft: isBatchMode ? '24px' : '24px' } }, [
       el('span', { style: { fontSize: '11px', color: 'var(--text-2)' }, text: `💡 ${totalPointCount} 张卡片` }),
       hasSub ? el('span', { style: { fontSize: '11px', color: 'var(--primary)' }, text: `📁 ${subFolders.length} 个子文件夹` }) : null
     ])
   ]);
 
+  // 递归渲染子文件夹
   if (hasSub && !isCollapsed) {
     const subContainer = el('div', { style: { paddingLeft: '12px' } });
     subFolders.forEach(sub => {
       subContainer.appendChild(taskCard(sub, currentFolderId, depth + 1));
     });
-    return el('div', {}, [cardEl, subContainer]);
+    return el('div', { style: { background: 'transparent' } }, [cardEl, subContainer]); // 👈 去掉包裹层的白底
   }
 
   return cardEl;

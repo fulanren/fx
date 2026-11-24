@@ -201,9 +201,9 @@ async function boot() {
     });
   }
 
-    // ============ 路由注册 ============
+  // ============ 路由注册 ============
   register('/', renderHome);
-  register('/folder/:taskId', renderFolderDetail);
+register('/chapter/:taskId', renderFolderDetail); 
   register('/edit-task/:id', renderEditTask);
   register('/edit-chapter/:id', renderEditChapter); // 兼容旧数据的编辑
   register('/edit-point/:id', renderEditPoint);
@@ -224,19 +224,19 @@ async function boot() {
 
   startRouter();
 
-    // ============ 返回按钮逻辑 ============
+  // ============ 返回按钮逻辑 ============
   const btnBack = document.getElementById('btn-back');
   btnBack.onclick = () => {
     const hash = location.hash;
-    
+
     if (hash.startsWith('#/edit-task/')) {
       // 编辑文件夹，返回首页
       navigate('#/');
-      
+
     } else if (hash.startsWith('#/edit-chapter/')) {
       // 编辑章节（虽然隐藏了，但可能从别处进入），返回首页
       navigate('#/');
-      
+
     } else if (hash.startsWith('#/edit-point/')) {
       // 编辑知识点，直接返回它所属的卡片列表（章节详情）
       const m = hash.match(/chapterId=([^&]+)/);
@@ -245,15 +245,15 @@ async function boot() {
       } else {
         history.back();
       }
-      
+
     } else if (hash.startsWith('#/chapter/')) {
       //从卡片列表返回，直接回首页（文件夹列表），不再经过章节列表
       navigate('#/');
-      
+
     } else if (hash.startsWith('#/chapter-list/')) {
       // 如果误入章节列表，直接重定向回首页
       navigate('#/');
-      
+
     } else if (hash.startsWith('#/pdf-viewer/') || hash.startsWith('#/annotate/')) {
       const match = hash.match(/[?&]returnUrl=([^&]+)/);
       if (match) {
@@ -263,7 +263,7 @@ async function boot() {
       const pointMatch = hash.match(/[?&]pointId=([^&]+)/);
       if (pointMatch && pointMatch[1]) { navigate(`#/edit-point/${pointMatch[1]}`); return; }
       navigate('#/resources');
-      
+
     } else {
       if (history.length > 1) history.back();
       else navigate('#/');
@@ -997,15 +997,15 @@ export function renderFAB(viewContainer, currentFolderId = null) {
   // 新建卡片按钮（蓝）
   fabGroup.appendChild(el('button', {
     class: 'fab', text: '+', 'aria-label': '新建卡片', title: '新建卡片',
-    style: { 
-      width: '40px', height: '40px', minHeight: '40px', padding: '0', 
+    style: {
+      width: '40px', height: '40px', minHeight: '40px', padding: '0',
       fontSize: '24px', background: 'var(--primary)', color: '#fff',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       boxShadow: '0 4px 12px rgba(142, 202, 230, 0.4)', position: 'relative', right: '0', bottom: '0'
     },
     onClick: () => {
       // 直接携带当前文件夹的 ID
-const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/edit-point/new';
+      const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/edit-point/new';
       navigate(url);
     },
   }));
@@ -1013,8 +1013,8 @@ const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/
   // 新建文件夹按钮（黄）
   fabGroup.appendChild(el('button', {
     class: 'fab', title: '新建文件夹',
-    style: { 
-      width: '40px', height: '40px', minHeight: '40px', padding: '0', 
+    style: {
+      width: '40px', height: '40px', minHeight: '40px', padding: '0',
       background: '#FFD166', color: '#2B2D42',
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       boxShadow: '0 4px 12px rgba(255, 209, 102, 0.4)', position: 'relative', right: '0', bottom: '0'
@@ -1034,7 +1034,7 @@ const url = currentFolderId ? `#/edit-point/new?taskId=${currentFolderId}` : '#/
       // 把当前文件夹作为父级，实现无限嵌套
       store.createTask({ name: finalName, parentId: currentFolderId });
       toastSuccess('文件夹创建成功');
-      
+
       // 刷新页面
       if (currentFolderId) {
         // 如果是在文件夹内，重新触发路由渲染

@@ -26,6 +26,15 @@ export async function render() {
   const [path, queryStr] = h.split('?');
   const query = Object.fromEntries(new URLSearchParams(queryStr || ''));
 
+  // 👇 核心改造：只要是 /chapter/xxx，直接把它当文件夹 ID 处理，改写成 /folder/xxx
+  if (path.startsWith('/chapter/')) {
+    const id = path.split('/')[2];
+    if (id) {
+      window.location.replace(`#/folder/${id}`);
+      return;
+    }
+  }
+
   for (const r of routes) {
     const m = path.match(r.re);
     if (m) {
