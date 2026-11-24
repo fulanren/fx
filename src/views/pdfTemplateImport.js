@@ -52,6 +52,12 @@ async function extractText(file) {
         let fullText = '';
         for (let i = 1; i <= pdf.numPages; i++) {
             const page = await pdf.getPage(i);
+
+            // 使用极低的渲染比例（0.8），极大节省内存，适合纯文本提取
+            // 注意：如果你后续要调用 canvas 截图，请使用这个低画质 viewport
+            const vp = page.getViewport({ scale: 0.8 });
+
+            // 提取纯文本内容
             const content = await page.getTextContent();
             fullText += content.items.map(item => item.str).join('') + '\n';
         }

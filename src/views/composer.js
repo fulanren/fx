@@ -120,7 +120,7 @@ export function renderComposer({ params, query }) {
     updatePickerVisibility();
   }
 
-  // 👇 控制每个文件的显隐
+  //控制每个文件的显隐
   function updatePickerVisibility() {
     itemStates.forEach((state, id) => {
       const ext = externalFiles.find(f => f.id === id);
@@ -276,7 +276,7 @@ export function renderComposer({ params, query }) {
 
   // ============ 导入 / 全选 / 重置按钮组 ============
   function addImportButtons(parent) {
-    // 👇 统一的高度和字号
+    //统一的高度和字号
     const baseStyle = { flexShrink: 0, padding: '4px 12px', fontSize: '12px', minHeight: '28px', borderRadius: '6px', fontWeight: '500' };
 
     // 1. 外部导入图片
@@ -850,7 +850,7 @@ async function downloadWithPicker(blob, filename, mimeType, extensions) {
   toastSuccess('已开始下载（已保存至默认下载目录）');
 }
 
-// 👇 智能去白边核心算法
+//智能去白边核心算法
 function trimImageWhitespace(img) {
   const c = document.createElement('canvas');
   c.width = img.width; c.height = img.height;

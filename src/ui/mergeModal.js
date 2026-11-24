@@ -91,23 +91,23 @@ export function mergeModal({ title, items, targetId, onConfirm }) {
     };
     renderModeOptions();
 
-        // 5. 处理方式选择 (覆盖 / 另存)
+    // 5. 处理方式选择 (覆盖 / 另存)
     const saveModeBox = el('div', { style: { display: 'flex', gap: '10px', margin: '8px 0' } });
     const renderSaveOptions = () => {
       saveModeBox.innerHTML = '';
 
-      // 👇 核心修复：减小内边距，防止换行，字体缩小
+      // 减小内边距，防止换行，字体缩小
       const getOptionStyle = (isSelected) => ({
-        flex: '1', 
-        display: 'flex', 
-        alignItems: 'center', 
-        justifyContent: 'center', 
-        gap: '6px', 
+        flex: '1',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: '6px',
         padding: '8px 10px', // 从 12px 减到了 8px
-        background: isSelected ? 'rgba(142,202,230,.15)' : 'var(--bg)', 
-        border: `1px solid ${isSelected ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, 
-        borderRadius: '8px', 
-        cursor: 'pointer', 
+        background: isSelected ? 'rgba(142,202,230,.15)' : 'var(--bg)',
+        border: `1px solid ${isSelected ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`,
+        borderRadius: '8px',
+        cursor: 'pointer',
         fontSize: '13px',
         whiteSpace: 'nowrap', // 强制不换行
         transition: 'all 0.2s'

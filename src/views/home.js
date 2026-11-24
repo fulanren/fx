@@ -1,59 +1,57 @@
 import { el, clear } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
-import { toastSuccess } from '../ui/toast.js';
 import { confirmBox } from '../ui/confirm.js';
 import { dbGet } from '../db.js';
 import { showPasteOptionsModal } from './importDoc.js';
 import { renderFAB } from '../main.js';
 import { taskCard } from './chapter.js';
+import { toastSuccess, toastError } from '../ui/toast.js';
+
 
 // ============ 文件夹折叠状态 ============
 // 从本地存储读取已折叠的文件夹 ID 集合
-function getCollapsedFolders() {
+export function getCollapsedFolders() {
   try { return new Set(JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]')); }
   catch { return new Set(); }
 }
 
-let collapsedFolders = getCollapsedFolders();
+export let collapsedFolders = getCollapsedFolders();
 
 // 切换折叠状态
-function toggleFolderCollapse(id) {
+export function toggleFolderCollapse(id) {
   if (collapsedFolders.has(id)) {
     collapsedFolders.delete(id); // 已经折叠，则展开
   } else {
     collapsedFolders.add(id);    // 已经展开，则折叠
   }
-  
+
   // 保存到本地存储
   localStorage.setItem('kg_collapsed_folders', JSON.stringify([...collapsedFolders]));
-  
-  // 根据当前所在的路由，刷新对应的页面
-  if (window.location.hash.includes('/folder/')) {
-    // 如果是在文件夹内部，用当前的文件夹 ID 刷新
-    const currentId = window.location.hash.split('/').pop().split('?')[0];
-    import('./chapter.js').then(m => m.renderFolderDetail({ params: { taskId: currentId } }));
-  } else {
-    // 如果是在首页，刷新首页
-    if (typeof renderHome === 'function') renderHome();
+
+  // 核心修复：既然 taskCard 是递归渲染的，这里只需触发全局刷新即可，不需要手动去拼装 DOM
+  if (window.renderHomeGlobal) {
+    window.renderHomeGlobal();
+  } else if (typeof renderHome === 'function') {
+    renderHome();
   }
 }
 
 // ============ 散落卡片折叠状态 ============
-function getInboxCollapsed() {
+export function getInboxCollapsed() {
   return localStorage.getItem('kg_inbox_collapsed') === 'true';
 }
-function setInboxCollapsed(val) {
+export function setInboxCollapsed(val) {
   localStorage.setItem('kg_inbox_collapsed', val);
 }
 
-// 全局（文件夹）多选状态
-let multiSelectMode = false;
-const selectedIds = new Set();
+// ============ 全局（文件夹）多选状态 ============
+export let multiSelectMode = false;
+export const selectedIds = new Set();
 
-// 散落卡片独立的专属多选状态
-let cardMultiMode = false;
-const selectedCardIds = new Set();
+// ============ 散落卡片独立的专属多选状态 ============
+export let cardMultiMode = false;
+export const selectedCardIds = new Set();
 
 export function renderHome() {
   const view = document.getElementById('view');
@@ -61,6 +59,11 @@ export function renderHome() {
 
   document.getElementById('page-title').textContent = multiSelectMode ? '选择任务' : '资料库';
   document.getElementById('btn-back').classList.add('hidden');
+
+  // 把状态挂到 window 上，供 taskCard 递归调用
+  window.multiSelectMode = multiSelectMode;
+  window.selectedIds = selectedIds;
+  window.renderHomeGlobal = renderHome;
 
   // 1. 今日待复习
   const due = store.getDuePoints();
@@ -83,319 +86,15 @@ export function renderHome() {
     }
   }
 
-  // 2. 获取数据
+  // 获取数据
   const tasks = store.getTasks();
   const scatteredPoints = store.getPoints(null).filter(p => !p.chapterId);
-  // 如果用户是第一次打开（还没有任何折叠记录），把所有有子文件夹的文件夹默认设为折叠
-  if (!localStorage.getItem('kg_collapsed_folders')) {
-    const parents = tasks.filter(t => tasks.some(child => child.parentId === t.id));
-    const allParentIds = parents.map(t => t.id);
-    collapsedFolders = new Set(allParentIds);
-    localStorage.setItem('kg_collapsed_folders', JSON.stringify([...collapsedFolders]));
-  }
 
-  if (!multiSelectMode) {
-    // ================== 3. 渲染散落卡片 ==================
-    if (scatteredPoints.length > 0) {
-      const isCollapsed = getInboxCollapsed();
-
-      // 标题栏 + 专属工具栏
-      view.appendChild(el('div', {
-        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 8px', flexWrap: 'wrap', gap: '8px' }
-      }, [
-        el('div', {
-          style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' },
-          onClick: () => { setInboxCollapsed(!isCollapsed); renderHome(); }
-        }, [
-          el('span', { text: isCollapsed ? '▸' : '▾' }),
-          el('span', { text: `📄 散落卡片 (${scatteredPoints.length})` })
-        ]),
-
-        // 散落卡片专属工具栏
-        el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-          el('button', {
-            class: 'btn btn-sm ' + (cardMultiMode ? 'btn-danger' : 'btn-ghost'),
-            text: cardMultiMode ? '✕ 退出多选' : '☑ 多选',
-            onClick: () => {
-              cardMultiMode = !cardMultiMode;
-              if (!cardMultiMode) selectedCardIds.clear();
-              renderHome();
-            }
-          }),
-
-          cardMultiMode ? el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
-            // 全选 / 全不选
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '全选',
-              onClick: () => { scatteredPoints.forEach(p => selectedCardIds.add(p.id)); renderHome(); }
-            }),
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '全不选',
-              onClick: () => { scatteredPoints.forEach(p => selectedCardIds.delete(p.id)); renderHome(); }
-            }),
-
-            // 复制
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '📋 复制',
-              onClick: () => {
-                if (selectedCardIds.size === 0) return toastError('请先勾选卡片');
-                const items = scatteredPoints.filter(p => selectedCardIds.has(p.id));
-                localStorage.setItem('kg_clipboard_points', JSON.stringify(items));
-                toastSuccess(`已复制 ${items.length} 张卡片`);
-              }
-            }),
-
-            // 粘贴
-            el('button', {
-              class: 'btn btn-sm btn-ghost', text: '📥 粘贴',
-              onClick: () => {
-                const raw = localStorage.getItem('kg_clipboard_points');
-                if (!raw) return toastError('剪贴板为空');
-                const points = JSON.parse(raw);
-                import('./importDoc.js').then(({ showPasteOptionsModal }) => {
-                  showPasteOptionsModal(
-                    async (finalChapterId, finalTaskId, targetName) => {
-                      if (!finalChapterId) return toastError('请选择目标文件夹');
-                      if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到「${targetName}」吗？` })) {
-                        points.forEach(p => {
-                          store.createPoint({ chapterId: finalChapterId, content: p.content, explanation: p.explanation, difficulty: p.difficulty, imageIds: p.imageIds });
-                        });
-                        toastSuccess('粘贴成功');
-                        selectedCardIds.clear(); renderHome();
-                      }
-                    }, null, null, '粘贴'
-                  );
-                });
-              }
-            }),
-
-            // 移入文件夹
-            (selectedCardIds.size > 0) ? el('button', {
-              class: 'btn btn-sm btn-primary', text: `📁 移入 (${selectedCardIds.size})`,
-              onClick: () => {
-                import('./importDoc.js').then(({ showPasteOptionsModal }) => {
-                  showPasteOptionsModal(
-                    async (finalChapterId, finalTaskId, targetName) => {
-                      if (!finalChapterId) return toastError('请选择目标文件夹');
-                      if (await confirmBox({ title: '移入', message: `确定将 ${selectedCardIds.size} 张卡片移入「${targetName}」吗？` })) {
-                        selectedCardIds.forEach(id => store.updatePoint(id, { chapterId: finalChapterId }));
-                        toastSuccess('已移入');
-                        selectedCardIds.clear(); renderHome();
-                      }
-                    }, null, null, '移动'
-                  );
-                });
-              }
-            }) : null,
-
-            // 删除
-            (selectedCardIds.size > 0) ? el('button', {
-              class: 'btn btn-sm btn-danger', text: `🗑 删除 (${selectedCardIds.size})`,
-              onClick: async () => {
-                if (!confirm(`确定删除选中的 ${selectedCardIds.size} 张散落卡片吗？`)) return;
-                selectedCardIds.forEach(id => store.deletePoint(id));
-                toastSuccess('已移入回收站');
-                selectedCardIds.clear();
-                cardMultiMode = false;
-                renderHome();
-              }
-            }) : null
-          ]) : null
-        ])
-      ]));
-
-      // 散落卡片网格渲染
-      if (!isCollapsed) {
-        const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', marginBottom: '24px' } });
-
-        scatteredPoints.forEach(p => {
-          const isSelected = selectedCardIds.has(p.id);
-
-          grid.appendChild(el('div', {
-            class: 'card',
-            style: {
-              position: 'relative', cursor: 'pointer', padding: '16px', margin: '0',
-              border: '1px solid rgba(0,0,0,.05)',
-              display: 'flex', gap: '8px', alignItems: 'flex-start',
-              opacity: (cardMultiMode && !isSelected) ? '0.6' : '1'
-            },
-            onClick: (e) => {
-              if (e.target.closest('.del-btn') || e.target.closest('input')) return;
-
-              if (cardMultiMode) {
-                if (isSelected) selectedCardIds.delete(p.id); else selectedCardIds.add(p.id);
-                renderHome();
-              } else {
-                navigate(`#/edit-point/${p.id}`);
-              }
-            }
-          }, [
-            // 专属多选框
-            cardMultiMode ? el('input', {
-              type: 'checkbox',
-              checked: isSelected,
-              style: { marginTop: '4px', width: '18px', height: '18px', accentColor: 'var(--danger)' },
-              onClick: (e) => e.stopPropagation(),
-              onChange: (e) => {
-                if (e.target.checked) selectedCardIds.add(p.id);
-                else selectedCardIds.delete(p.id);
-                renderHome();
-              }
-            }) : null,
-
-            // 内容
-            el('div', { style: { flex: '1' } }, [
-              el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '8px', whiteSpace: 'pre-wrap' }, text: p.content.replace(/<[^>]+>/g, '').slice(0, 100) + (p.content.length > 100 ? '...' : '') }),
-              el('div', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: new Date(p.createdAt).toLocaleDateString() })
-            ]),
-
-            // 悬浮删除按钮
-            !cardMultiMode ? el('button', {
-              class: 'btn btn-sm btn-ghost del-btn',
-              style: { position: 'absolute', top: '8px', right: '8px', padding: '4px', color: 'var(--danger)', opacity: '0.6' },
-              text: '🗑',
-              title: '删除此卡片',
-              onClick: async (e) => {
-                e.stopPropagation();
-                if (await confirmBox({ title: '删除卡片', message: '确定要删除这张散落卡片吗？', danger: true, confirmText: '删除' })) {
-                  store.deletePoint(p.id);
-                  toastSuccess('已删除');
-                  renderHome();
-                }
-              }
-            }) : null
-          ]));
-        });
-
-        view.appendChild(grid);
-      }
-    }
-
-    // ================== 4. 渲染文件夹（专题） ==================
-    if (tasks.length > 0) {
-      // 标题栏
-      view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '12px 0 6px' } }, [
-        el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)' }, text: '📁 我的文件夹' }),
-        el('button', {
-          class: `btn btn-sm ${multiSelectMode ? 'btn-danger' : 'btn-ghost'}`,
-          text: multiSelectMode ? '✖ 退出管理' : '⚙️ 管理',
-          onClick: () => {
-            multiSelectMode = !multiSelectMode;
-            selectedIds.clear();
-            renderHome();
-          }
-        })
-      ]));
-
-      // 文件夹批量操作栏
-      if (multiSelectMode) {
-        view.appendChild(el('div', {
-          style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(239,71,111,0.08)', borderRadius: '10px', marginBottom: '12px', border: '1px solid rgba(239,71,111,0.2)' }
-        }, [
-          el('div', { style: { width: '100%', fontSize: '13px', fontWeight: '600', color: 'var(--danger)', marginBottom: '4px' } }, [
-            `已选中 ${selectedIds.size} 个文件夹`
-          ]),
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { tasks.forEach(t => selectedIds.add(t.id)); renderHome(); } }),
-          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selectedIds.clear(); renderHome(); } }),
-          el('button', { class: 'btn btn-sm btn-danger', text: '✖ 退出管理', onClick: () => { multiSelectMode = false; selectedIds.clear(); renderHome(); } }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
-              if (selectedIds.size === 0) return toastError('请先勾选文件夹');
-              const items = tasks.filter(t => selectedIds.has(t.id));
-              localStorage.setItem('kg_clipboard_folders', JSON.stringify(items));
-              toastSuccess(`已复制 ${items.length} 个文件夹`);
-            }
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '📥 粘贴', onClick: () => {
-              const raw = localStorage.getItem('kg_clipboard_folders');
-              if (!raw) return toastError('剪贴板里没有文件夹');
-              import('./importDoc.js').then(({ showPasteOptionsModal }) => {
-                showPasteOptionsModal(
-                  (finalChapterId, finalTaskId, targetName) => {
-                    const folders = JSON.parse(raw);
-                    toastSuccess(`正在粘贴到 ${targetName}...`);
-                    folders.forEach(f => store.copyTask(f.id, finalTaskId));
-                    setTimeout(() => { selectedIds.clear(); renderHome(); }, 500);
-                  }, null, null, '粘贴'
-                );
-              });
-            }
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '🚚 移动', onClick: () => {
-              if (selectedIds.size === 0) return toastError('请先勾选文件夹');
-              import('./importDoc.js').then(({ showPasteOptionsModal }) => {
-                showPasteOptionsModal(
-                  (finalChapterId, finalTaskId, targetName) => {
-                    selectedIds.forEach(id => {
-                      if (id === finalTaskId) return;
-                      store.updateTask(id, { parentId: finalTaskId });
-                    });
-                    toastSuccess(`已移动 ${selectedIds.size} 个文件夹到 ${targetName}`);
-                    selectedIds.clear(); renderHome();
-                  }, null, null, '移动'
-                );
-              });
-            }
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-danger', text: '🗑 删除', onClick: async () => {
-              if (selectedIds.size === 0) return toastError('请先勾选');
-              if (await confirmBox({ title: '删除文件夹', message: `确定删除选中的 ${selectedIds.size} 个文件夹吗？` })) {
-                selectedIds.forEach(id => store.deleteTask(id));
-                selectedIds.clear(); renderHome(); toastSuccess('已删除');
-              }
-            }
-          })
-        ]));
-      }
-
-      // ================== 渲染文件夹列表（统一无限嵌套版） ==================
-    if (tasks.length > 0) {
-      // 👇 核心修复：必须在这里把 renderHome 挂到 window 上，否则 taskCard 里调用不到
-      window.renderHomeGlobal = renderHome;
-
-      const list = el('div', { id: 'task-list' });
-      
-      // 因为 taskCard 内部自带了递归缩进，外层只需遍历顶级文件夹
-      const rootTasks = tasks.filter(t => !t.parentId);
-      rootTasks.forEach(t => {
-        list.appendChild(taskCard(t, null, 0));
-      });
-      view.appendChild(list);
-    } else {
-      view.appendChild(el('div', { class: 'empty' }, [
-        el('div', { class: 'empty-icon', text: '📚' }),
-        el('div', { text: '资料库空空如也' }),
-        el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } }),
-      ]));
-    }
-
-    // 5. 全空占位图
-    if (tasks.length === 0 && scatteredPoints.length === 0) {
-      view.appendChild(el('div', { class: 'empty' }, [
-        el('div', { class: 'empty-icon', text: '📚' }),
-        el('div', { text: '资料库空空如也' }),
-        el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } }),
-      ]));
-    }
-  }
-
-  // ================== 7. 悬浮球 ==================
-  if (!multiSelectMode) {
-    renderFAB(view); 
-  }
-
-  renderSidebar();
-  } else {
-    // ================== 6. 全局批量模式下的逻辑 ==================
-    // 1. 挂载全局状态（让卡片能感知到）
-    window.multiSelectMode = multiSelectMode;
-    window.selectedIds = selectedIds;
-    window.renderHomeGlobal = renderHome;
-
-    // 2. 渲染顶部操作栏
+  // ==========================================
+  // ================== 如果是管理模式 ==================
+  // ==========================================
+  if (multiSelectMode) {
+    // 渲染顶部批量操作栏
     view.appendChild(el('div', {
       style: { display: 'flex', flexWrap: 'wrap', gap: '8px', padding: '12px', background: 'rgba(239,71,111,0.08)', borderRadius: '10px', marginBottom: '12px', border: '1px solid rgba(239,71,111,0.2)' }
     }, [
@@ -404,16 +103,10 @@ export function renderHome() {
       ]),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { tasks.forEach(t => selectedIds.add(t.id)); renderHome(); } }),
       el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { selectedIds.clear(); renderHome(); } }),
-                el('button', { 
-            class: 'btn btn-sm btn-ghost', text: '✖ 退出管理', 
-            onClick: () => { 
-              multiSelectMode = false; 
-              selectedIds.clear(); 
-              window.multiSelectMode = false; 
-              window.selectedIds = null; // 清理全局变量，彻底杜绝残留
-              renderHome(); 
-            } 
-          }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '✖ 退出管理',
+        onClick: () => { multiSelectMode = false; selectedIds.clear(); window.multiSelectMode = false; renderHome(); }
+      }),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
           if (selectedIds.size === 0) return toastError('请先勾选文件夹');
@@ -462,15 +155,168 @@ export function renderHome() {
       })
     ]));
 
-    // 3. 👇 核心修复：渲染文件夹列表（把这段漏掉的补回来！）
+    // 渲染文件夹列表
     const list = el('div', { id: 'task-list' });
     const rootTasks = tasks.filter(t => !t.parentId);
     rootTasks.forEach(t => {
-      // taskCard 内部会自动递归渲染子文件夹，并且在批量模式下自动展开
       list.appendChild(taskCard(t, null, 0));
     });
     view.appendChild(list);
+    return; // 管理模式到此结束
   }
+
+  // ==========================================
+  // ================== 如果是普通模式 ==================
+  // ==========================================
+
+  // 3. 渲染散落卡片
+  if (scatteredPoints.length > 0) {
+    const isCollapsed = getInboxCollapsed();
+
+    view.appendChild(el('div', {
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '16px 0 8px', flexWrap: 'wrap', gap: '8px' }
+    }, [
+      el('div', {
+        style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', userSelect: 'none' },
+        onClick: () => { setInboxCollapsed(!isCollapsed); renderHome(); }
+      }, [
+        el('span', { text: isCollapsed ? '▸' : '▾' }),
+        el('span', { text: `📄 散落卡片 (${scatteredPoints.length})` })
+      ]),
+
+      // 散落卡片专属工具栏
+      el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
+        el('button', {
+          class: 'btn btn-sm ' + (cardMultiMode ? 'btn-danger' : 'btn-ghost'),
+          text: cardMultiMode ? '✕ 退出多选' : '☑ 多选',
+          onClick: () => {
+            cardMultiMode = !cardMultiMode;
+            if (!cardMultiMode) selectedCardIds.clear();
+            renderHome();
+          }
+        }),
+
+        cardMultiMode ? el('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } }, [
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { scatteredPoints.forEach(p => selectedCardIds.add(p.id)); renderHome(); } }),
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', onClick: () => { scatteredPoints.forEach(p => selectedCardIds.delete(p.id)); renderHome(); } }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📋 复制', onClick: () => {
+              if (selectedCardIds.size === 0) return toastError('请先勾选卡片');
+              const items = scatteredPoints.filter(p => selectedCardIds.has(p.id));
+              localStorage.setItem('kg_clipboard_points', JSON.stringify(items));
+              toastSuccess(`已复制 ${items.length} 张卡片`);
+            }
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '📥 粘贴', onClick: () => {
+              const raw = localStorage.getItem('kg_clipboard_points');
+              if (!raw) return toastError('剪贴板为空');
+              const points = JSON.parse(raw);
+              import('./importDoc.js').then(({ showPasteOptionsModal }) => {
+                showPasteOptionsModal(async (finalChapterId, finalTaskId, targetName) => {
+                  if (!finalChapterId) return toastError('请选择目标文件夹');
+                  if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到「${targetName}」吗？` })) {
+                    points.forEach(p => {
+                      store.createPoint({ chapterId: finalChapterId, content: p.content, explanation: p.explanation, difficulty: p.difficulty, imageIds: p.imageIds });
+                    });
+                    toastSuccess('粘贴成功'); selectedCardIds.clear(); renderHome();
+                  }
+                }, null, null, '粘贴');
+              });
+            }
+          }),
+          (selectedCardIds.size > 0) ? el('button', {
+            class: 'btn btn-sm btn-primary', text: `📁 移入 (${selectedCardIds.size})`, onClick: () => {
+              import('./importDoc.js').then(({ showPasteOptionsModal }) => {
+                showPasteOptionsModal(async (finalChapterId, finalTaskId, targetName) => {
+                  if (!finalChapterId) return toastError('请选择目标文件夹');
+                  if (await confirmBox({ title: '移入', message: `确定将 ${selectedCardIds.size} 张卡片移入「${targetName}」吗？` })) {
+                    selectedCardIds.forEach(id => store.updatePoint(id, { chapterId: finalChapterId }));
+                    toastSuccess('已移入'); selectedCardIds.clear(); renderHome();
+                  }
+                }, null, null, '移动');
+              });
+            }
+          }) : null,
+          (selectedCardIds.size > 0) ? el('button', {
+            class: 'btn btn-sm btn-danger', text: `🗑 删除 (${selectedCardIds.size})`, onClick: async () => {
+              if (!confirm(`确定删除选中的 ${selectedCardIds.size} 张散落卡片吗？`)) return;
+              selectedCardIds.forEach(id => store.deletePoint(id));
+              toastSuccess('已移入回收站'); selectedCardIds.clear(); cardMultiMode = false; renderHome();
+            }
+          }) : null
+        ]) : null
+      ])
+    ]));
+
+    // 渲染散落网格
+    if (!isCollapsed) {
+      const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px', marginBottom: '24px' } });
+      scatteredPoints.forEach(p => {
+        const isSelected = selectedCardIds.has(p.id);
+        grid.appendChild(el('div', {
+          class: 'card',
+          style: { position: 'relative', cursor: 'pointer', padding: '16px', margin: '0', border: '1px solid rgba(0,0,0,.05)', display: 'flex', gap: '8px', alignItems: 'flex-start', opacity: (cardMultiMode && !isSelected) ? '0.6' : '1' },
+          onClick: (e) => {
+            if (e.target.closest('.del-btn') || e.target.closest('input')) return;
+            if (cardMultiMode) {
+              if (isSelected) selectedCardIds.delete(p.id); else selectedCardIds.add(p.id);
+              renderHome();
+            } else {
+              navigate(`#/edit-point/${p.id}`);
+            }
+          }
+        }, [
+          cardMultiMode ? el('input', {
+            type: 'checkbox', checked: isSelected, style: { marginTop: '4px', width: '18px', height: '18px', accentColor: 'var(--danger)' },
+            onClick: (e) => e.stopPropagation(),
+            onChange: (e) => { if (e.target.checked) selectedCardIds.add(p.id); else selectedCardIds.delete(p.id); renderHome(); }
+          }) : null,
+          el('div', { style: { flex: '1' } }, [
+            el('div', { style: { fontWeight: '600', fontSize: '14px', marginBottom: '8px', whiteSpace: 'pre-wrap' }, text: p.content.replace(/<[^>]+>/g, '').slice(0, 100) + (p.content.length > 100 ? '...' : '') }),
+            el('div', { style: { fontSize: '12px', color: 'var(--text-2)' }, text: new Date(p.createdAt).toLocaleDateString() })
+          ]),
+          !cardMultiMode ? el('button', {
+            class: 'btn btn-sm btn-ghost del-btn', style: { position: 'absolute', top: '8px', right: '8px', padding: '4px', color: 'var(--danger)', opacity: '0.6' }, text: '🗑',
+            onClick: async (e) => {
+              e.stopPropagation();
+              if (await confirmBox({ title: '删除卡片', message: '确定要删除这张散落卡片吗？', danger: true, confirmText: '删除' })) { store.deletePoint(p.id); toastSuccess('已删除'); renderHome(); }
+            }
+          }) : null
+        ]));
+      });
+      view.appendChild(grid);
+    }
+  }
+
+  // 4. 渲染文件夹
+  if (tasks.length > 0) {
+    view.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '12px 0 6px' } }, [
+      el('div', { style: { fontSize: '14px', fontWeight: '600', color: 'var(--text-2)' }, text: '📁 我的文件夹' }),
+      el('button', {
+        class: `btn btn-sm ${multiSelectMode ? 'btn-danger' : 'btn-ghost'}`,
+        text: multiSelectMode ? '✖ 退出管理' : '⚙️ 管理',
+        onClick: () => { multiSelectMode = !multiSelectMode; selectedIds.clear(); renderHome(); }
+      })
+    ]));
+
+    const list = el('div', { id: 'task-list' });
+    const rootTasks = tasks.filter(t => !t.parentId);
+    rootTasks.forEach(t => { list.appendChild(taskCard(t, null, 0)); });
+    view.appendChild(list);
+  } else if (scatteredPoints.length === 0) {
+    view.appendChild(el('div', { class: 'empty' }, [
+      el('div', { class: 'empty-icon', text: '📚' }),
+      el('div', { text: '资料库空空如也' }),
+      el('div', { text: '点击右下角 + 新建卡片', style: { fontSize: '13px', marginTop: '8px' } }),
+    ]));
+  }
+
+  // 7. 悬浮球
+  renderFAB(view);
+
+  // 刷新侧边栏
+  renderSidebar();
 }
 
 //补回了丢失的 swap 函数
@@ -493,11 +339,11 @@ export function renderSidebar() {
   let state;
   try { state = JSON.parse(localStorage.getItem('kg_sidebar_tree_state') || '{}'); } catch { state = {}; }
   if (!state.tasks) state.tasks = [];
-  // 👇 新增：用于记录展开了哪些卡片的解释
-  if (!state.points) state.points = []; 
+  // 用于记录展开了哪些卡片的解释
+  if (!state.points) state.points = [];
 
   function saveState() { localStorage.setItem('kg_sidebar_tree_state', JSON.stringify(state)); }
-  
+
   function toggleTask(id) {
     const i = state.tasks.indexOf(id);
     if (i >= 0) state.tasks.splice(i, 1); else state.tasks.push(id);
@@ -565,7 +411,7 @@ export function renderSidebar() {
   insertWidgets('middle', middleWrapper);
   if (middleWrapper.hasChildNodes()) tree.appendChild(middleWrapper);
 
-  // 👇 核心新增：渲染侧边栏的迷你卡片
+  // 渲染侧边栏的迷你卡片
   const renderMiniPoints = (taskId, depth) => {
     const points = store.getPoints(taskId); // 获取该文件夹下的所有卡片
     points.forEach(p => {
@@ -574,8 +420,8 @@ export function renderSidebar() {
 
       // 卡片行
       const pointRow = el('div', {
-        style: { 
-          display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', 
+        style: {
+          display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer',
           paddingLeft: (depth * 16 + 24) + 'px', paddingTop: '4px', paddingBottom: '4px',
           fontSize: '12px', color: 'var(--text-2)', borderBottom: '1px dashed rgba(0,0,0,.04)'
         },
@@ -589,24 +435,24 @@ export function renderSidebar() {
         }
       }, [
         // 展开箭头
-        el('span', { 
-          style: { width: '12px', textAlign: 'center', fontSize: '10px' }, 
-          text: hasExplanation ? (isExpanded ? '▾' : '▸') : '•' 
+        el('span', {
+          style: { width: '12px', textAlign: 'center', fontSize: '10px' },
+          text: hasExplanation ? (isExpanded ? '▾' : '▸') : '•'
         }),
         // 卡片内容（截断）
-        el('span', { 
+        el('span', {
           style: { flex: '1', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' },
           text: p.content.replace(/<[^>]+>/g, '').slice(0, 20) // 去除 HTML 标签并截断
         })
       ]);
-      
+
       folderContainer.appendChild(pointRow);
 
       // 如果展开了解释，渲染解释内容
       if (isExpanded && hasExplanation) {
         folderContainer.appendChild(el('div', {
-          style: { 
-            paddingLeft: (depth * 16 + 40) + 'px', paddingRight: '8px', 
+          style: {
+            paddingLeft: (depth * 16 + 40) + 'px', paddingRight: '8px',
             paddingTop: '4px', paddingBottom: '8px', fontSize: '11px', color: 'var(--text-2)',
             lineHeight: '1.4', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
             background: 'rgba(0,0,0,0.02)', borderRadius: '4px', marginBottom: '4px'
@@ -625,7 +471,7 @@ export function renderSidebar() {
       const taskOpen = state.tasks.includes(task.id);
       const subFolders = tasks.filter(t => t.parentId === task.id);
       // 只要该文件夹下有卡片，就允许展开
-      const hasPoints = store.getPoints(task.id).length > 0; 
+      const hasPoints = store.getPoints(task.id).length > 0;
       const hasSub = subFolders.length > 0 || hasPoints;
 
       const taskRow = el('div', {
@@ -640,9 +486,9 @@ export function renderSidebar() {
         el('span', {
           style: { width: '18px', textAlign: 'center', flexShrink: '0', color: 'var(--text-2)', fontSize: '12px' },
           text: hasSub ? (taskOpen ? '▾' : '▸') : '',
-          onClick: (e) => { 
+          onClick: (e) => {
             e.stopPropagation(); // 阻止跳转
-            if (hasSub) toggleTask(task.id); 
+            if (hasSub) toggleTask(task.id);
           },
         }),
         el('span', {
@@ -650,7 +496,7 @@ export function renderSidebar() {
           text: `📁 ${task.name}`
         }),
       ]);
-      
+
       folderContainer.appendChild(taskRow);
 
       // 如果展开了，先渲染子文件夹，再渲染卡片

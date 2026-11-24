@@ -102,6 +102,8 @@ let ptMulti = false;
 const ptSelected = new Set();
 
 export function renderFolderDetail({ params, query }) {
+  // 把当前页面的刷新能力暴露给全局
+  window.renderFolderGlobal = () => renderFolderDetail({ params, query });
   const folderId = params.taskId;
   const currentFolder = store.getTask(folderId);
   if (!currentFolder) { navigate('#/'); return; }
@@ -1332,7 +1334,7 @@ function startReviewMode(points, chapterId) {
           }
         }
       }),
-      
+
       // 翻转（始终显示）
       el('button', {
         class: 'btn btn-sm btn-primary', style: { fontSize: '14px', padding: '6px 16px', borderRadius: '20px' }, text: '翻转',
@@ -1348,17 +1350,17 @@ function startReviewMode(points, chapterId) {
       // 展开后的按钮组
       ...(isBarExpanded ? [
         el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
-        
+
         // 上一个
         el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '18px', padding: '4px 8px' }, text: '⬆️', title: '上一个', onClick: () => { if (currentIndex > 0) { currentIndex--; isExpanded = false; renderCard(); } } }),
         // 下一个
         el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '18px', padding: '4px 8px' }, text: '⬇️', title: '下一个', onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; isExpanded = false; renderCard(); } } }),
-        
+
         el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '16px', padding: '4px 8px' }, text: '🖼', title: '图片', onClick: () => { const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('当前无图片'); } }),
         el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '16px', padding: '4px 8px' }, text: '📄', title: 'PDF', onClick: () => { const p = points[currentIndex]; const realPoint = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p; const pdfId = findPdfId(realPoint); if (pdfId) { window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`; mask.remove(); } else toastSuccess('当前无 PDF'); } }),
-        
+
         el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
-        
+
         // 打分按钮
         el('button', { class: 'btn btn-sm btn-danger', style: { padding: '4px 8px', fontSize: '13px' }, text: '忘了', onClick: () => ratePoint('forgot') }),
         el('button', { class: 'btn btn-sm btn-warning', style: { padding: '4px 8px', fontSize: '13px' }, text: '模糊', onClick: () => ratePoint('vague') }),
@@ -1487,7 +1489,7 @@ function startReviewMode(points, chapterId) {
     cardArea.appendChild(card);
   }
 
-    // 评分并切下一题
+  // 评分并切下一题
   function ratePoint(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
@@ -1614,7 +1616,7 @@ function startFocusListMode(points, chapterId) {
 
   if (cardElements.length === 0) return;
 
-    // 2. 创建底部悬浮条
+  // 2. 创建底部悬浮条
   let isBarExpanded = false; // 👈 控制是否展开
 
   const renderFocusTouchBar = () => {
@@ -1626,7 +1628,7 @@ function startFocusListMode(points, chapterId) {
       style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.95)', backdropFilter: 'blur(10px)', padding: '6px 12px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }
     }, [
       el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出', onClick: () => { cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)'); touchBar.remove(); window.onkeydown = null; } }),
-      
+
       // 跳转输入框
       el('input', {
         type: 'number', min: 1, max: points.length, placeholder: `${currentIndex + 1}/${points.length}`,
@@ -1694,7 +1696,7 @@ function startFocusListMode(points, chapterId) {
     }
   }
 
-    // 4. 评分并切下一题
+  // 4. 评分并切下一题
   function rateCurrent(rating) {
     const p = points[currentIndex];
     store.ratePoint(p.id, rating);
@@ -1912,36 +1914,23 @@ export function taskCard(task, currentFolderId, depth = 0) {
       marginBottom: '4px', marginLeft: indent + 'px',
       borderLeft: depth > 0 ? '2px solid rgba(142,202,230,0.3)' : 'none',
       padding: '6px 10px',
-      // 👇 核心修复：强制去掉了外层巨厚的白边，普通状态下背景透明，批量选中时才有边框
-      background: 'transparent', 
+      // 强制去掉了外层巨厚的白边，普通状态下背景透明，批量选中时才有边框
+      background: 'transparent',
       border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.05)'
     },
-        onClick: (e) => {
+    onClick: (e) => {
       console.log("=== 文件夹被点击了 ===", task.id); // 👈 这里加个日志看有没有触发
-      
+
       if (e.target.closest('.toggle-btn') || e.target.closest('.card-actions') || e.target.closest('input')) return;
-      
+
       if (isBatchMode) {
         if (isSelected) window.selectedIds.delete(task.id); else window.selectedIds.add(task.id);
         if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal();
         return;
       }
-      
+
       try {
-        let targetChapterId;
-        const chapters = store.getChapters(task.id);
-        console.log("当前文件夹的章节列表:", chapters); // 👈 看有没有拿到数据
-
-        if (chapters.length > 0) {
-          targetChapterId = chapters[0].id; 
-        } else {
-          const newChap = store.createChapter({ name: '默认', taskId: task.id });
-          targetChapterId = newChap.id;
-        }
-
-        console.log("准备跳转到:", `#/chapter/${targetChapterId}`); // 👈 看目标路径对不对
-        window.location.hash = `#/chapter/${targetChapterId}?taskName=${encodeURIComponent(task.name)}`;
-        
+        window.location.hash = `#/folder/${task.id}`;
       } catch (err) {
         console.error("跳转出错:", err);
         alert("跳转失败，请看控制台");
@@ -1963,13 +1952,26 @@ export function taskCard(task, currentFolderId, depth = 0) {
           style: { cursor: 'pointer', color: 'var(--text-2)', fontSize: '12px', padding: '2px 6px', userSelect: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center' },
           text: isCollapsed ? '▸' : '▾',
           onClick: (e) => {
-            e.preventDefault(); e.stopPropagation();
+            // 彻底阻断事件冒泡，防止触发外层卡片的跳转
+            e.preventDefault();
+            e.stopPropagation();
+
             let current = [];
             try { current = JSON.parse(localStorage.getItem('kg_collapsed_folders') || '[]'); } catch (err) { }
             const set = new Set(current);
-            if (set.has(task.id)) set.delete(task.id); else set.add(task.id);
+            if (set.has(task.id)) {
+              set.delete(task.id); // 展开
+            } else {
+              set.add(task.id);    // 折叠
+            }
             localStorage.setItem('kg_collapsed_folders', JSON.stringify([...set]));
-            if (typeof window.renderHomeGlobal === 'function') window.renderHomeGlobal(); else window.location.reload();
+
+            // 既然在当前页面，直接调用当前页面的专用刷新函数
+            if (window.currentPageRefresh) {
+              window.currentPageRefresh();
+            } else {
+              window.location.reload();
+            }
           }
         }) : el('span', { style: { width: isBatchMode ? '0' : '24px', display: 'inline-block' } }),
 

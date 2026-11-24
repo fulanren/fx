@@ -563,7 +563,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
     });
     if (changed) {
       redrawAsync();
-      // 👇 核心修复：只有停手 300 毫秒后，才真正写盘
+      //只有停手 300 毫秒后，才真正写盘
       if (window.__tapeEraseTimer) clearTimeout(window.__tapeEraseTimer);
       window.__tapeEraseTimer = setTimeout(() => { save(); }, 300);
     }
@@ -643,12 +643,12 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
           ev.target.classList.add('active');
         },
       })),
-      // 👇 把管理和添加直接塞到这里
+      //把管理和添加直接塞到这里
       el('button', { class: 'tape-chip', text: '⚙️', title: '管理形状', onClick: () => openShapeManager() }),
       el('button', { class: 'tape-chip', text: '➕', title: '添加形状', onClick: () => openCustomShapeUpload() }),
     ]));
 
-    // 👇 补回：花样 + 管理按钮
+    //花样 + 管理按钮
     bar.appendChild(el('div', { class: 'tape-row' }, [
       el('span', { class: 'tape-label', text: '花样' }),
       ...[
@@ -671,7 +671,7 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
       el('button', { class: 'tape-chip', text: '➕', title: '添加花样', onClick: () => openPatternUpload() }),
     ]));
 
-    // 👇 补回：自定义花样缩略图
+    //自定义花样缩略图
     if (showPatternList && store.getPatterns && store.getPatterns().length > 0) {
       const patterns = store.getPatterns().filter(p => p.type === 'pattern');
       if (patterns.length > 0) {

@@ -165,5 +165,18 @@ export function renderHelp() {
     </div>
   `));
 
+    container.appendChild(createSection('⚙️ 11. PDF 高级设置与加载优化', `
+    <div style="margin-bottom: 8px;"><b>👉 导入 PDF 时的画质选择（重要）：</b><br>当你点击「加 PDF」或「导入 PDF」时，选页框顶部会出现画质选择按钮：<br>
+    - <b>超清 (2.0x)</b>：适合电脑端查看细节。<br>
+    - <b>高清 (1.5x)</b>：推荐画质。<br>
+    - <b>标准 (1.0x)</b>：适合日常使用。<br>
+    - <b>流畅 (0.8x)</b>：<b style="color:var(--danger)">平板强烈推荐！</b>体积只有 1/4，极大减少卡顿。<br>
+    选择不同的画质，系统会按对应比例渲染 Canvas 并存入 IndexedDB。画质越低，占用存储和内存越小。</div>
+
+    <div style="margin-bottom: 8px;"><b>👉 导入 PDF 提取文字的加速技巧：</b><br>如果你的 PDF 是为了直接提取文字生成知识点（模板导入），而不是为了原样保留页面截图，系统会使用 <code>0.8</code> 的低比例来渲染画布，仅提取纯文本，实现极速导入，不占多余空间。</div>
+
+    <div style="margin-bottom: 8px;"><b>👉 阅读器渲染性能：</b><br>为了在平板上保持丝滑，PDF 阅读器默认采用 1.3 倍的渲染比例。它使用 <code>IntersectionObserver</code> 实现了懒加载，只有滑动到可视区域的页面才会被真正渲染，所以即使打开几百页的大文档也不会卡死。</div>
+  `));
+
   container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习系统 · 祝你早日上岸' }));
 }

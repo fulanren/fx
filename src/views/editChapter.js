@@ -1,4 +1,4 @@
-﻿import { el, clear, debounce } from '../utils/dom.js';
+import { el, clear, debounce } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { saveDraft, loadDraft, clearDraft, hasChanges } from '../autosave.js';
@@ -149,7 +149,7 @@ export function renderEditChapter({ params, query }) {
 
     if (isNew) {
       const newChap = store.createChapter({
-        taskId: finalTaskId, // 👈 使用最新的归属 ID
+        taskId: finalTaskId, //使用最新的归属 ID
         name: form.name.trim(),
         book: form.book.trim(),
         part: form.part.trim(),

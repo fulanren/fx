@@ -203,7 +203,7 @@ async function boot() {
 
   // ============ 路由注册 ============
   register('/', renderHome);
-register('/chapter/:taskId', renderFolderDetail); 
+  register('/folder/:taskId', renderFolderDetail);
   register('/edit-task/:id', renderEditTask);
   register('/edit-chapter/:id', renderEditChapter); // 兼容旧数据的编辑
   register('/edit-point/:id', renderEditPoint);

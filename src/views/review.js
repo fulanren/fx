@@ -1,4 +1,4 @@
-﻿import { el, clear } from '../utils/dom.js';
+import { el, clear } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { fmtDate } from '../utils/date.js';
@@ -6,7 +6,7 @@ import { toastSuccess, toastError } from '../ui/toast.js';
 import { dbGet } from '../db.js';
 
 export function renderReview({ query }) {
-  // 👇 进来先清掉可能残留的旧悬浮条
+  //进来先清掉可能残留的旧悬浮条
   const oldBar = document.getElementById('review-touch-bar');
   if (oldBar) oldBar.remove();
   const view = document.getElementById('view');
@@ -55,7 +55,7 @@ export function renderReview({ query }) {
     return;
   }
 
-  // 👇 全局键盘快捷键监听
+  //全局键盘快捷键监听
   let activeCard = null; // 记录当前高亮的卡片 DOM
   let activeAnswer = null;
   let activeShowBtn = null;
@@ -67,7 +67,7 @@ export function renderReview({ query }) {
     view.appendChild(cardObj.el);
     cards.push(cardObj);
   });
-  // 👇 平板专属：底部悬浮触控板
+  //平板专属：底部悬浮触控板
   const touchBar = el('div', {
     id: 'review-touch-bar',
     style: {
@@ -246,7 +246,7 @@ function reviewCard(p, filter, index) {
   const cardEl = el('div', {
     class: 'card',
     style: { cursor: 'pointer', border: '1px solid rgba(0,0,0,.05)', transition: 'border 0.2s' },
-    // 👇 平板体验核心：点击卡片任意位置，即可展开/收起解释
+    //平板体验核心：点击卡片任意位置，即可展开/收起解释
     onClick: (e) => {
       // 如果点到了里面的按钮，不触发卡片翻转
       if (e.target.tagName === 'BUTTON' || e.target.closest('button') || e.target.closest('.hidden')) return;
@@ -279,7 +279,7 @@ function ratingBtn(label, rating, point, filter) {
   });
 }
 
-// 👇 预览图片弹窗
+//预览图片弹窗
 async function showImages(imageIds) {
   const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999, background: 'rgba(0,0,0,0.9)' } });
   const imgWrap = el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '12px', padding: '20px', maxHeight: '80vh', overflowY: 'auto', justifyContent: 'center' } });

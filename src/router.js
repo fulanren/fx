@@ -26,7 +26,7 @@ export async function render() {
   const [path, queryStr] = h.split('?');
   const query = Object.fromEntries(new URLSearchParams(queryStr || ''));
 
-  // 👇 核心改造：只要是 /chapter/xxx，直接把它当文件夹 ID 处理，改写成 /folder/xxx
+  // 只要是 /chapter/xxx，直接把它当文件夹 ID 处理，改写成 /folder/xxx
   if (path.startsWith('/chapter/')) {
     const id = path.split('/')[2];
     if (id) {
@@ -43,7 +43,7 @@ export async function render() {
 
       // 清理上一个页面的资源
       if (currentCleanup) {
-        try { currentCleanup(); } catch {}
+        try { currentCleanup(); } catch { }
         currentCleanup = null;
       }
 
@@ -78,4 +78,4 @@ export function goBack() {
 }
 
 // ============ 底部导航高亮（预留） ============
-function updateNav() {}
+function updateNav() { }

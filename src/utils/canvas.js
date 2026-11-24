@@ -129,7 +129,7 @@ export function drawSmoothCurve(ctx, points, color, width, scaleFactor = 1) {
 
   ctx.save();
   ctx.strokeStyle = color;
-  // 👇 核心：不再强制 Math.max(1, ...) 限制最小粗细，允许极细
+  //不再强制 Math.max(1, ...) 限制最小粗细，允许极细
   ctx.lineWidth = width / scaleFactor;
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
@@ -168,7 +168,7 @@ export function drawPressurePath(ctx, points, color, baseWidth, scaleFactor = 1)
     const p0 = points[i - 1];
     const p1 = points[i];
     const pressure = p1.pressure !== undefined ? p1.pressure : 0.5;
-    // 👇 核心：允许极细线条
+    //允许极细线条
     const w = Math.max(0.1, baseWidth * scaleFactor * (0.5 + pressure * 0.5));
     ctx.lineWidth = w;
     ctx.beginPath();

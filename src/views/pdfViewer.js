@@ -7,7 +7,10 @@ import { drawSmoothCurve, drawPressurePath, drawRect, drawLine, drawArrow, erase
 window.dbPut = dbPut;
 window.uuid = uuid;
 
-// 👇 强制指定 PDF 渲染引擎的 Worker 路径，解决 404 报错
+// 全局 PDF 渲染缩放比例
+export let pdfRenderScale = parseFloat(localStorage.getItem('kg_pdf_render_scale') || '1.3');
+
+//强制指定 PDF 渲染引擎的 Worker 路径，解决 404 报错
 if (window.pdfjsLib) {
     window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
 }
@@ -40,7 +43,7 @@ export async function renderPdfViewer({ params, query }) {
     const pointId = query.pointId;
     const view = document.getElementById('view');
     clear(view);
-    // 👇 打上专属标记，让 CSS 生效
+    //打上专属标记，让 CSS 生效
     view.classList.add('pdf-active-view');
     view.style.display = 'flex';
     view.style.flexDirection = 'column';
@@ -103,7 +106,7 @@ export async function renderPdfViewer({ params, query }) {
 
             currentPage = 1;
 
-            // 👇 核心修复：优先读 URL 里的 page 参数
+            //优先读 URL 里的 page 参数
             const urlParams = new URLSearchParams(window.location.hash.split('?')[1]);
             const targetPage = urlParams.get('page');
 
@@ -177,7 +180,7 @@ export async function renderPdfViewer({ params, query }) {
             style: { width: '100%', padding: '10px 16px', borderRadius: '24px', border: '1px solid rgba(0,0,0,.1)', outline: 'none', background: 'var(--bg)', fontSize: '14px' }
         });
 
-        // 👇 针对手写的处理：提供一次性 OCR 按钮，识别后填入搜索框
+        //针对手写的处理：提供一次性 OCR 按钮，识别后填入搜索框
         const ocrBtn = el('button', {
             class: 'btn btn-sm btn-ghost', text: '📷 拍照识别手写',
             style: { padding: '6px 12px', borderRadius: '20px', background: 'rgba(142,202,230,0.15)', color: 'var(--primary-dark)', alignSelf: 'flex-start' },
@@ -601,7 +604,7 @@ export async function renderPdfViewer({ params, query }) {
             const items = [
                 { icon: '📑', label: '加入大纲', fn: () => { addOutlineFromPage(pageNum); } },
 
-                // 👇 这里替换成了调用刚刚写的面板函数
+                //这里替换成了调用刚刚写的面板函数
                 { icon: '🔗', label: '创建连接', fn: () => { openLinkSelector(pageNum, pdfId); } },
 
                 {
@@ -615,7 +618,7 @@ export async function renderPdfViewer({ params, query }) {
                             await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
                             const blob = await new Promise(r => c.toBlob(r, 'image/png'));
 
-                            // 👇 改用最底层不会报错的 downloadFileWithPath
+                            //改用最底层不会报错的 downloadFileWithPath
                             await downloadFileWithPath(blob, `第${pageNum}页.png`, 'image/png', ['.png']);
                         } catch (err) {
                             console.error(err);
@@ -635,7 +638,7 @@ export async function renderPdfViewer({ params, query }) {
                             const bytes = await newDoc.save();
                             const blob = new Blob([bytes], { type: 'application/pdf' });
 
-                            // 👇 改用最底层不会报错的 downloadFileWithPath
+                            //改用最底层不会报错的 downloadFileWithPath
                             await downloadFileWithPath(blob, `第${pageNum}页.pdf`, 'application/pdf', ['.pdf']);
                         } catch (err) {
                             console.error(err);
@@ -801,9 +804,9 @@ export async function renderPdfViewer({ params, query }) {
                 display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 padding: '0 12px',
                 margin: '0',
-                height: '44px',                // 👈 固定 44px
-                minHeight: '44px',             // 👈 最小也是 44px
-                maxHeight: '44px',             // 👈 最大也是 44px（绝杀！）
+                height: '44px',                //固定 44px
+                minHeight: '44px',             //最小也是 44px
+                maxHeight: '44px',             //最大也是 44px（绝杀！）
                 borderBottom: '1px solid rgba(0,0,0,.05)',
                 background: 'var(--card)',
                 position: 'sticky',
@@ -813,7 +816,7 @@ export async function renderPdfViewer({ params, query }) {
                 boxShadow: '0 2px 4px rgba(0,0,0,.04)',
                 width: '100%',
                 boxSizing: 'border-box',
-                overflow: 'hidden'             // 👈 把多余的下坠内容直接切掉！
+                overflow: 'hidden'             //把多余的下坠内容直接切掉！
             }
         }, [
             // 左侧：文件名
@@ -824,7 +827,7 @@ export async function renderPdfViewer({ params, query }) {
 
                 // 1. 翻页组件
                 currentPrefs.nav !== false ? (() => {
-                    const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)', height: '28px' } }); // 👈 控制翻页组件高度
+                    const group = el('div', { style: { display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg)', padding: '2px 4px', borderRadius: '8px', border: '1px solid rgba(0,0,0,0.06)', height: '28px' } }); //控制翻页组件高度
 
                     // 上一页
                     group.appendChild(el('button', {
@@ -879,7 +882,7 @@ export async function renderPdfViewer({ params, query }) {
                 el('button', {
                     class: 'btn btn-sm btn-primary',
                     text: 'PDF标注',
-                    style: { padding: '0 12px', height: '28px', minHeight: '28px', fontWeight: '600', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }, // 👈 移除了垂直 padding，锁死 28px 高度
+                    style: { padding: '0 12px', height: '28px', minHeight: '28px', fontWeight: '600', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center' }, //移除了垂直 padding，锁死 28px 高度
                     onClick: async () => {
                         // ... 你的原有逻辑不变 ...
                         toastSuccess('正在准备画板...');
@@ -938,7 +941,7 @@ export async function renderPdfViewer({ params, query }) {
                     onClick: () => openInsertPageModal()
                 }) : null,
 
-                // 👈 挂载设置里勾选的工具
+                //挂载设置里勾选的工具
                 ...visibleTools,
 
                 el('button', {
@@ -961,7 +964,7 @@ export async function renderPdfViewer({ params, query }) {
                             // 退出全屏模式
                             if (topbar) topbar.style.display = '';
                             if (viewEl) {
-                                // 👇 核心修复：不用 cssText = '' 暴力清除，而是精准清空我们加的内联样式
+                                //不用 cssText = '' 暴力清除，而是精准清空我们加的内联样式
                                 viewEl.style.removeProperty('padding');
                                 viewEl.style.removeProperty('height');
                                 viewEl.style.removeProperty('overflow');
@@ -1053,7 +1056,7 @@ export async function renderPdfViewer({ params, query }) {
 
                 const box = el('div', { class: 'confirm-box', style: { maxWidth: '400px', width: '90%' } }, [
                     el('h3', { text: '💡 当前页面按钮说明', style: { marginBottom: '8px' } }),
-                    descContainer, // 👈 把原生的节点塞进来
+                    descContainer, //把原生的节点塞进来
                     el('div', { class: 'confirm-actions', style: { marginTop: '16px' } }, [
                         el('button', { class: 'btn btn-primary', text: '我知道了', onClick: () => mask.remove() })
                     ])
@@ -1163,7 +1166,7 @@ export async function renderPdfViewer({ params, query }) {
     function renderSettingsInto(content) {
         content.appendChild(el('h3', { text: '⚙️ 设置', style: { padding: '16px 16px 8px' } }));
 
-        // 👇 直接写辅助函数，绕过内存中的 prefs 变量
+        //直接写辅助函数，绕过内存中的 prefs 变量
         function getPrefs() {
             try { return JSON.parse(localStorage.getItem('kg_pdf_toolbar_prefs') || '{}'); }
             catch { return {}; }
@@ -1290,7 +1293,7 @@ export async function renderPdfViewer({ params, query }) {
                 currentPrefs = { ...currentPrefs, ...saved };
             } catch { }
 
-            // 👇 核心修复：在设置面板里补上 toolsMap，否则这里会报错导致勾选框出不来
+            //在设置面板里补上 toolsMap，否则这里会报错导致勾选框出不来
             const toolsMap = {
                 mode: { render: () => [] }, // 占位
                 layout: { render: () => [] },
@@ -1334,7 +1337,7 @@ export async function renderPdfViewer({ params, query }) {
                 cb.checked = isChecked;
                 cb.dataset.key = key;
 
-                // 👇 这里是记忆的核心：只要勾选，立刻存进本地
+                //这里是记忆的核心：只要勾选，立刻存进本地
                 cb.onclick = (e) => {
                     let p = {};
                     try { p = JSON.parse(localStorage.getItem('kg_pdf_toolbar_prefs') || '{}'); } catch { }
@@ -1457,7 +1460,7 @@ export async function renderPdfViewer({ params, query }) {
                 el('button', {
                     class: 'btn btn-sm ' + (multiMode ? 'btn-danger' : 'btn-ghost'),
                     text: multiMode ? '✕ 退出' : '☑ 多选',
-                    style: { padding: '4px 8px', fontSize: '12px' }, // 👈 调小
+                    style: { padding: '4px 8px', fontSize: '12px' }, //调小
                     onClick: () => { multiMode = !multiMode; selectedNodes.clear(); render(); }
                 }),
                 multiMode ? el('button', {
@@ -1485,12 +1488,12 @@ export async function renderPdfViewer({ params, query }) {
                 // 非多选时显示的按钮
                 !multiMode ? el('button', {
                     class: 'btn btn-sm btn-primary', text: '➕ 添加',
-                    style: { padding: '4px 8px', fontSize: '12px' }, // 👈 调小
+                    style: { padding: '4px 8px', fontSize: '12px' }, //调小
                     onClick: () => addNode(null)
                 }) : null,
                 !multiMode ? el('button', {
                     class: 'btn btn-sm btn-ghost', text: '🔍 识别',
-                    style: { padding: '4px 8px', fontSize: '12px' }, // 👈 调小
+                    style: { padding: '4px 8px', fontSize: '12px' }, //调小
                     onClick: async () => {
                         toastSuccess('正在识别…');
                         const detected = await autoDetectOutline();
@@ -1501,7 +1504,7 @@ export async function renderPdfViewer({ params, query }) {
                 }) : null,
                 !multiMode && outline.length > 0 ? el('button', {
                     class: 'btn btn-sm btn-danger', text: '🗑 清空',
-                    style: { padding: '4px 8px', fontSize: '12px' }, // 👈 调小
+                    style: { padding: '4px 8px', fontSize: '12px' }, //调小
                     onClick: () => {
                         if (confirm('清空所有大纲？')) { outline = []; saveOutline(outline); render(); }
                     }
@@ -1594,7 +1597,7 @@ export async function renderPdfViewer({ params, query }) {
             content.appendChild(list);
         }
 
-        // 👇 辅助：自定义的大纲输入弹窗（标题 + 页码）
+        //辅助：自定义的大纲输入弹窗（标题 + 页码）
         function openOutlineEditModal(defaultTitle, defaultPage, onSave) {
             const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
             const box = el('div', { class: 'confirm-box', style: { maxWidth: '320px' } });
@@ -1638,7 +1641,7 @@ export async function renderPdfViewer({ params, query }) {
             setTimeout(() => titleInput.focus(), 100); // 自动聚焦到标题
         }
 
-        // 👇 添加节点（调用自定义弹窗）
+        //添加节点（调用自定义弹窗）
         function addNode(parentNode) {
             openOutlineEditModal('', currentPage, (title, page) => {
                 const newNode = { title, page, children: [], expanded: true };
@@ -1653,7 +1656,7 @@ export async function renderPdfViewer({ params, query }) {
             });
         }
 
-        // 👇 修改节点（调用自定义弹窗）
+        //修改节点（调用自定义弹窗）
         function editNode(node) {
             openOutlineEditModal(node.title, node.page, (title, page) => {
                 node.title = title;
@@ -1703,7 +1706,7 @@ export async function renderPdfViewer({ params, query }) {
 
                     const node = { title: it.title || '未命名', page: pageNum || 1, children: [], expanded: true };
                     if (it.items && it.items.length > 0) {
-                        node.children = await walk(it.items); // 👈 递归识别子级
+                        node.children = await walk(it.items); //递归识别子级
                     }
                     result.push(node);
                 }
@@ -1741,7 +1744,7 @@ export async function renderPdfViewer({ params, query }) {
                 }
             }
             else if (currentTab === 'otherPdf') {
-                // 👇 放弃查库，直接显示导入按钮
+                //放弃查库，直接显示导入按钮
                 listWrap.appendChild(el('button', {
                     class: 'btn btn-primary',
                     text: '📁 从本地选择 PDF 并关联',
@@ -1885,7 +1888,8 @@ export async function renderPdfViewer({ params, query }) {
 
     async function renderPage(num, parent, renderMode) {
         const page = await pdfDoc.getPage(num);
-        const vp = page.getViewport({ scale: 1.3 });
+        // 使用全局配置的缩放比例
+        const vp = page.getViewport({ scale: pdfRenderScale });
 
         let widthStyle = '92%', marginStyle = '0 auto', boxShadowStyle = '0 4px 12px rgba(0,0,0,0.08)', borderRadiusStyle = '6px';
         if (renderMode === 'scroll-single') { widthStyle = '100%'; marginStyle = '0 auto'; boxShadowStyle = 'none'; borderRadiusStyle = '0'; }
@@ -1908,18 +1912,18 @@ export async function renderPdfViewer({ params, query }) {
             id: `pdf-page-wrap-${num}`,
         });
 
-        // 👇 核心融合：直接读取完整的预览图（无蓝框，带文字）
+        //直接读取完整的预览图（无蓝框，带文字）
         const c = document.createElement('canvas');
         c.width = vp.width; c.height = vp.height;
         c.style.display = 'block'; c.style.width = '100%'; c.style.height = 'auto';
 
-        // ================= 👇 懒加载核心逻辑 👇 =================
+        // =================懒加载核心逻辑=================
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(async entry => {
                 if (entry.isIntersecting && !c.dataset.rendered) {
                     c.dataset.rendered = '1';
 
-                    // 👇 核心：直接用主键查，零遍历，速度极快！
+                    //直接用主键查，零遍历，速度极快！
                     let savedAnnotated = null;
                     try {
                         const pageTag = `pdf_${pdfId}_page_${num}`;
@@ -1984,7 +1988,7 @@ export async function renderPdfViewer({ params, query }) {
                 document.body.removeChild(toast);
                 const returnUrl = encodeURIComponent(window.location.hash);
 
-                // 👇 核心：不传图了，只传 PDF 的 ID 和页码！
+                //不传图了，只传 PDF 的 ID 和页码！
                 window.location.hash = `#/annotate/${targetImageId}?returnUrl=${returnUrl}&isPdf=true&pdfId=${pdfId}&page=${num}`;
 
             } catch (err) {
@@ -2020,7 +2024,7 @@ export async function renderPdfViewer({ params, query }) {
             touchTimer = setTimeout(triggerGoToAnnotator, 500);
         }
 
-        // ============ 👇 核心手势：双指缩放 / 单指拖拽 ============
+        // ============核心手势：双指缩放 / 单指拖拽 ============
         wrap.style.touchAction = 'auto';
         let scale = 1, startDist = 0, startScale = 1, panX = 0, panY = 0, startX = 0, startY = 0;
         let isPinching = false, isDragging = false;
@@ -2066,7 +2070,7 @@ export async function renderPdfViewer({ params, query }) {
             }
         });
 
-        // 👇 2. 鼠标局部放大镜（电脑端按住 Alt 键并悬停）
+        //2. 鼠标局部放大镜（电脑端按住 Alt 键并悬停）
         const magnifier = el('div', {
             style: { position: 'absolute', width: '150px', height: '150px', borderRadius: '50%', border: '3px solid var(--primary)', boxShadow: '0 4px 12px rgba(0,0,0,0.4)', display: 'none', pointerEvents: 'none', zIndex: '99', backgroundImage: `url(${c.toDataURL()})`, backgroundRepeat: 'no-repeat' }
         });
@@ -2090,7 +2094,7 @@ export async function renderPdfViewer({ params, query }) {
         });
         wrap.addEventListener('mouseleave', () => { magnifier.style.display = 'none'; });
 
-        // 👇 书签标识：左上角小圆点，不遮内容
+        //书签标识：左上角小圆点，不遮内容
         try {
             const savedBookmarks = JSON.parse(localStorage.getItem(`kg_pdf_bookmarks_${pdfId}`) || '[]');
             const bookmarks = savedBookmarks.map(b => typeof b === 'number' ? { page: b, note: '' } : b);
@@ -2110,7 +2114,7 @@ export async function renderPdfViewer({ params, query }) {
             }
         } catch { }
 
-        // 👇 核心逻辑：如果是 OCR 模式，绑定拖拽画框；否则是普通点击
+        //如果是 OCR 模式，绑定拖拽画框；否则是普通点击
         if (isOcrMode || isScreenshotMode) {
             wrap.style.cursor = 'crosshair';
             let startX = 0, startY = 0, selectionBox = null;
@@ -2168,11 +2172,11 @@ export async function renderPdfViewer({ params, query }) {
 
                 const blob = await new Promise(r => tempCanvas.toBlob(r, 'image/png'));
 
-                // 👇 2. 根据模式调用不同功能
+                //2. 根据模式调用不同功能
                 if (isOcrMode) {
                     openOcrResultPanel(blob, pointId, store, window.dbPut, window.uuid, toastSuccess, toastError);
                 } else if (isScreenshotMode) {
-                    // 👇 截图模式：不再静默下载，而是弹出预览窗
+                    //截图模式：不再静默下载，而是弹出预览窗
                     isScreenshotMode = false; // 截完自动退出模式
                     if (globalScreenshotBtn) {
                         globalScreenshotBtn.style.background = '';
@@ -2183,7 +2187,7 @@ export async function renderPdfViewer({ params, query }) {
                 }
             };
         } else {
-            // 👇 非 OCR 模式下，恢复普通点击翻页/多选功能
+            //非 OCR 模式下，恢复普通点击翻页/多选功能
             wrap.onclick = () => {
                 if (isMulti) {
                     if (selectedPages.has(num)) selectedPages.delete(num);
@@ -2193,7 +2197,7 @@ export async function renderPdfViewer({ params, query }) {
                     currentPage = num;
                     localStorage.setItem(`kg_pdf_progress_${pdfId}`, currentPage);
 
-                    // 👇 核心修复：用直接查找的方式，确保一定能找到那个输入框
+                    //用直接查找的方式，确保一定能找到那个输入框
                     const pageInput = document.querySelector('.pdf-topbar input[type="number"]') ||
                         document.getElementById('pdf-page-input') ||
                         document.querySelector('input[type="number"]');
@@ -2201,7 +2205,7 @@ export async function renderPdfViewer({ params, query }) {
                         pageInput.value = currentPage;
                     }
 
-                    // 👇 手动更新页面高亮，同时让顶部输入框获取焦点(可选)
+                    //手动更新页面高亮，同时让顶部输入框获取焦点(可选)
                     document.querySelectorAll('[id^="pdf-page-wrap-"]').forEach(w => {
                         w.style.outline = 'none';
                     });
@@ -2210,7 +2214,7 @@ export async function renderPdfViewer({ params, query }) {
             };
         }
 
-        // 👇 核心：渲染已有的跳转连接（极简小图标版）
+        //渲染已有的跳转连接（极简小图标版）
         try {
             const allLinks = JSON.parse(localStorage.getItem(`kg_pdf_links_${pdfId}`) || '[]');
             const pageLinks = allLinks.filter(l => l.sourcePage === num);
@@ -2298,7 +2302,7 @@ export async function renderPdfViewer({ params, query }) {
                 const pagesToExport = [...selectedPages].sort((a, b) => a - b).map(n => n - 1);
                 const isSingle = pagesToExport.length === 1;
 
-                // 👇 弹出选择框，让用户选择导出格式
+                //弹出选择框，让用户选择导出格式
                 const choice = await new Promise(resolve => {
                     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } }, [
                         el('div', { class: 'confirm-box', style: { maxWidth: '320px' } }, [
@@ -2326,7 +2330,7 @@ export async function renderPdfViewer({ params, query }) {
                     await downloadFileWithPath(blob, `${pdfRecord.name}_导出.pdf`, 'application/pdf', ['.pdf']);
                 }
                 else if (choice === 'img-direct') {
-                    // 👇 直接逐张下载（不打包）
+                    //直接逐张下载（不打包）
                     toastSuccess('正在生成图片...');
                     for (let i = 0; i < pagesToExport.length; i++) {
                         const pageNum = pagesToExport[i] + 1;
@@ -2543,8 +2547,8 @@ export async function renderPdfViewer({ params, query }) {
             await dbPut('images', {
                 id: newImgId,
                 originalBlob: blob,
-                annotatedBlob: null, // 👈 核心修复1：初始不带笔迹，只存干净原图
-                strokeBlob: null,    // 👈 确保初始笔迹为空
+                annotatedBlob: null, //初始不带笔迹，只存干净原图
+                strokeBlob: null,    //确保初始笔迹为空
                 width: canvas.width,
                 height: canvas.height,
                 dpr: window.devicePixelRatio || 1,
@@ -2594,7 +2598,7 @@ export async function renderPdfViewer({ params, query }) {
 
         // ============ 2. 样式网格 ============
         box.appendChild(el('div', { style: { fontWeight: '600', fontSize: '13px', marginBottom: '8px' }, text: '选择页面样式' }));
-        // 👇 核心修复：给网格加了 maxHeight 和 overflowY，防止把弹窗撑爆
+        //给网格加了 maxHeight 和 overflowY，防止把弹窗撑爆
         const grid = el('div', {
             style: {
                 display: 'grid',
@@ -2628,7 +2632,7 @@ export async function renderPdfViewer({ params, query }) {
                 style: {
                     display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '6px', padding: '10px 4px',
                     fontSize: '12px',
-                    minHeight: '72px', // 👈 给个固定的最小高度，保证排版整齐
+                    minHeight: '72px', //给个固定的最小高度，保证排版整齐
                     border: selectedStyle === s.id ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.08)',
                     background: selectedStyle === s.id ? 'rgba(142, 202, 230, 0.1)' : 'transparent'
                 },
@@ -2643,7 +2647,7 @@ export async function renderPdfViewer({ params, query }) {
                     renderParams(); // 刷新参数区
                 }
             }, [
-                el('span', { style: { fontSize: '20px' }, text: s.icon }), // 👈 图标从 24px 减小到 20px
+                el('span', { style: { fontSize: '20px' }, text: s.icon }), //图标从 24px 减小到 20px
                 el('span', { text: s.label, style: { whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', width: '100%', textAlign: 'center' } })
             ]);
             styleButtons.push(btn);
@@ -2737,7 +2741,7 @@ export async function renderPdfViewer({ params, query }) {
                 class: 'btn btn-primary', text: '确认插入',
                 onClick: () => {
                     mask.remove();
-                    // 👇 确保参数传给 doInsert，防止未定义报错
+                    //确保参数传给 doInsert，防止未定义报错
                     if (typeof doInsert === 'function') {
                         doInsert(selectedStyle, currentParams || {});
                     } else {
@@ -3095,7 +3099,7 @@ async function openLinkSelector(pageNum, pdfId) {
         }));
         tabRow.appendChild(el('button', {
             class: 'btn btn-sm ' + (currentTab === 'otherPdf' ? 'btn-primary' : 'btn-ghost'),
-            text: '📂 其他文档', 
+            text: '📂 其他文档',
             onClick: () => { currentTab = 'otherPdf'; renderTabs(); renderList(); }
         }));
         tabRow.appendChild(el('button', {
@@ -3127,7 +3131,7 @@ async function openLinkSelector(pageNum, pdfId) {
             }
         }
         else if (currentTab === 'otherPdf') {
-            // 👇 暴力读取 IndexedDB 的所有 PDF 数据
+            //暴力读取 IndexedDB 的所有 PDF 数据
             const allPdfs = await new Promise((resolve) => {
                 try {
                     const req = indexedDB.open('kaogong_db');
@@ -3160,7 +3164,7 @@ async function openLinkSelector(pageNum, pdfId) {
                         toastSuccess('正在读取文件...');
 
                         const newPdfId = uuid();
-                        // 👇 强制使用底层的 dbPut
+                        //强制使用底层的 dbPut
                         await new Promise((resolve, reject) => {
                             const req = indexedDB.open('kaogong_db');
                             req.onsuccess = (e) => {
@@ -3305,7 +3309,7 @@ async function openLinkSelector(pageNum, pdfId) {
         el('button', {
             class: 'btn btn-ghost', text: '📋 复制文本链接',
             onClick: async () => {
-                // 👇 核心：生成可以到处粘贴的文本链接
+                //生成可以到处粘贴的文本链接
                 let title = customNoteInput.value.trim() || '查看详情';
                 let target = '';
 
@@ -3368,7 +3372,7 @@ async function runOcrForPdf(imageBlob) {
         throw new Error('Tesseract 库未加载，请检查 index.html');
     }
 
-    // 👇 核心修改：把进度直接显示在弹窗里
+    //把进度直接显示在弹窗里
     const progressText = document.getElementById('ocr-text-result');
 
     try {
