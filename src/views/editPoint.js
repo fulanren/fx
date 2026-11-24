@@ -1,4 +1,4 @@
-﻿import { el, clear, debounce } from '../utils/dom.js';
+import { el, clear, debounce } from '../utils/dom.js';
 import * as store from '../store.js';
 import { navigate } from '../router.js';
 import { saveDraft, loadDraft, clearDraft, hasChanges } from '../autosave.js';
@@ -385,7 +385,7 @@ export function renderEditPoint({ params, query }) {
       form.explanation = explainInput.innerHTML;
     },
 
-    // 👇 核心修复：拦截右键菜单和长按菜单
+    // 拦截右键菜单和长按菜单
     onContextMenu: (e) => {
       e.preventDefault();
     },
