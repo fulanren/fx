@@ -29,7 +29,7 @@ export function toggleFolderCollapse(id) {
   // 保存到本地存储
   localStorage.setItem('kg_collapsed_folders', JSON.stringify([...collapsedFolders]));
 
-  // 核心修复：既然 taskCard 是递归渲染的，这里只需触发全局刷新即可，不需要手动去拼装 DOM
+  // 既然 taskCard 是递归渲染的，这里只需触发全局刷新即可，不需要手动去拼装 DOM
   if (window.renderHomeGlobal) {
     window.renderHomeGlobal();
   } else if (typeof renderHome === 'function') {

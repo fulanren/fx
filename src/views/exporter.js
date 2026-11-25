@@ -298,7 +298,7 @@ export async function exportContent(scope, id, options = {}) {
     zip.file('content.md', md);
     zip.file('content.html', html);
 
-    // 【关键】单实体导出也用全量结构，保证能被 importFullBackup 识别
+    // 单实体导出也用全量结构，保证能被 importFullBackup 识别
     const zipData = {
       tasks: data.task ? [data.task] : [],
       chapters: data.chapters || (data.chapter ? [data.chapter] : []),

@@ -27,6 +27,7 @@ import { renderPdfViewer } from './views/pdfViewer.js';
 import { renderUploadPdf } from './views/uploadPdf.js';
 import { renderResourceOverview } from './views/resourceOverview.js';
 import { initEmojiReplacer } from './utils/emojiReplacer.js';
+import { ensurePdfJs } from './utils/deps.js';
 
 let hasShownGlobalError = false;
 window.addEventListener('error', (e) => {
@@ -49,11 +50,6 @@ window.addEventListener('error', (e) => {
   }, 3000);
 });
 
-// 修复 PDF.js Worker 404 的问题
-if (window.pdfjsLib) {
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-}
-
 async function boot() {
   // 1. 基础数据迁移与清理
   migrate();
@@ -72,7 +68,7 @@ async function boot() {
   cleanExpiredDrafts();
   cleanRecycleBin();
   initTheme();
-
+  ensurePdfJs();   // 开机预热：把 pdf.js worker 指向本地 vendor
   //延迟 5 秒后，执行“每日数据自动快照”，保障数据安全
   setTimeout(() => { autoSnapshot(); }, 5000);
 
@@ -118,25 +114,27 @@ async function boot() {
       },
     ];
 
-    let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || 'null');
+    // 统一读取数组格式，绝不强行塞默认值
+    let prefs = [];
+    try {
+      const saved = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
+      if (Array.isArray(saved)) {
+        prefs = saved;
+      } else if (typeof saved === 'object' && saved !== null) {
+        prefs = Object.keys(saved).filter(k => saved[k] === true);
+      }
+    } catch (e) { prefs = []; }
 
-    if (!prefs || Array.isArray(prefs) || Object.keys(prefs).length === 0) {
-      prefs = {
-        theme: false, quickNote: false, review: false, search: false, export: false,
-        import: false, template: false, importDoc: false, home: true,
-        resources: true, inbox: false, countdown: false, trash: true,
-        help: true, settings: true, backToTop: true
-      };
+    // 只有当用户从来没设置过（空数组）时，才给默认值。否则一切按用户的勾选来！
+    const isFirstTime = localStorage.getItem('kg_topbar_prefs') === null;
+    if (isFirstTime || prefs.length === 0) {
+      prefs = ['home', 'resources', 'trash', 'help', 'settings'];
     }
 
     function renderTopbarTools() {
       topbarActions.querySelectorAll('.topbar-tool-btn').forEach(el => el.remove());
 
-      const activeIds = Array.isArray(prefs)
-        ? prefs
-        : Object.keys(prefs).filter(k => prefs[k] === true);
-
-      activeIds.forEach(id => {
+      prefs.forEach(id => {
         const tool = ALL_TOOLS.find(t => t.id === id);
         if (!tool) return;
 
@@ -646,6 +644,14 @@ document.addEventListener('DOMContentLoaded', () => {
 window.addEventListener('hashchange', () => {
   const topbar = document.getElementById('topbar');
   if (topbar) topbar.style.display = '';
+
+  // 离开编辑页时，恢复被 editPoint 隐藏（而非删除）的画板按钮
+  ['btn-done', 'pdf-nav-prev', 'pdf-nav-next', 'pdf-nav-label'].forEach(id => {
+    const n = document.getElementById(id);
+    if (n && n.dataset.hiddenByEditPoint === '1' && !location.hash.startsWith('#/edit-point/')) {
+      n.style.display = '';
+    }
+  });
 
   const view = document.getElementById('view');
   if (view) {

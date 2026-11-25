@@ -416,14 +416,11 @@ export function createTapeLayer({ canvas, width, height, imageId, store, baseImg
   // ============ 显隐 / 选中 ============
   function toggleVisible(id) {
     const t = tapes.find(x => x.id === id);
-    console.log('=== toggleVisible ===', 'id:', id, '找到:', !!t, '当前 visible:', t?.visible);
     if (t) {
       t.visible = !t.visible;
-      console.log('切换后 visible:', t.visible);
       if (!t.visible) selectedIds.delete(id);
       save();
       redraw();
-      console.log('redraw 后，可见胶带:', tapes.filter(x => x.visible).length, '/', tapes.length);
       toastSuccess(t.visible ? '已显示' : '已隐藏');
     }
   }

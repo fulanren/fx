@@ -1,5 +1,22 @@
-﻿export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 1;
+let __b64Fired = false;
 export function migrate() {
+  // 存量瘦身与 schema 版本无关，必须放在 stored===SCHEMA_VERSION 的提前 return 之前，
+  // 否则老用户（版本号已是 1）永远不会触发迁移。
+  if (!__b64Fired) {
+    __b64Fired = true;
+    // 脚本在 src/utils/ 下，这里必须带 utils/；写成 './migrateBase64.js' 会 404，
+    // 而 404 只会被下面这行 warn 吞掉 —— 瘦身永远不跑且毫无提示
+    import('./utils/migrateBase64.js')
+      .then(m => {
+        if (!m || typeof m.migrateBase64Images !== 'function') {
+          console.warn('[migrate] migrateBase64.js 已加载但没有导出 migrateBase64Images，函数名被改过？');
+          return;
+        }
+        return m.migrateBase64Images({ auto: true });
+      })
+      .catch(e => console.warn('[migrate] base64 瘦身未执行：', e && e.message ? e.message : e));
+  }
   const stored = Number(localStorage.getItem('kg_schema_version') || 0);
   if (stored === SCHEMA_VERSION) return;
   if (stored < 1) {

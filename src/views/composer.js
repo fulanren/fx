@@ -4,6 +4,8 @@ import { navigate } from '../router.js';
 import { getImageCached, putImageCached, dbDelete } from '../db.js';
 import { uuid } from '../utils/id.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
+import { chooseImportMode } from './pdfImportMode.js';
+import { ensurePdfJs, ensurePdfJsAsync } from '../utils/deps.js';
 
 const STYLES = [
   { id: 'vertical', label: '📐 纵向拼接' },
@@ -23,7 +25,11 @@ export function renderComposer({ params, query }) {
   clear(view);
   document.getElementById('page-title').textContent = '合并';
   document.getElementById('btn-back').classList.remove('hidden');
-  document.getElementById('btn-back').onclick = () => navigate(`#/chapter/${point.chapterId}`);
+  function backToOwner() {
+    const pid = point.chapterId || point.taskId || point.parentId;
+    if (pid) navigate(`#/chapter/${pid}`);
+    else navigate('#/');
+  }
 
   // ============ 状态变量 ============
   let style = 'vertical';
@@ -43,6 +49,20 @@ export function renderComposer({ params, query }) {
   const externalFiles = [];
 
   let loadedImages = [];
+  let imagesLoadedOnce = false;        // 区分「还没加载」与「加载过但为空」
+
+  // 统一失效入口：以后所有「让预览缓存失效」都调它
+  function invalidatePreview() {
+    if (Array.isArray(loadedImages)) {
+      loadedImages.forEach(it => {
+        if (it && typeof it.url === 'string' && it.url.startsWith('blob:')) {
+          try { URL.revokeObjectURL(it.url); } catch (e) { }
+        }
+      });
+    }
+    loadedImages = [];
+    imagesLoadedOnce = false;
+  }
   let previewTimer = null;
   let currentFilterType = 'all'; // 'all' | 'image' | 'pdf'
 
@@ -273,6 +293,7 @@ export function renderComposer({ params, query }) {
     pickerWrap.appendChild(buildPickerItem(id, false));
     selectedIds.add(id);
   });
+  loadedImages = [];          // 首次也纳入缓存失效，避免与后续导入交错
 
   // ============ 导入 / 全选 / 重置按钮组 ============
   function addImportButtons(parent) {
@@ -295,6 +316,8 @@ export function renderComposer({ params, query }) {
             selectedIds.add(id);
             pickerWrap.appendChild(buildPickerItem(id, true));
           }
+          loadedImages = [];            // 不清缓存，新图永远不进预览与导出
+          imagesLoadedOnce = false;     // 配合 K4
           updateSelectionStatus();
           schedulePreview();
         };
@@ -312,14 +335,18 @@ export function renderComposer({ params, query }) {
         input.type = 'file'; input.accept = 'application/pdf'; input.multiple = true;
         input.onchange = async (e) => {
           const files = Array.from(e.target.files || []);
-          for (const f of files) {
-            const id = `ext_pdf_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            externalFiles.push({ id, type: 'pdf', name: f.name, blob: f });
-            selectedIds.add(id);
-            pickerWrap.appendChild(buildPickerItem(id, true));
+          if (files.length === 0) return;
+          input.onchange = null;                     // 防止重复触发
+
+          // 先问：转图 还是 存原文（选转图时可顺便选画质）
+          const choice = await chooseImportMode(files.length, { context: 'merge' });
+          if (!choice) return;                       // 用户取消
+
+          if (choice.mode === 'original') {
+            importAsOriginal(files, choice.scale);
+          } else {
+            await importAsImages(files, choice.scale);
           }
-          updateSelectionStatus();
-          schedulePreview();
         };
         input.click();
       },
@@ -384,8 +411,99 @@ export function renderComposer({ params, query }) {
     parent.appendChild(selectionStatus);
   }
 
+  // 存原文：只把 PDF 入列，合并时由 loadAllImages 自动转图。
+  // 这就是被之前的改造覆盖掉的 composer 原始逻辑，逐字恢复，并额外记录 scale。
+  function importAsOriginal(files, scale) {
+    for (var i = 0; i < files.length; i++) {
+      var f = files[i];
+      var id = 'ext_pdf_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
+      externalFiles.push({ id: id, type: 'pdf', name: f.name, blob: f, scale: scale });
+      selectedIds.add(id);
+      pickerWrap.appendChild(buildPickerItem(id, true));
+    }
+    loadedImages = [];                       // 让预览缓存失效（同「重置」按钮的做法）
+    updateSelectionStatus();
+    schedulePreview();
+    toastSuccess('已加入 ' + files.length + ' 个 PDF 原文');
+  }
+
+  // 转图：当场把每一页渲染成图片项，逐页可勾选 / 可移除 / 可排序。
+  async function importAsImages(files, scale) {
+    if (!window.pdfjsLib) {
+      const ok = await ensurePdfJsAsync();
+      if (!ok) { toastError('PDF.js 未加载：请确认 vendor/pdfjs/ 已就位'); return; }
+    }
+
+    // 与 pdfImport.js 里 renderPageToImage 同口径：低画质用 JPEG 压体积
+    var mime = scale <= 1.0 ? 'image/jpeg' : 'image/png';
+    var quality = scale <= 1.0 ? 0.85 : undefined;
+
+    let total = 0, failed = 0;
+
+    for (const file of files) {
+      let pdf = null;
+      try {
+        // 守卫挪到 try 外：ensurePdfJs 自身异常不该被误报成“解析失败”
+        if (!ensurePdfJs()) {
+          failed++;
+          toastError('PDF.js 未加载：请确认 vendor/pdfjs/ 已就位');
+          continue;
+        }
+        const buf = await file.arrayBuffer();
+        pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+
+        const baseName = (file.name || 'PDF').replace(/\.pdf$/i, '');
+
+        // numPages 与逐页渲染都纳入本 try，保证异常时下面 finally 一定 destroy
+        const n = pdf.numPages;
+        for (let p = 1; p <= n; p++) {
+          try {
+            const page = await pdf.getPage(p);
+            const vp = page.getViewport({ scale: scale });
+            const c = document.createElement('canvas');
+            c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+
+            const blob = await new Promise(r => c.toBlob(r, mime, quality));
+            if (!blob) { failed++; continue; }
+
+            const id = 'ext_img_' + Date.now() + '_' + p + '_' + Math.random().toString(36).slice(2, 8);
+            externalFiles.push({
+              id: id,
+              type: 'image',          // 以“图片项”入列，于是能逐页勾选
+              name: baseName + ' 第' + p + '页',
+              blob: blob,
+              scale: scale,
+              fromPdf: true,
+            });
+            selectedIds.add(id);
+            pickerWrap.appendChild(buildPickerItem(id, true));
+            total++;
+          } catch (e) {
+            failed++;
+            console.warn('单页转图失败', file.name, p, e);
+          }
+        }
+      } catch (e) {
+        failed++;
+        console.error('PDF 解析失败', file.name, e);
+        toastError('「' + (file.name || '未命名') + '」解析失败');
+      } finally {
+        try { if (pdf && pdf.destroy) pdf.destroy(); } catch (e) { }   // 无论成功失败都释放
+      }
+    }
+
+    if (total > 0) {
+      loadedImages = [];
+      updateSelectionStatus();
+      schedulePreview();
+      toastSuccess('已转成 ' + total + ' 页图片参与合并');
+    }
+    if (failed > 0) toastError('有 ' + failed + ' 页/份转换失败');
+  }
+
   addImportButtons(pickerActions);
-  updateSelectionStatus(); updateSelectionStatus();
+  updateSelectionStatus();
 
   // ============ styleRow ============
   const styleRow = el('div', { class: 'compose-row' }, [
@@ -495,7 +613,7 @@ export function renderComposer({ params, query }) {
   }, [
     el('span', { style: { fontSize: '14px', fontWeight: '600' }, text: '合并' }),
     el('div', { style: { display: 'flex', gap: '8px' } }, [
-      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => navigate(`#/chapter/${point.chapterId}`) }),
+      el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => backToOwner() }),
       el('button', { class: 'btn btn-sm btn-primary', text: '生成并保存', onClick: generate }),
     ]),
   ]);
@@ -524,28 +642,30 @@ export function renderComposer({ params, query }) {
       const ext = externalFiles.find(f => f.id === id);
 
       let im = null;
-      let isPdf = false;
 
       if (ext) {
         if (ext.type === 'pdf') {
-          isPdf = true;
+          if (!ensurePdfJs()) {
+            toastError('PDF.js 未加载，已跳过 1 个 PDF（其余文件仍参与合并）');
+            continue;                 // 绝不能 return：会终止整个加载并返回 undefined
+          }
           const buf = await ext.blob.arrayBuffer();
-          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const vp = page.getViewport({ scale: 2 });
-            const c = document.createElement('canvas');
-            c.width = vp.width; c.height = vp.height;
-            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-            const url = c.toDataURL('image/png');
-            const tempIm = new Image();
-            tempIm.src = url;
-            await new Promise(r => { tempIm.onload = r; });
-
-            // 处理 PDF 页面的去白边
-            let finalIm = tempIm;
-            if (autoTrim) finalIm = await trimImageWhitespace(tempIm);
-            result.push({ img: finalIm, width: finalIm.width, height: finalIm.height, url, sourceId: id, pageNum: i });
+          let pdf = null;
+          try {
+            pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const vp = page.getViewport({ scale: ext.scale || 2 });
+              const c = document.createElement('canvas');
+              c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+              await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+              result.push({ img: c, width: c.width, height: c.height, sourceId: id, pageNum: i });
+            }
+          } catch (e) {
+            console.warn('PDF 合成渲染失败', e);
+            toastError('有一个 PDF 渲染失败，已跳过');
+          } finally {
+            try { if (pdf && pdf.destroy) pdf.destroy(); } catch (e) { }
           }
           continue;
         } else {
@@ -559,26 +679,29 @@ export function renderComposer({ params, query }) {
         if (!rec) continue;
 
         if (rec.type === 'pdf_placeholder' && rec.pdfId) {
-          isPdf = true;
+
           const { dbGet } = await import('../db.js');
           const pdfRec = await dbGet('pdfs', rec.pdfId);
           if (!pdfRec || !pdfRec.blob) continue;
+          if (!ensurePdfJs()) { toastError('PDF.js 未加载，无法读取 PDF 页'); continue; }
           const buf = await pdfRec.blob.arrayBuffer();
-          const pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
-          for (let i = 1; i <= pdf.numPages; i++) {
-            const page = await pdf.getPage(i);
-            const vp = page.getViewport({ scale: 2 });
-            const c = document.createElement('canvas');
-            c.width = vp.width; c.height = vp.height;
-            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
-            const url = c.toDataURL('image/png');
-            const tempIm = new Image();
-            tempIm.src = url;
-            await new Promise(r => { tempIm.onload = r; });
-
-            let finalIm = tempIm;
-            if (autoTrim) finalIm = await trimImageWhitespace(tempIm);
-            result.push({ img: finalIm, width: finalIm.width, height: finalIm.height, url, sourceId: id, pageNum: i });
+          let pdf = null;
+          try {
+            pdf = await window.pdfjsLib.getDocument({ data: buf }).promise;
+            for (let i = 1; i <= pdf.numPages; i++) {
+              const page = await pdf.getPage(i);
+              const vp = page.getViewport({ scale: 2 });
+              const c = document.createElement('canvas');
+              c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+              await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+              const one = autoTrim ? await trimImageWhitespace(c) : c;
+              result.push({ img: one, width: one.width, height: one.height, sourceId: id, pageNum: i });
+            }
+          } catch (e) {
+            console.warn('PDF 页渲染失败', e);
+            toastError('有一个附件 PDF 渲染失败，已跳过');
+          } finally {
+            try { if (pdf && pdf.destroy) pdf.destroy(); } catch (e) { }
           }
           continue;
         } else {
@@ -658,7 +781,11 @@ export function renderComposer({ params, query }) {
   }
 
   async function drawPreview() {
-    if (!loadedImages.length) loadedImages = await loadAllImages();
+    if (!imagesLoadedOnce) {
+      const r = await loadAllImages();
+      loadedImages = Array.isArray(r) ? r : [];
+      imagesLoadedOnce = true;
+    }
     if (loadedImages.length === 0) {
       preview.width = 400; preview.height = 200;
       previewCtx.fillStyle = '#f0f0f0';
@@ -692,7 +819,12 @@ export function renderComposer({ params, query }) {
   }
 
   async function generate() {
-    if (loadedImages.length === 0) loadedImages = await loadAllImages();
+    if (!imagesLoadedOnce) {
+      const r = await loadAllImages();
+      loadedImages = Array.isArray(r) ? r : [];
+      imagesLoadedOnce = true;
+    }
+    if (!Array.isArray(loadedImages)) loadedImages = [];
     if (loadedImages.length === 0) { toastError('没有文件可合并'); return; }
     try {
       const layout = computeLayout(loadedImages);
@@ -744,7 +876,7 @@ export function renderComposer({ params, query }) {
                   savedToPoint = true;
                   mask.remove();
                   toastSuccess('已保存到当前知识点');
-                  navigate(`#/chapter/${point.chapterId}`);
+                  backToOwner();
                   resolve();
                 },
               }),

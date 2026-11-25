@@ -1,4 +1,4 @@
-﻿// src/router.js
+// src/router.js
 // 路由：hash 路由，支持浏览器返回
 
 const routes = [];
@@ -74,7 +74,8 @@ export function startRouter() {
 
 // ============ 返回上一页 ============
 export function goBack() {
-  history.back();
+  if (history.length > 1 && location.hash && location.hash !== '#/') history.back();
+  else location.hash = '#/';
 }
 
 // ============ 底部导航高亮（预留） ============

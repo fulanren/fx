@@ -9,7 +9,54 @@ import { attachSpeechButton } from '../ui/speech.js';
 import { isMobile } from '../utils/platform.js';
 import { audioRecorderModal, getAudiosForPoint, renderAudioList } from './audio.js';
 import { renderImageList } from './imageList.js';
-import { dbPut, dbAll } from '../db.js';
+import { dbPut, dbAll, getImageCached } from '../db.js';
+
+// ==== 图片引用化：objectURL 缓存 + explanation 水合/去水合 ====
+const __imgUrlCache = new Map();
+function imgObjectUrl(id, blob) {
+  if (__imgUrlCache.has(id)) return __imgUrlCache.get(id);
+  const u = URL.createObjectURL(blob);
+  __imgUrlCache.set(id, u);
+  return u;
+}
+/** 渲染进编辑框前调用：把 data-img-id 换成 objectURL（仅内存，不落库） */
+export async function hydrateExplainImgs(html) {
+  if (!html) return html || '';
+  const ids = [...new Set([...html.matchAll(/data-img-id="([^"]+)"/g)].map(m => m[1]))];
+  const map = new Map();
+  for (const id of ids) {
+    const rec = await getImageCached(id);
+    const blob = rec && (rec.annotatedBlob || rec.originalBlob);
+    if (blob instanceof Blob && blob.size > 0) map.set(id, imgObjectUrl(id, blob));
+  }
+  return html.replace(/<img[^>]*>/g, tag => {
+    const m = tag.match(/data-img-id="([^"]+)"/);
+    if (!m) return tag;
+    const u = map.get(m[1]) || '';
+    let out = tag.replace(/\s*src="[^"]*"/, '');
+    return u ? out.replace(/^<img/, `<img src="${u}"`) : out;
+  });
+}
+
+/** 仅导出用：把 data-img-id 换成 base64，产出自包含 HTML（不写回 store） */
+export async function explainToSelfContained(html) {
+  const ids = [...new Set([...html.matchAll(/data-img-id="([^"]+)"/g)].map(m => m[1]))];
+  const map = new Map();
+  for (const id of ids) {
+    const rec = await getImageCached(id);
+    const blob = rec && (rec.annotatedBlob || rec.originalBlob);
+    if (!(blob instanceof Blob) || blob.size === 0) continue;
+    map.set(id, await new Promise(res => {
+      const r = new FileReader(); r.onloadend = () => res(r.result); r.readAsDataURL(blob);
+    }));
+  }
+  return html.replace(/<img[^>]*>/g, tag => {
+    const m = tag.match(/data-img-id="([^"]+)"/);
+    if (!m) return tag;
+    const u = map.get(m[1]); if (!u) return tag;
+    return tag.replace(/\s*src="[^"]*"/, '').replace(/^<img/, `<img src="${u}"`);
+  });
+}
 
 export function renderEditPoint({ params, query }) {
   let savedRange = null;
@@ -21,15 +68,13 @@ export function renderEditPoint({ params, query }) {
   const docSignal = window.__editPointAbort.signal;
   //清理上一次编辑页挂到 body 的面板，防止叠面板
   document.querySelectorAll('.edit-point-panel').forEach(p => p.remove());
-  // 只要进入编辑页，强行把画板残留的组件干掉
-  const doneBtn = document.getElementById('btn-done');
-  const prevBtn = document.getElementById('pdf-nav-prev');
-  const nextBtn = document.getElementById('pdf-nav-next');
-  const pageLabel = document.getElementById('pdf-nav-label');
-  if (doneBtn) doneBtn.remove();
-  if (prevBtn) prevBtn.remove();
-  if (nextBtn) nextBtn.remove();
-  if (pageLabel) pageLabel.remove();
+  // 每次进入编辑页都要复位：这是全局标志位，原来只置 true 从不复位，导致第二次进页面不再滚动/选中
+  window.__hasScrolledToSearch = false;
+  // 进入编辑页：把画板残留的组件“隐藏”而非删除（节点由 index.html 静态提供，删了不可恢复）
+  ['btn-done', 'pdf-nav-prev', 'pdf-nav-next', 'pdf-nav-label'].forEach(id => {
+    const n = document.getElementById(id);
+    if (n) { n.dataset.hiddenByEditPoint = '1'; n.style.display = 'none'; }
+  });
 
   const isNew = params.id === 'new';
   const incomingImageId = query.imageId;
@@ -52,6 +97,7 @@ export function renderEditPoint({ params, query }) {
   let isUnlocked = isNew;      // 编辑时锁定，新建时解锁
   let showDifficultyBeforeExpand = original?.showDifficultyBeforeExpand || false;
   let isDraftResolved = false; // 是否已经处理过草稿弹窗
+  let draftRejected = false;   // 用户在弹窗里点了“放弃”        
 
   const view = document.getElementById('view');
   clear(view);
@@ -182,13 +228,9 @@ export function renderEditPoint({ params, query }) {
 
     // 在“图文附件”区域插入图片（如果是富文本框）
     if (isExplanation) {
-      // 为了让图片在解释框立即可见，转为 Base64 塞进去
-      const reader = new FileReader();
-      const base64 = await new Promise(resolve => {
-        reader.onloadend = () => resolve(reader.result);
-        reader.readAsDataURL(file);
-      });
-      document.execCommand('insertHTML', false, `<img src="${base64}" style="max-width:100%; border-radius:8px; margin:8px 0; display:block;" data-img-id="${id}" />`);
+      // 只用 IndexedDB 本体的 objectURL 做即时预览，绝不再把整张图 base64 塞进 HTML
+      const previewUrl = imgObjectUrl(id, file);
+      document.execCommand('insertHTML', false, `<img src="${previewUrl}" data-img-id="${id}" style="max-width:100%; border-radius:8px; margin:8px 0; display:block;" />`);
 
       form.explanation = explainInput.innerHTML;
       saveExplainRange();
@@ -289,7 +331,6 @@ export function renderEditPoint({ params, query }) {
                   let allText = '';
                   for (const imgId of newImageIds) {
                     try {
-                      //直接传入 imgId 调用你原本的 runOCR
                       const res = await ocrModule.runOCR(imgId);
                       if (res && res.text && res.text.trim()) {
                         allText += res.text.trim() + '\n\n';
@@ -357,7 +398,7 @@ export function renderEditPoint({ params, query }) {
       whiteSpace: 'pre-wrap', fontSize: '15px', lineHeight: '1.6',
       userSelect: 'text',
       pointerEvents: 'auto',
-      WebkitTouchCallout: 'none' // 👈 核心修复：屏蔽 iOS Safari 原生的长按菜单弹窗
+      WebkitTouchCallout: 'none' // 屏蔽 iOS Safari 原生的长按菜单弹窗
     },
 
     onInput: (e) => {
@@ -396,7 +437,7 @@ export function renderEditPoint({ params, query }) {
       }
     }
   });
-  explainInput.innerHTML = form.explanation;
+  hydrateExplainImgs(form.explanation).then(h => { explainInput.innerHTML = h; });
 
   // ==================== 公式双击编辑拦截 ====================
   explainInput.addEventListener('dblclick', (e) => {
@@ -1740,7 +1781,7 @@ export function renderEditPoint({ params, query }) {
     eraseAll: `<svg viewBox="0 0 24 24" width="16" height="16" stroke="var(--danger)" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"></path><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><line x1="10" y1="11" x2="10" y2="17"></line><line x1="14" y1="11" x2="14" y2="17"></line></svg>`
   };
 
-    // ==================== 按钮生成器（带平板防误触长按提示） ====================
+  // ==================== 按钮生成器（带平板防误触长按提示） ====================
   const createToolBtn = (svg, title, onClick) => {
     let pressTimer = null;
     let tooltipEl = null;
@@ -1777,9 +1818,9 @@ export function renderEditPoint({ params, query }) {
 
       onPointerdown: (e) => {
         // 阻止焦点丢失
-        e.preventDefault(); 
+        e.preventDefault();
         isLongPressed = false; // 重置状态
-        
+
         // 400ms 后触发长按气泡
         pressTimer = setTimeout(() => {
           isLongPressed = true;
@@ -1807,20 +1848,20 @@ export function renderEditPoint({ params, query }) {
       onClick: (e) => {
         clearTimeout(pressTimer);
         hideTooltip();
-        
+
         // 如果是长按触发的，就不要执行功能了
         if (isLongPressed) {
           isLongPressed = false;
-          return; 
+          return;
         }
-        
+
         onClick(); // 执行真正的点击逻辑
       }
     });
 
     b.innerHTML = svg;
 
-    // 关键 CSS 强杀系统菜单
+    // CSS 强杀系统菜单
     b.style.webkitTouchCallout = 'none';
     b.style.userSelect = 'none';
 
@@ -3136,7 +3177,7 @@ export function renderEditPoint({ params, query }) {
         // 恢复数据
         form = { ...form, ...draft.data };
         contentInput.value = form.content;
-        explainInput.innerHTML = form.explanation;
+        hydrateExplainImgs(form.explanation).then(h => { explainInput.innerHTML = h; });
         difficultyBtns.forEach((b, idx) => {
           b.className = `btn btn-sm ${idx + 1 === form.difficulty ? 'btn-primary' : 'btn-ghost'}`;
         });
@@ -3155,12 +3196,10 @@ export function renderEditPoint({ params, query }) {
         if (explainInput) explainInput.innerHTML = form.explanation;
       }
 
-      // 1. 锁死标志位
+      // 弹窗已做出选择：只清掉本次草稿，绝不关闭后续自动保存
       isDraftResolved = true;
-
-      // 2.不管选了什么，立刻销毁草稿！
+      draftRejected = !restore;          // 点“放弃”才需要特殊处理
       clearDraft('point', entityId);
-      localStorage.removeItem(`kg_draft_point_${entityId}`);
 
     }, 300);
   }
@@ -3169,8 +3208,9 @@ export function renderEditPoint({ params, query }) {
   function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
   const queueSave = debounce(() => {
-    // 如果已经处理过弹窗（恢复了或者放弃了），就不准再自动存草稿了！
-    if (isDraftResolved) return;
+    // 用户明确“放弃草稿”且当前内容仍等于原始内容时，不回写空草稿；
+    // 一旦产生新改动，必须照常保存（旧版这里直接 return，导致后续所有编辑全部丢失）
+    if (draftRejected && !hasChanges(original, form)) return;
 
     saveDraft('point', entityId, form);
     setStatus('已保存草稿', 'saved');
@@ -3553,7 +3593,7 @@ export function renderEditPoint({ params, query }) {
     const applyState = (state) => {
       if (contentInput.tagName === 'TEXTAREA') contentInput.value = state.content; else contentInput.innerHTML = state.content;
       form.content = contentInput.value || contentInput.innerHTML;
-      explainInput.innerHTML = state.explanation; form.explanation = state.explanation;
+      hydrateExplainImgs(state.explanation).then(h => { explainInput.innerHTML = h; }); form.explanation = state.explanation;
       queueSave();
     };
     const doUndo = () => { if (historyIndex > 0) { historyIndex--; applyState(historyStack[historyIndex]); updateUndoRedoState(); } };
@@ -4165,7 +4205,7 @@ export function renderEditPoint({ params, query }) {
           }
 
           const tempDiv = document.createElement('div');
-          tempDiv.innerHTML = form.explanation || '';
+          tempDiv.innerHTML = await explainToSelfContained(form.explanation || '');
           const plainExplanation = tempDiv.textContent || tempDiv.innerText || '';
 
           // 创建一个隐藏的 DOM 作为渲染源
@@ -4346,36 +4386,24 @@ export function renderEditPoint({ params, query }) {
       return ` $${decodedLatex}$ `;
     });
 
-    // 将 <img> 标签里的 blob 链接转为 Base64，防止刷新后图片丢失
-    const imgRegex = /<img[^>]+src="([^"]+)"[^>]*>/g;
-    let match;
-    while ((match = imgRegex.exec(cleanExplanation)) !== null) {
-      const src = match[1];
-      // 如果已经是 base64 或者 http 链接，就跳过
-      if (!src.startsWith('blob:')) continue;
-
-      try {
-        // 从我们刚才存的 blob url 提取出 Blob
-        const blob = await fetch(src).then(r => r.blob());
-        // 转成 Base64
-        const base64 = await new Promise((resolve) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result);
-          reader.readAsDataURL(blob);
-        });
-        // 替换 HTML 中的 blob 链接
-        cleanExplanation = cleanExplanation.replace(src, base64);
-      } catch (e) {
-        console.warn('图片转 Base64 失败', e);
-      }
-    }
+    // 落库前剥掉所有临时 blob 预览链接，只保留 data-img-id 引用。
+    // 图片本体已在 IndexedDB(images)，读回时由 hydrateExplainImgs() 重新水合，
+    // 因此不再需要 base64 内嵌 —— 这是卡片体积膨胀、保存转圈、导出变慢的直接原因。
+    cleanExplanation = cleanExplanation.replace(
+      /<img[^>]*>/g,
+      tag => /\bdata-img-id=/.test(tag) ? tag.replace(/\s*src="blob:[^"]*"/g, '') : tag
+    );
 
     //提取纯背景色，存入独立字段（不再包裹 div 造成视觉套娃）
     const currentBg = explainInput.style.backgroundColor;
     const finalBg = (currentBg && currentBg !== 'var(--card)' && currentBg !== 'transparent' && currentBg !== 'rgba(0, 0, 0, 0)') ? currentBg : '';
-    
-        // 卡片重名检测
-    const currentFolderPoints = store.getPoints(currentTaskId);
+
+    // 卡片重名检测：严格限定在“同一归属范围”内比对。
+    // currentTaskId 为空（散落卡片）时绝不能调 getPoints(undefined)——
+    const allLive = store.getPoints();
+    const currentFolderPoints = currentTaskId
+      ? allLive.filter(p => p.taskId === currentTaskId || p.chapterId === currentTaskId)
+      : allLive.filter(p => !p.taskId && !p.chapterId);
     const isDuplicate = currentFolderPoints.some(p => {
       // 排除自己（如果是编辑旧卡片的话）
       if (!isNew && p.id === params.id) return false;
@@ -4437,7 +4465,7 @@ export function renderEditPoint({ params, query }) {
   }
 
   async function goBack() {
-    if (!isDraftResolved && hasChanges(original, form)) {
+    if (!draftRejected && hasChanges(original, form)) {
       saveDraft('point', entityId, form);
     }
 
@@ -4711,7 +4739,7 @@ export function renderEditPoint({ params, query }) {
             const raw = `[[${item.type}:${item.id}:${item.name}]]`;
             const newHtml = (explainInput.innerHTML || '') + `<br>关联：<span class="editor-link" data-link="${raw}" style="color: #5C6BC0; font-weight: 500; cursor: pointer;">${item.name}</span>&nbsp;`;
 
-            explainInput.innerHTML = newHtml;
+            hydrateExplainImgs(newHtml).then(h => { explainInput.innerHTML = h; });
             form.explanation = newHtml;
             store.updatePoint(point.id, { explanation: newHtml }); // 存进数据库
 

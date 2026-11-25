@@ -82,6 +82,22 @@ function showPagePicker(pdf, pointId) {
     const pages = el('div', { class: 'pdf-pages-grid' });
     const countLabel = el('span', { style: { fontSize: '13px', color: 'var(--text-2)' }, text: '已选 0 页' });
 
+    // 加载质量：value 即渲染 scale；100% = scale 2（与原行为一致）
+    const QUALITY = [
+        { scale: 2.0, label: '100%（原始，推荐打印/文字）', def: true },
+        { scale: 1.5, label: '75%（高质量，肉眼几乎无差）' },
+        { scale: 1.4, label: '1.4×（超清，比原始略小）' },
+        { scale: 1.3, label: '1.3×（接近原始，与阅读端默认一致）' },
+        { scale: 1.2, label: '1.2×（清晰）' },
+        { scale: 1.1, label: '1.1×（清晰，省内存）' },
+        { scale: 1.0, label: '50% / 1.0×（标准，屏幕预览够用）' },
+        { scale: 0.5, label: '25% / 0.5×（快速，大幅减小内存）' },
+    ];
+    const getScale = () => parseFloat(qualitySelect.value) || 2.0;
+
+    // 先用占位变量声明，下面在 select 里赋值（避免 const 提升导致的引用问题）
+    let qualitySelect;
+
     const mask = el('div', { class: 'confirm-mask' }, [
         el('div', { class: 'confirm-box', style: { maxWidth: '720px', maxHeight: '90vh', overflow: 'auto' } }, [
             el('h3', { text: `选择页面（共 ${pdf.numPages} 页）` }),
@@ -103,6 +119,15 @@ function showPagePicker(pdf, pointId) {
                     },
                 }),
                 countLabel,
+                // ↓ 加载质量下拉
+                el('label', { style: { marginLeft: 'auto', fontSize: '13px', color: 'var(--text-2)', display: 'flex', alignItems: 'center', gap: '6px' } }, [
+                    el('span', { text: '加载质量：' }),
+                    qualitySelect = el('select', {
+                        style: { padding: '4px 8px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text-1)', fontSize: '13px' },
+                    }, QUALITY.map(q =>
+                        el('option', { value: String(q.scale), text: q.label, selected: !!q.def })
+                    )),
+                ]),
             ]),
             pages,
             el('div', { class: 'confirm-actions', style: { marginTop: '12px' } }, [
@@ -112,13 +137,14 @@ function showPagePicker(pdf, pointId) {
                     onClick: async () => {
                         if (selected.size === 0) { alert('请至少选择一页'); return; }
                         const pageNums = [...selected].sort((a, b) => a - b);
+                        const scale = getScale();           // ← 取用户选定的质量
                         mask.remove();
 
                         let successCount = 0;
                         for (const n of pageNums) {
                             try {
                                 const page = await pdf.getPage(n);
-                                await renderPageToImage(page, n, pointId);
+                                await renderPageToImage(page, n, pointId, scale);  // ← 传入 scale
                                 successCount++;
                             } catch (err) {
                                 console.error(`第 ${n} 页导入失败`, err);
@@ -143,7 +169,7 @@ function showPagePicker(pdf, pointId) {
         for (let i = 1; i <= maxPreview; i++) {
             try {
                 const page = await pdf.getPage(i);
-                const vp = page.getViewport({ scale: 0.4 });
+                const vp = page.getViewport({ scale: 0.4 });   // 缩略图固定，不影响存储清晰度
                 const c = document.createElement('canvas');
                 c.width = vp.width; c.height = vp.height;
                 await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
@@ -166,17 +192,17 @@ function showPagePicker(pdf, pointId) {
     })();
 }
 
-async function renderPageToImage(page, pageNum, pointId) {
-    const vp = page.getViewport({ scale: 2 });
+async function renderPageToImage(page, pageNum, pointId, scale = 2) {
+    const vp = page.getViewport({ scale });                    // ← 用传入的 scale
     const c = document.createElement('canvas');
-    c.width = vp.width; c.height = vp.height;
+    c.width = Math.floor(vp.width); c.height = Math.floor(vp.height);
     await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
     const blob = await new Promise(r => c.toBlob(r, 'image/png'));
     const imageId = uuid();
     await putImageCached({
         id: imageId, type: 'original',
         originalBlob: blob, annotatedBlob: blob,
-        width: c.width, height: c.height, dpr: 2,
+        width: c.width, height: c.height, dpr: scale,          // ← dpr 跟随 scale
         createdAt: new Date().toISOString(),
     });
     store.addImageToPoint(pointId, imageId);

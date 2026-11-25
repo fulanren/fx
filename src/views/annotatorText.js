@@ -502,7 +502,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
               e.preventDefault();
               e.stopPropagation();
               items.forEach(it => selected.add(it.id));
-              // 核心绝杀：绕过数据渲染，直接暴力勾选所有 DOM 复选框
+              // 绕过数据渲染，直接暴力勾选所有 DOM 复选框
               list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = true);
               renderList();
             }
@@ -515,7 +515,7 @@ export function createTextLayer({ canvas, width, height, imageId, store }) {
               e.preventDefault();
               e.stopPropagation();
               selected.clear();
-              // 核心绝杀：绕过数据渲染，直接暴力取消勾选所有 DOM 复选框
+              // 绕过数据渲染，直接暴力取消勾选所有 DOM 复选框
               list.querySelectorAll('.text-list-checkbox').forEach(cb => cb.checked = false);
               renderList();
             }

@@ -11,24 +11,30 @@ export function globalImportDocModal() {
   if (isImporting) return toastError('正在导入中，请稍候...');
 
   const mask = el('div', { class: 'confirm-mask' }, [
-    el('div', { class: 'confirm-box', style: { maxWidth: '420px' } }, [
-      el('h3', { text: '📄 文档导入' }),
+    el('div', { class: 'confirm-box', style: { maxWidth: '440px' } }, [
+      el('h3', { text: '📄 文档导入 / 批量解析' }),
       el('p', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '请选择导入模式：' }),
+
       el('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } }, [
+        // 直接批量解析
         el('button', {
-          class: 'btn btn-primary', text: '📑 智能解析大纲（自动生成结构）',
+          class: 'btn btn-primary', text: '⁂ 一键批量解析文本 (从 Excel/Word 复制)',
+          onClick: () => {
+            mask.remove();
+            openDirectBatchParser();
+          }
+        }),
+
+        el('button', {
+          class: 'btn btn-ghost', text: '📑 智能解析大纲（导入文件）',
           onClick: () => {
             mask.remove();
             uploadFile(true);
           }
         }),
-        el('div', {
-          style: { fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.6', background: 'var(--bg)', padding: '8px', borderRadius: '6px' },
-          text: '格式要求：\n用 "## 章节：" 代表章节，\n用 "### 知识点：" 代表卡片内容，\n用 "解释：" 代表卡片解析。\n（兼容原版 # 和 ## 格式）'
-        }),
 
         el('button', {
-          class: 'btn btn-ghost', text: '📄 全部作为纯知识点（导入现有章节）',
+          class: 'btn btn-ghost', text: '📄 全部作为纯知识点（导入文件到现有章节）',
           onClick: () => {
             mask.remove();
             chooseTargetChapter(false, (chapterId) => uploadFile(false, chapterId));
@@ -508,4 +514,192 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
     ])
   ]);
   document.body.appendChild(mask);
+}
+
+// ============ 一键批量解析粘贴文本 ============
+function openDirectBatchParser() {
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
+
+  // 状态变量
+  let targetTaskId = ''; // 选中的目标文件夹 ID
+  let newFolderName = ''; // 新建文件夹的名字
+  let newFolderParentTaskId = ''; // 新建文件夹的父级 ID
+
+  const tasks = store.getTasks();
+
+  // 1. 下拉框
+  const taskSelect = el('select', {
+    style: { width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '12px', fontSize: '14px', background: 'var(--bg)' }
+  });
+
+  // 2. 新建文件夹区域（初始隐藏）
+  const newFolderArea = el('div', { style: { display: 'none', background: 'rgba(142,202,230,0.08)', padding: '12px', borderRadius: '8px', marginBottom: '12px', border: '1px dashed rgba(142,202,230,0.5)' } }, [
+    el('div', { style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '8px', color: 'var(--primary-dark)' }, text: '➕ 新建文件夹设置' }),
+    el('input', {
+      type: 'text', placeholder: '请输入新文件夹名称...',
+      style: { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', outline: 'none', marginBottom: '8px' },
+      onInput: (e) => { newFolderName = e.target.value; }
+    }),
+    el('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--card)', padding: '8px 12px', borderRadius: '6px', border: '1px solid rgba(0,0,0,0.05)' } }, [
+      el('span', { id: 'parent-folder-display', style: { fontSize: '12px', color: 'var(--text-2)' }, text: '父级位置：🌍 根目录' }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '选择目录',
+        onClick: () => {
+          // 弹出小窗选父级
+          const pMask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
+          const pList = el('div', { style: { maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
+
+          pList.appendChild(el('div', {
+            style: { fontWeight: '600', fontSize: '13px', padding: '10px 12px', background: 'rgba(142,202,230,.15)', borderRadius: '6px', cursor: 'pointer', color: 'var(--primary-dark)', border: '1px solid var(--primary)' },
+            text: `🌍 根目录（不放在现有文件夹内）`,
+            onClick: () => { newFolderParentTaskId = ''; document.getElementById('parent-folder-display').textContent = '父级位置：🌍 根目录'; pMask.remove(); }
+          }));
+
+          tasks.forEach(t => {
+            pList.appendChild(el('div', {
+              style: { fontWeight: '600', fontSize: '13px', padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', marginTop: '4px' },
+              text: `📁 ${t.name}`,
+              onClick: () => { newFolderParentTaskId = t.id; document.getElementById('parent-folder-display').textContent = `父级位置：${t.name}`; pMask.remove(); }
+            }));
+          });
+
+          const pBox = el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
+            el('h3', { text: '选择父级目录' }), pList,
+            el('div', { class: 'confirm-actions' }, [el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => pMask.remove() })])
+          ]);
+          pMask.appendChild(pBox); document.body.appendChild(pMask);
+        }
+      })
+    ])
+  ]);
+
+  // 渲染下拉框选项
+  const renderOptions = () => {
+    taskSelect.innerHTML = '';
+    taskSelect.appendChild(el('option', { value: '', text: '-- 存入散落卡片（不选文件夹） --' }));
+
+    // 扁平化渲染所有文件夹，带上层级缩进
+    const buildOptions = (parentId, depth) => {
+      tasks.filter(t => (t.parentId || null) === parentId).forEach(t => {
+        const prefix = '　'.repeat(depth);
+        taskSelect.appendChild(el('option', { value: t.id, text: `${prefix}📁 ${t.name}` }));
+        buildOptions(t.id, depth + 1);
+      });
+    };
+    buildOptions(null, 0);
+
+    // 加一个新建选项
+    taskSelect.appendChild(el('option', { value: '__NEW__', text: '➕ 新建文件夹并导入...', style: { fontWeight: 'bold', color: 'var(--primary-dark)' } }));
+  };
+
+  renderOptions();
+
+  // 监听下拉框切换
+  taskSelect.onchange = (e) => {
+    const val = e.target.value;
+    if (val === '__NEW__') {
+      newFolderArea.style.display = 'block';
+      targetTaskId = '';
+    } else {
+      newFolderArea.style.display = 'none';
+      targetTaskId = val;
+    }
+  };
+
+  // 粘贴框
+  const textarea = el('textarea', {
+    placeholder: '支持多行批量导入！\n格式 1：词语 --- 解释\n格式 2：词语 | 解释\n格式 3：词语 制表符(Tab) 解释（直接从 Excel 复制默认就是这个）\n\n如果没有分隔符，将自动按每行生成一张纯内容卡片。',
+    style: { width: '100%', minHeight: '200px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '12px', outline: 'none', resize: 'vertical', fontFamily: 'inherit', lineHeight: '1.5', fontSize: '13px' }
+  });
+
+  const box = el('div', { class: 'confirm-box', style: { maxWidth: '650px', width: '90vw' } }, [
+    el('h3', { text: '🚀 批量解析并生成卡片' }),
+    el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '8px' }, text: '提示：你可以直接从 Excel 里复制“词语”和“解释”两列，粘贴进来。' }),
+
+    el('div', { style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '4px' }, text: '📁 选择导入到哪个文件夹：' }),
+    taskSelect,
+    newFolderArea, // 👈 新建文件夹的 UI
+
+    el('div', { style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '4px' }, text: '📝 粘贴解析内容：' }),
+    textarea,
+
+    el('div', { class: 'confirm-actions' }, [
+      el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+      el('button', {
+        class: 'btn btn-primary', text: '🚀 立即解析并导入',
+        onClick: () => {
+          const val = textarea.value.trim();
+          if (!val) return toastError('内容为空');
+
+          let finalTaskId = targetTaskId;
+          let chapterId = '';
+
+          // 处理新建文件夹逻辑
+          if (taskSelect.value === '__NEW__') {
+            if (!newFolderName.trim()) return toastError('请输入新文件夹名称');
+            const newTask = store.createTask({
+              name: newFolderName.trim(),
+              parentId: newFolderParentTaskId || null
+            });
+            finalTaskId = newTask.id;
+
+            // 自动创建一个隐藏的占位章节
+            const newChap = store.createChapter({ taskId: finalTaskId, name: newFolderName.trim() });
+            chapterId = newChap.id;
+          }
+          // 处理选择已有文件夹逻辑
+          else if (finalTaskId) {
+            let chapters = store.getChapters(finalTaskId);
+            if (chapters.length > 0) {
+              chapterId = chapters[0].id;
+            } else {
+              const newChap = store.createChapter({ name: '批量导入', taskId: finalTaskId });
+              chapterId = newChap.id;
+            }
+          }
+
+          // 按行分割
+          const lines = val.split('\n').filter(l => l.trim() !== '');
+          let count = 0;
+
+          lines.forEach(line => {
+            // 支持：竖线、Tab、多空格、破折号 作为分隔符
+            const match = line.split(/\s*(?:\||\t| {3,}|--|——)\s*/);
+            const content = match[0] ? match[0].trim() : '';
+            const explanation = match[1] ? match[1].trim() : '';
+
+            if (content) {
+              store.createPoint({
+                chapterId: chapterId || null,
+                content: content,
+                explanation: explanation
+              });
+              count++;
+            }
+          });
+
+          mask.remove();
+          toastSuccess(`成功解析并导入了 ${count} 张卡片！`);
+
+          if (finalTaskId) {
+            if (location.hash !== `#/folder/${finalTaskId}`) {
+              window.location.hash = `#/folder/${finalTaskId}`;
+            } else {
+              window.location.reload();
+            }
+          } else {
+            if (location.hash === '#/' || location.hash === '') {
+              window.location.reload();
+            } else {
+              window.location.hash = '#/';
+            }
+          }
+        }
+      })
+    ])
+  ]);
+
+  mask.appendChild(box);
+  document.body.appendChild(mask);
+  setTimeout(() => textarea.focus(), 100);
 }

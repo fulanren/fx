@@ -701,7 +701,7 @@ export function createPaperLayer({ canvas, width, height, imageId, store, textCa
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = 'image/*';
-    input.multiple = true;   // 关键：允许多选
+    input.multiple = true;   // 允许多选
     input.onchange = async () => {
       const files = Array.from(input.files || []);
       if (files.length === 0) return;

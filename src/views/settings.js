@@ -219,8 +219,20 @@ export function renderSettings() {
       el('div', { style: { fontSize: '13px', color: 'var(--text-2)', marginBottom: '12px' }, text: '勾选需要的按钮，保存后生效。' }),
 
       (() => {
-        let prefs = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
-        if (prefs.length === 0) prefs = ['theme', 'quickNote', 'review', 'search', 'export'];
+        //  统一使用数组格式
+        let prefs = [];
+        try {
+          const saved = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
+          // 如果之前存的是对象，强行转成数组
+          if (Array.isArray(saved)) {
+            prefs = saved;
+          } else if (typeof saved === 'object' && saved !== null) {
+            prefs = Object.keys(saved).filter(k => saved[k] === true);
+          }
+        } catch (e) { prefs = []; }
+
+        // 如果没有任何配置，给默认值
+        if (prefs.length === 0) prefs = ['home', 'resources', 'trash', 'help', 'settings'];
 
         const checkboxes = [
           { id: 'theme', label: '🌙 切换主题' },
@@ -231,7 +243,7 @@ export function renderSettings() {
           { id: 'import', label: '📥 导入数据' },
           { id: 'template', label: '📑 资料模板' },
           { id: 'importDoc', label: '📄 文档导入' },
-          { id: 'home', label: '📚 背诵首页' },
+          { id: 'home', label: '🏠 背诵首页' },
           { id: 'resources', label: '📁 资源总览' },
           { id: 'inbox', label: '📥 速记收件箱' },
           { id: 'countdown', label: '⏰ 考试倒计时' },
@@ -246,57 +258,14 @@ export function renderSettings() {
         checkboxes.forEach(tool => {
           const isChecked = prefs.includes(tool.id);
 
-          // 用纯 DOM 方式创建，避开 el 函数
           const label = document.createElement('label');
           label.style.cssText = 'display: flex; align-items: center; gap: 10px; font-size: 14px; cursor: pointer; user-select: none; margin: 0; padding: 0;';
-
-          const cb = document.createElement('input');
-          cb.type = 'checkbox';
-          cb.className = 'topbar-pref-cb';
-          cb.value = tool.id;
-          cb.checked = isChecked;
-          cb.style.cssText = 'width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer; margin: 0; padding: 0;';
-
-          const span = document.createElement('span');
-          span.textContent = tool.label;
-          span.style.pointerEvents = 'none'; // 关键：让点击穿透文字，直接打在 checkbox 上
-
-          label.appendChild(cb);
-          label.appendChild(span);
-
-          // 点击 Label 时，强行触发 checkbox 的状态改变
-          label.addEventListener('click', (e) => {
-            // 如果点的是 checkbox 本身，交给原生处理；
-            // 如果点的是文字，我们手动控制，防止被全局事件拦截
-            if (e.target !== cb) {
-              e.preventDefault();
-              cb.checked = !cb.checked;
-              // 手动同步数据
-              let current = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
-              if (cb.checked) {
-                if (!current.includes(tool.id)) current.push(tool.id);
-              } else {
-                current = current.filter(id => id !== tool.id);
-              }
-              localStorage.setItem('kg_topbar_prefs', JSON.stringify(current));
-            }
-          });
-
-          // 直接给 checkbox 绑定 input 事件，绕过 change
-          cb.addEventListener('input', (e) => {
-            let current = JSON.parse(localStorage.getItem('kg_topbar_prefs') || '[]');
-            if (e.target.checked) {
-              if (!current.includes(tool.id)) current.push(tool.id);
-            } else {
-              current = current.filter(id => id !== tool.id);
-            }
-            localStorage.setItem('kg_topbar_prefs', JSON.stringify(current));
-          });
+          label.innerHTML = `<input type="checkbox" class="topbar-pref-cb" value="${tool.id}" ${isChecked ? 'checked' : ''} style="width: 20px; height: 20px; accent-color: var(--primary); cursor: pointer; margin: 0; padding: 0;"> <span style="pointer-events: none;">${tool.label}</span>`;
 
           list.appendChild(label);
         });
 
-        // 全选/全不选按钮组
+        // 全选/全不选
         const selectAllRow = document.createElement('div');
         selectAllRow.style.cssText = 'display: flex; gap: 8px; margin-top: 8px;';
 
@@ -305,8 +274,6 @@ export function renderSettings() {
         btnAll.textContent = '全选';
         btnAll.onclick = (e) => {
           e.preventDefault();
-          const allIds = checkboxes.map(t => t.id);
-          localStorage.setItem('kg_topbar_prefs', JSON.stringify(allIds));
           list.querySelectorAll('input').forEach(inp => inp.checked = true);
         };
 
@@ -315,19 +282,24 @@ export function renderSettings() {
         btnNone.textContent = '全不选';
         btnNone.onclick = (e) => {
           e.preventDefault();
-          localStorage.setItem('kg_topbar_prefs', JSON.stringify([]));
           list.querySelectorAll('input').forEach(inp => inp.checked = false);
         };
-
         selectAllRow.appendChild(btnAll);
         selectAllRow.appendChild(btnNone);
 
-        // 保存按钮，绝对靠左对齐
+        // 保存按钮
         const saveBtn = document.createElement('button');
         saveBtn.className = 'btn btn-primary btn-sm';
         saveBtn.textContent = '💾 保存并应用';
         saveBtn.style.cssText = 'margin-top: 16px; padding: 6px 16px; font-size: 14px; width: auto;';
         saveBtn.onclick = () => {
+          //  读取勾选状态，严格保存为数组格式
+          const checkedIds = [];
+          list.querySelectorAll('input[type="checkbox"]').forEach(inp => {
+            if (inp.checked) checkedIds.push(inp.value);
+          });
+          localStorage.setItem('kg_topbar_prefs', JSON.stringify(checkedIds));
+
           toastSuccess('已保存，正在刷新...');
           setTimeout(() => location.reload(), 500);
         };
@@ -337,7 +309,6 @@ export function renderSettings() {
         wrapper.appendChild(list);
         wrapper.appendChild(selectAllRow);
         wrapper.appendChild(saveBtn);
-
         return wrapper;
       })()
     ])
@@ -427,7 +398,6 @@ export function renderSettings() {
       ])
     ])
   ]));
-  // ================= ☝️ 云同步面板结束 =================
 }
 
 // ============ WebDAV 同步核心逻辑（安全加强版） ============
@@ -446,7 +416,7 @@ async function syncWebDAV(action) {
   if (action === 'upload') {
     toastSuccess('正在打包并上传云端...');
     try {
-      //核心防护 1：在上传前，先在本地备份一份当前的状态
+      //在上传前，先在本地备份一份当前的状态
       const currentBackup = {
         kg_tasks: localStorage.getItem('kg_tasks') || '[]',
         kg_chapters: localStorage.getItem('kg_chapters') || '[]',
@@ -489,7 +459,7 @@ async function syncWebDAV(action) {
   else if (action === 'download') {
     toastSuccess('正在获取云端信息...');
     try {
-      //核心防护 2：先查再覆盖
+      //先查再覆盖
       const res = await fetch(fileUrl, {
         method: 'GET',
         headers: { 'Authorization': auth }
@@ -1217,7 +1187,6 @@ async function doExport(exportType, keysToExport, targetTaskIds, targetChapterId
 
       //因为纯前端直接生成中文 PDF 必乱码，ZIP 里只放排版完美的 HTML。
       // 提示用户：想要 PDF 直接打开这个 HTML 按 Ctrl+P 存为 PDF 即可。
-      console.log('ZIP 中已包含排版完美的复习打印版 HTML');
     }
 
     const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
@@ -1230,7 +1199,6 @@ async function doExport(exportType, keysToExport, targetTaskIds, targetChapterId
   }
 }
 
-// ============ 抽离的公共函数：生成打印版 HTML ============
 // ============ 抽离的公共函数：生成打印版 HTML ============
 async function buildPrintHTML(exportTasks, exportChapters, exportPoints, fileNamePrefix) {
   let htmlContent = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${fileNamePrefix} - 打印版</title><style>

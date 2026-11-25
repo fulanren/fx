@@ -100,6 +100,7 @@ function showExportMenu(scope, id) {
 // ============ 文件夹详情（子文件夹 + 卡片 + 全功能批量） ============
 let ptMulti = false;
 const ptSelected = new Set();
+let globalUndoStack = []; // 👈 多步撤销历史记录
 
 export function renderFolderDetail({ params, query }) {
   // 把当前页面的刷新能力暴露给全局
@@ -151,7 +152,61 @@ export function renderFolderDetail({ params, query }) {
       el('button', { class: 'btn btn-sm btn-ghost', text: '取消', onClick: () => { ptMulti = false; ptSelected.clear(); renderFolderDetail({ params, query }); } }),
     ]));
 
-    view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap' } }, [
+
+
+    view.appendChild(el('div', { class: 'batch-bar-actions', style: { flexWrap: 'wrap', alignItems: 'center' } }, [
+
+      // 👈 带展收的撤销按钮
+      el('div', { style: { display: 'flex', alignItems: 'center' } }, [
+        // 撤销主按钮（如果有记录才显示，否则只显示收起箭头）
+        globalUndoStack.length > 0 ? el('button', {
+          class: 'btn btn-sm btn-danger',
+          style: { borderTopRightRadius: '0', borderBottomRightRadius: '0', padding: '4px 10px' },
+          title: '撤销上一步排版',
+          onClick: () => {
+            const lastSnapshot = globalUndoStack.pop();
+            lastSnapshot.forEach(item => {
+              store.updatePoint(item.id, { content: item.oldContent, order: item.oldOrder });
+            });
+            toastSuccess('已撤销一步');
+            if (typeof window.renderFolderGlobal === 'function') window.renderFolderGlobal();
+          }
+        }, [
+          el('span', { text: `↩️ 撤销序号 (${globalUndoStack.length})` })
+        ]) : null,
+
+        // 收起/展开按钮
+        el('button', {
+          class: 'btn btn-sm btn-danger',
+          style: {
+            borderTopLeftRadius: globalUndoStack.length > 0 ? '0' : '4px',
+            borderBottomLeftRadius: globalUndoStack.length > 0 ? '0' : '4px',
+            borderLeft: globalUndoStack.length > 0 ? '1px solid rgba(255,255,255,0.2)' : 'none',
+            padding: '4px 8px'
+          },
+          title: '收起/展开撤销',
+          onClick: (e) => {
+            const btn = e.target.closest('button').previousElementSibling;
+            if (btn) {
+              if (btn.style.display === 'none') {
+                btn.style.display = 'block';
+                e.target.textContent = '◀'; // 展开状态
+              } else {
+                btn.style.display = 'none';
+                e.target.textContent = '▶'; // 收起状态
+              }
+            }
+          }
+        }, [
+          el('span', { text: '◀' })
+        ])
+      ]),
+
+      //  下面是原有的排序按钮
+      el('button', {
+        class: 'btn btn-sm btn-primary', text: '🔢 排序',
+        onClick: () => openSortManager()
+      }),
       el('button', {
         class: 'btn btn-sm btn-primary', text: '合并选中',
         onClick: async () => {
@@ -1499,7 +1554,7 @@ function startReviewMode(points, chapterId) {
       isExpanded = false;
       renderCard();
     } else {
-      // 👈 核心修复：复习到最后一张时，询问是否循环
+      // 复习到最后一张时，询问是否循环
       if (confirm('太棒了，该文件夹已复习完毕！\n点击“确定”从头循环复习，点击“取消”退出。')) {
         currentIndex = 0;
         isExpanded = false;
@@ -1508,7 +1563,7 @@ function startReviewMode(points, chapterId) {
         mask.remove(); // 沉浸式退出
         window.onkeydown = null;
         document.body.style.overflow = '';
-        // 👈 核心修复：改为调用新的文件夹渲染函数
+        // 改为调用新的文件夹渲染函数
         if (typeof renderFolderDetail === 'function') {
           renderFolderDetail({ params: { taskId: chapterId } });
         } else {
@@ -1619,6 +1674,81 @@ function startFocusListMode(points, chapterId) {
   // 2. 创建底部悬浮条
   let isBarExpanded = false; // 👈 控制是否展开
 
+  // 轻黄高亮：只用边框 + 光晕，背景保持原样
+  const HL_BORDER = '#FFD54F';                        // 选中卡片描边（琥珀黄）
+  const HL_SHADOW = '0 0 0 3px rgba(255,213,79,.35)'; // 选中卡片外圈光晕
+  const CARD_DEFAULT_BORDER = '1px solid rgba(0,0,0,.05)';      // 未选中卡片的默认边框
+
+  // 覆盖 highlightCard() 设的天蓝 inline 样式
+  const paintCurrentCard = () => {
+    cardElements.forEach((c, i) => {
+      if (i === currentIndex) {
+        c.style.border = '2px solid ' + HL_BORDER;
+        c.style.boxShadow = HL_SHADOW;
+        c.style.background = '';   // 清空 inline 背景，回落到 CSS 默认白底
+      } else {
+        c.style.border = CARD_DEFAULT_BORDER;
+        c.style.background = '';
+        c.style.boxShadow = 'none';
+      }
+    });
+  };
+
+  // ===== 文件夹详情页：把 var(--primary) 蓝框改成黄框 =====
+  (function fixFolderBlueBorder() {
+    'use strict';
+
+    const HL_BORDER = '#FFD54F';
+    const HL_SHADOW = '0 0 0 3px rgba(255,213,79,.35)';
+
+    let busy = false;
+
+    function fix() {
+      if (busy) return;
+      busy = true;
+
+      document.querySelectorAll('.card.point-card-content').forEach(el => {
+        const st = el.getAttribute('style') || '';
+        // 检测到 inline 里有 var(--primary) 蓝框
+        if (/border:\s*2px solid var\(--primary\)/.test(st)) {
+          el.style.border = '2px solid ' + HL_BORDER;
+          el.style.boxShadow = HL_SHADOW;
+          el.style.background = '';  // 保持白底
+        }
+      });
+
+      // 隐藏 4px 天蓝色条
+      document.querySelectorAll('#point-list div[style*="height: 4px"]').forEach(bar => {
+        bar.style.display = 'none';
+      });
+
+      busy = false;
+    }
+
+    fix();
+    new MutationObserver(fix).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ['style']
+    });
+  })();
+
+  // 用法：调用它切卡，不会再出现塌一下的现象。
+  const gotoCard = (idx) => {
+    if (idx < 0 || idx >= points.length) return;
+    const keepExpanded = isExpanded;   // ← 记住切换前是不是展开状态
+    currentIndex = idx;
+    highlightCard();                   // 正常走原来的高亮/渲染
+    if (keepExpanded) {                // 若被 highlightCard 内部重置成收起
+      isExpanded = true;
+      highlightCard();                 // 强制展开回去（幂等，重复调用不会反向折叠）
+    }
+    paintCurrentCard();                // 上色：当前轻黄，其余复原
+    const target = cardElements[currentIndex];
+    if (target) target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   const renderFocusTouchBar = () => {
     const oldBar = document.getElementById('review-touch-bar');
     if (oldBar) oldBar.remove();
@@ -1627,7 +1757,19 @@ function startFocusListMode(points, chapterId) {
       id: 'review-touch-bar',
       style: { position: 'fixed', bottom: '20px', left: '50%', transform: 'translateX(-50%)', background: 'rgba(43, 45, 66, 0.95)', backdropFilter: 'blur(10px)', padding: '6px 12px', borderRadius: '30px', display: 'flex', gap: '8px', zIndex: 100000, boxShadow: '0 4px 12px rgba(0,0,0,0.3)', alignItems: 'center', flexWrap: 'wrap', justifyContent: 'center' }
     }, [
-      el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出', onClick: () => { cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)'); touchBar.remove(); window.onkeydown = null; } }),
+      // 退出：把黄底一起清干净（原来只清了 border，退出后卡片会残留黄底）
+      el('button', {
+        class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '✕ 退出',
+        onClick: () => {
+          cardElements.forEach(c => {
+            c.style.border = CARD_DEFAULT_BORDER;
+            c.style.background = '';
+            c.style.boxShadow = 'none';
+          });
+          touchBar.remove();
+          window.onkeydown = null;
+        }
+      }),
 
       // 跳转输入框
       el('input', {
@@ -1637,9 +1779,8 @@ function startFocusListMode(points, chapterId) {
           if (e.key === 'Enter') {
             const val = parseInt(e.target.value);
             if (val >= 1 && val <= points.length) {
-              currentIndex = val - 1;
               isExpanded = false;
-              highlightCard();
+              gotoCard(val - 1);        // ← 原来是 highlightCard()，换成 gotoCard
               e.target.value = '';
               e.target.blur();
             } else { toastError('超出范围'); }
@@ -1647,20 +1788,54 @@ function startFocusListMode(points, chapterId) {
         }
       }),
 
-      // 翻转
-      el('button', { class: 'btn btn-sm btn-primary', style: { padding: '4px 16px' }, text: '翻转', onClick: () => { isExpanded = !isExpanded; highlightCard(); } }),
+      // 翻转：保持原行为，只补一次上色
+      el('button', {
+        class: 'btn btn-sm btn-primary', style: { padding: '4px 16px' }, text: '翻转',
+        onClick: () => { isExpanded = !isExpanded; highlightCard(); paintCurrentCard(); }
+      }),
 
-      // 展开/收起按钮
-      el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '14px', padding: '4px 8px', fontWeight: 'bold' }, text: isBarExpanded ? '收起' : '展开', onClick: () => { isBarExpanded = !isBarExpanded; renderFocusTouchBar(); } }),
+      // 展开/收起（这一对是「工具栏自身」的展开收起，与卡片无关，保持不动）
+      el('button', {
+        class: 'btn btn-sm btn-ghost', style: { color: '#fff', fontSize: '14px', padding: '4px 8px', fontWeight: 'bold' },
+        text: isBarExpanded ? '收起' : '展开',
+        onClick: () => { isBarExpanded = !isBarExpanded; renderFocusTouchBar(); }
+      }),
 
       // 展开后的按钮组
       ...(isBarExpanded ? [
         el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
-        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬆️', title: '上一个', onClick: () => { if (currentIndex > 0) { currentIndex--; highlightCard(); } } }),
-        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬇️', title: '下一个', onClick: () => { if (currentIndex < points.length - 1) { currentIndex++; highlightCard(); } } }),
-        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '🖼', title: '图片', onClick: () => { const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('当前无图片'); } }),
-        el('button', { class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '📄', title: 'PDF', onClick: () => { const p = points[currentIndex]; const realPoint = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p; const pdfId = findPdfId(realPoint); if (pdfId) { window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`; touchBar.remove(); window.onkeydown = null; } else toastSuccess('当前无 PDF'); } }),
+
+        // ⬆️ 上一个只切卡，不收起
+        el('button', {
+          class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬆️', title: '上一个',
+          onClick: () => { gotoCard(currentIndex - 1); }
+        }),
+
+        // ⬇️ 下一个 只切卡，不收起
+        el('button', {
+          class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '⬇️', title: '下一个',
+          onClick: () => { gotoCard(currentIndex + 1); }
+        }),
+
+        el('button', {
+          class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '🖼', title: '图片',
+          onClick: () => { const p = points[currentIndex]; if (p.imageIds?.length) openQuickImages(p.imageIds); else toastSuccess('当前无图片'); }
+        }),
+
+        el('button', {
+          class: 'btn btn-sm btn-ghost', style: { color: '#fff' }, text: '📄', title: 'PDF',
+          onClick: () => {
+            const p = points[currentIndex];
+            const realPoint = JSON.parse(localStorage.getItem('kg_points') || '[]').find(x => x.id === p.id) || p;
+            const pdfId = findPdfId(realPoint);
+            if (pdfId) { window.location.hash = `#/pdf-viewer/${pdfId}?pointId=${p.id}`; touchBar.remove(); window.onkeydown = null; }
+            else toastSuccess('当前无 PDF');
+          }
+        }),
+
         el('div', { style: { width: '1px', height: '16px', background: 'rgba(255,255,255,0.2)' } }),
+
+        // 打分按钮：逻辑不变，评完分若你希望「不收起」，见下方附注 A
         el('button', { class: 'btn btn-sm btn-danger', text: '1.忘了', onClick: () => rateCurrent('forgot') }),
         el('button', { class: 'btn btn-sm btn-warning', text: '2.模糊', onClick: () => rateCurrent('vague') }),
         el('button', { class: 'btn btn-sm btn-success', text: '3.记得', onClick: () => rateCurrent('remember') })
@@ -1668,9 +1843,11 @@ function startFocusListMode(points, chapterId) {
     ]);
 
     document.body.appendChild(touchBar);
+    paintCurrentCard();   // 工具栏每次重绘后，把当前卡的颜色补上
   };
 
   renderFocusTouchBar(); // 初始化
+  paintCurrentCard();
 
   // 3. 高亮并滚动到当前卡片
   function highlightCard() {
@@ -1702,12 +1879,6 @@ function startFocusListMode(points, chapterId) {
     store.ratePoint(p.id, rating);
     if (rating === 'forgot') {
       store.incrementErrorCount(p.id);
-
-      // 错题本联动
-      if (!p.explanation || !p.explanation.includes('🚨 易错点')) {
-        const newHtml = (p.explanation || '') + `<br><blockquote style="border-left: 4px solid #FFB5A7; margin: 8px 0; padding: 4px 12px; color: #EF476F; background: rgba(255,181,167,0.1); border-radius: 0 4px 4px 0;"><strong>🚨 易错点总结：</strong><br>请在编辑页补充这道题的错因...</blockquote>`;
-        store.updatePoint(p.id, { explanation: newHtml });
-      }
     }
     toastSuccess('已记录');
 
@@ -1716,7 +1887,7 @@ function startFocusListMode(points, chapterId) {
       isExpanded = false;
       highlightCard();
     } else {
-      // 👈 核心修复：最后一张也支持循环
+      // 最后一张也支持循环
       if (confirm('复习完毕！\n点击“确定”从头循环，点击“取消”退出。')) {
         currentIndex = 0;
         isExpanded = false;
@@ -1725,7 +1896,7 @@ function startFocusListMode(points, chapterId) {
         cardElements.forEach(el => el.style.border = '1px solid rgba(0,0,0,.05)');
         touchBar.remove();
         window.onkeydown = null;
-        // 👈 核心修复：改为调用新的文件夹渲染函数
+        // 改为调用新的文件夹渲染函数
         if (typeof renderFolderDetail === 'function') {
           renderFolderDetail({ params: { taskId: chapterId } });
         } else {
@@ -1858,7 +2029,7 @@ function findPdfId(point) {
   return null;
 }
 
-// 👈 核心修复：在 chapter.js 里手写一个折叠函数，不再依赖外部
+//在 chapter.js 里手写一个折叠函数，不再依赖外部
 function handleFolderToggle(taskId) {
   // 1. 从 localStorage 读取当前的折叠状态
   let collapsed = [];
@@ -1919,7 +2090,6 @@ export function taskCard(task, currentFolderId, depth = 0) {
       border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.05)'
     },
     onClick: (e) => {
-      console.log("=== 文件夹被点击了 ===", task.id); // 👈 这里加个日志看有没有触发
 
       if (e.target.closest('.toggle-btn') || e.target.closest('.card-actions') || e.target.closest('input')) return;
 
@@ -2142,7 +2312,7 @@ function showStatusTagManager(task) {
     { c: '#000000', s: false }, { c: '#000080', s: false }, { c: 'transparent', s: false }
   ];
 
-  // 👈 核心修复：先安全读取，如果为空数组则强制用默认值补齐
+  // 先安全读取，如果为空数组则强制用默认值补齐
   let storedColors = [];
   try {
     storedColors = JSON.parse(localStorage.getItem('kg_tag_colors')) || [];
@@ -2223,8 +2393,6 @@ function showStatusTagManager(task) {
   // ================= 统一刷新渲染 =================
   //接收一个回显内容参数
   const renderContent = (initialContent = null) => {
-    console.log("=== 准备渲染 renderContent ===");
-    console.log("接收到的 initialContent:", initialContent);
     clear(box);
 
     // 1. 顶部：仅标题
@@ -2257,7 +2425,7 @@ function showStatusTagManager(task) {
             let presetWords = allWords.filter(w => DEFAULT_WORDS.includes(w));
             let customWords = allWords.filter(w => !DEFAULT_WORDS.includes(w));
 
-            // 👈 核心修复：如果预设字符全部被清空或丢失了，强制把 DEFAULT_WORDS 补回去！
+            // 如果预设字符全部被清空或丢失了，强制把 DEFAULT_WORDS 补回去！
             if (presetWords.length === 0) {
               presetWords = [...DEFAULT_WORDS];
               // 合并并保存回本地
@@ -2952,7 +3120,7 @@ function showStatusTagManager(task) {
 
     presetColors.forEach(item => {
       const c = item.c;
-      const isTransparent = c === 'transparent'; //  核心补丁，必须放在最前面
+      const isTransparent = c === 'transparent'; //  必须放在最前面
 
       let isSelected = false;
       if (activeColorType === 'text') isSelected = (selectedColor === c);
@@ -3256,6 +3424,353 @@ function showStatusTagManager(task) {
   renderContent(null);
   mask.appendChild(box);
   mask.onclick = (e) => { if (e.target === mask) mask.remove(); };
+  document.body.appendChild(mask);
+}
+
+// ================= 🔢 高级序号与排序管理面板 =================
+function openSortManager(currentFolderId) {
+  if (ptSelected.size === 0) return toastError('请先勾选要操作的卡片');
+
+  let savedFormats = [];
+  try { savedFormats = JSON.parse(localStorage.getItem('kg_saved_sort_formats') || '[]'); } catch (e) { }
+
+  let appliedFormats = [];
+  try { appliedFormats = JSON.parse(localStorage.getItem('kg_applied_sort_formats') || '[]'); } catch (e) { }
+
+  let activeTab = 'preset';
+  let customPrefix = '第';
+  let customSymbol = '{n}';
+  let customSuffix = '题';
+  let sortMode = 'manual';
+
+  let isPresetExpanded = true;
+  let isSymbolExpanded = false;
+  let isSavedExpanded = false;
+  let isAppliedExpanded = false;
+
+  let selectedSavedIndices = new Set();
+
+  // 👈 多步撤销栈
+  let undoStack = [];
+
+  // 👈 预设选中状态（默认选中第一个）
+  let activePresetIndex = 0;
+
+  const commonSymbols = ['{n}', '●', '○', '■', '□', '◆', '◇', '★', '☆', '①', 'Ⅰ', '一', 'A', 'a'];
+
+  const presets = [
+    { name: '数字', p: (i) => `${i + 1}. `, icon: '1️⃣' },
+    { name: '括号数字', p: (i) => `(${i + 1}) `, icon: '🅰️' },
+    { name: '中文数字', p: (i) => { const n = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九', '十']; return (i + 1 <= 10 ? n[i + 1] : `十${n[(i + 1) % 10]}`) + '、'; }, icon: '🀄' },
+    { name: '英文字母', p: (i) => `${String.fromCharCode(65 + i)}. `, icon: '🔤' },
+    { name: '罗马数字', p: (i) => { const r = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X']; return (r[i] || (i + 1)) + '. '; }, icon: '🏛️' },
+    { name: '全角数字', p: (i) => `１. `.replace('１', String(i + 1).replace(/[0-9]/g, d => String.fromCharCode(d.charCodeAt(0) + 65248))), icon: '🔢' },
+    { name: '实心圆点', p: (i) => `● `, icon: '⚫' },
+    { name: '带圈数字', p: (i) => { const c = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩']; return (c[i] || i + 1) + ' '; }, icon: '⭕' }
+  ];
+
+  const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
+  const box = el('div', { class: 'confirm-box', style: { maxWidth: '480px', width: '95%', padding: '20px', maxHeight: '90vh', overflowY: 'auto' } });
+
+  // 👈 完美原地刷新：直接寻找所有卡片并重绘内容，绝对不跳转
+  const refreshInPlace = () => {
+    const selectedPoints = Array.from(ptSelected).map(id => store.getPoint(id)).filter(Boolean);
+
+    selectedPoints.forEach(p => {
+      // 寻找页面上所有绑定了 data-id 的卡片
+      const cardEl = document.querySelector(`.card[data-id="${p.id}"]`);
+      if (!cardEl) return;
+
+      // 方法1：尝试找卡片标题文本
+      const cardTitle = cardEl.querySelector('.card-title');
+      if (cardTitle) {
+        // 如果你在标题里有其它标签，这里简单替换后面的文本
+        cardTitle.innerHTML = `📁 ${task.name}`; // 如果是文件夹。如果是卡片，看方法2
+      }
+
+      // 方法2：更通用的找法，遍历卡片内部的文本节点并替换
+      // 你的 pointCard 里，卡片内容通常是 .point-card-content 下的第一个 div 里的 innerHTML
+      const pointContentDiv = cardEl.querySelector('.point-card-content');
+      if (pointContentDiv) {
+        // 找到纯文字渲染的那个 div（通常在 header 里）
+        const headerDiv = pointContentDiv.firstElementChild;
+        if (headerDiv) {
+          const textDivs = headerDiv.querySelectorAll('div');
+          textDivs.forEach(div => {
+            if (!div.querySelector('input') && !div.querySelector('button')) {
+              div.innerHTML = typeof parseLinks === 'function' ? parseLinks(p.content) : p.content;
+            }
+          });
+        }
+      }
+    });
+  };
+
+
+  const renderPanel = () => {
+    clear(box);
+    box.appendChild(el('h3', { text: `🔢 排版与排序管理`, style: { marginTop: 0, marginBottom: '16px', fontSize: '18px' } }));
+
+    // 排序方式
+    box.appendChild(el('div', { style: { background: 'var(--bg)', padding: '12px', borderRadius: '8px', marginBottom: '16px' } }, [
+      el('label', { text: '📊 应用顺序', style: { fontSize: '13px', fontWeight: 'bold', display: 'block', marginBottom: '8px' } }),
+      el('select', {
+        value: sortMode, onchange: (e) => { sortMode = e.target.value; },
+        style: { width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #ccc', background: 'var(--card)' }
+      }, [
+        el('option', { value: 'manual', text: '按当前手动拖拽顺序' }),
+        el('option', { value: 'time-asc', text: '按建立时间（旧 -> 新）' }),
+        el('option', { value: 'time-desc', text: '按建立时间（新 -> 旧）' }),
+        el('option', { value: 'alpha-asc', text: '按内容首字母（A -> Z）' }),
+        el('option', { value: 'alpha-desc', text: '按内容首字母（Z -> A）' })
+      ])
+    ]));
+
+    const tabs = el('div', { style: { display: 'flex', gap: '8px', marginBottom: '16px', borderBottom: '1px solid rgba(0,0,0,0.1)', paddingBottom: '8px' } });
+    const createTab = (id, name) => el('button', {
+      class: `btn btn-sm ${activeTab === id ? 'btn-primary' : 'btn-ghost'}`, text: name,
+      onClick: () => { activeTab = id; renderPanel(); }
+    });
+    tabs.appendChild(createTab('preset', '常用序号'));
+    tabs.appendChild(createTab('custom', '自定义'));
+    tabs.appendChild(createTab('manage', '管理'));
+    box.appendChild(tabs);
+
+    // ============== 1. 预设列表（选中状态） ==============
+    if (activeTab === 'preset') {
+      const header = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-2)', marginBottom: '10px' },
+        onClick: () => { isPresetExpanded = !isPresetExpanded; renderPanel(); }
+      }, [el('span', { text: '预设格式' }), el('span', { text: isPresetExpanded ? '▾' : '▸' })]);
+      box.appendChild(header);
+
+      if (isPresetExpanded) {
+        const grid = el('div', { style: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' } });
+        presets.forEach((fmt, idx) => {
+          const isSelected = activePresetIndex === idx;
+          grid.appendChild(el('button', {
+            class: 'btn btn-ghost',
+            style: {
+              padding: '8px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px',
+              background: isSelected ? 'rgba(142,202,230,0.2)' : 'var(--bg)',
+              borderRadius: '8px',
+              border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,0.05)',
+              transform: isSelected ? 'scale(1.02)' : 'scale(1)',
+              transition: 'all 0.2s'
+            },
+            onClick: () => { activePresetIndex = idx; renderPanel(); } // 👈 只选中，不应用
+          }, [
+            el('span', { text: `${fmt.icon} ${fmt.name}`, style: { fontSize: '12px', color: isSelected ? 'var(--primary-dark)' : 'var(--text-2)' } }),
+            el('span', { text: fmt.p(0) + fmt.p(1), style: { fontSize: '13px', fontWeight: 'bold', color: isSelected ? 'var(--primary)' : 'var(--text)' } })
+          ]));
+        });
+        box.appendChild(grid);
+      }
+    }
+
+    // ============== 2. 自定义 ==============
+    if (activeTab === 'custom') {
+      const previewBox = el('div', {
+        style: { padding: '12px', background: 'rgba(142,202,230,0.1)', borderRadius: '8px', marginBottom: '16px', textAlign: 'center', fontSize: '16px', fontWeight: 'bold', color: 'var(--primary-dark)', border: '1px dashed var(--primary)', whiteSpace: 'pre-wrap' }
+      });
+
+      const updatePreview = () => {
+        const base = customSymbol.replace(/{n}/g, '1');
+        previewBox.textContent = `${customPrefix}${base}${customSuffix}  ${customPrefix}${customSymbol.replace(/{n}/g, '2')}${customSuffix}`;
+      };
+
+      box.appendChild(el('div', { style: { display: 'flex', gap: '8px', marginBottom: '12px' } }, [
+        el('div', { style: { flex: '1' } }, [
+          el('label', { text: '前缀', style: { fontSize: '12px', color: 'var(--text-2)' } }),
+          el('input', { type: 'text', value: customPrefix, onInput: (e) => { customPrefix = e.target.value; updatePreview(); }, style: { width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', border: '1px solid #ccc' } })
+        ]),
+        el('div', { style: { flex: '1.5' } }, [
+          el('label', { text: '符号/数字位', style: { fontSize: '12px', color: 'var(--text-2)' } }),
+          el('input', { type: 'text', value: customSymbol, placeholder: '{n} 或 ●', onInput: (e) => { customSymbol = e.target.value; updatePreview(); }, style: { width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', border: '1px solid #ccc' } })
+        ]),
+        el('div', { style: { flex: '1' } }, [
+          el('label', { text: '后缀', style: { fontSize: '12px', color: 'var(--text-2)' } }),
+          el('input', { type: 'text', value: customSuffix, onInput: (e) => { customSuffix = e.target.value; updatePreview(); }, style: { width: '100%', padding: '8px', marginTop: '4px', borderRadius: '6px', border: '1px solid #ccc' } })
+        ])
+      ]));
+
+      const symbolHeader = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '12px', color: 'var(--text-2)', marginBottom: '6px' },
+        onClick: () => { isSymbolExpanded = !isSymbolExpanded; renderPanel(); }
+      }, [el('span', { text: '常用形状' }), el('span', { text: isSymbolExpanded ? '▾' : '▸' })]);
+      box.appendChild(symbolHeader);
+
+      if (isSymbolExpanded) {
+        box.appendChild(el('div', { style: { display: 'flex', flexWrap: 'wrap', gap: '4px', marginBottom: '12px' } }, [
+          ...commonSymbols.map(sym => el('button', {
+            class: 'btn btn-sm btn-ghost', text: sym,
+            style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '14px', background: 'var(--bg)' },
+            onClick: () => { customSymbol = sym; updatePreview(); renderPanel(); }
+          })),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '自定义',
+            style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '12px', background: 'var(--bg)' },
+            onClick: () => {
+              const val = prompt('请输入自定义形状/字符（如：✪）', '✪');
+              if (val) { customSymbol = val; updatePreview(); renderPanel(); }
+            }
+          })
+        ]));
+      }
+
+      updatePreview();
+
+      box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' } }, [
+        el('div', { style: { fontSize: '12px', color: 'var(--text-2)' } }, [el('span', { text: '实时预览：' })]),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '⭐ 收藏此格式',
+          style: { padding: '0 6px', height: '22px', minHeight: 'auto', fontSize: '11px', background: 'var(--bg)' },
+          onClick: () => {
+            const label = `${customPrefix}${customSymbol}${customSuffix}`;
+            if (savedFormats.includes(label)) return toastError('该格式已收藏');
+            savedFormats.push(label);
+            localStorage.setItem('kg_saved_sort_formats', JSON.stringify(savedFormats));
+            toastSuccess('已加入收藏列表');
+            renderPanel();
+          }
+        })
+      ]));
+      box.appendChild(previewBox);
+    }
+
+    // ============== 3. 管理 ==============
+    if (activeTab === 'manage') {
+      // 收藏列表
+      const savedHeader = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-2)', marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px dashed rgba(0,0,0,0.05)' },
+        onClick: () => { isSavedExpanded = !isSavedExpanded; renderPanel(); }
+      }, [el('span', { text: '⭐ 收藏列表' }), el('span', { text: isSavedExpanded ? '▾' : '▸' })]);
+      box.appendChild(savedHeader);
+
+      if (isSavedExpanded) {
+        if (savedFormats.length === 0) {
+          box.appendChild(el('div', { text: '暂无收藏格式', style: { fontSize: '12px', color: 'var(--text-3)', marginBottom: '12px' } }));
+        } else {
+          const toolbar = el('div', { style: { display: 'flex', gap: '6px', marginBottom: '8px' } }, [
+            el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { savedFormats.forEach((_, i) => selectedSavedIndices.add(i)); renderPanel(); } }),
+            el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', onClick: () => { selectedSavedIndices.clear(); renderPanel(); } }),
+            el('button', {
+              class: 'btn btn-sm btn-danger', text: '删除', onClick: () => {
+                if (selectedSavedIndices.size === 0) return;
+                savedFormats = savedFormats.filter((_, i) => !selectedSavedIndices.has(i));
+                localStorage.setItem('kg_saved_sort_formats', JSON.stringify(savedFormats));
+                selectedSavedIndices.clear();
+                renderPanel();
+              }
+            })
+          ]);
+          box.appendChild(toolbar);
+
+          savedFormats.forEach((fmt, i) => {
+            const isChecked = selectedSavedIndices.has(i);
+            const display = fmt.replace(/{n}/g, '1').replace('$', '');
+            box.appendChild(el('div', {
+              style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: isChecked ? 'rgba(142,202,230,0.2)' : 'var(--bg)', borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', border: '1px solid ' + (isChecked ? 'var(--primary)' : 'transparent') },
+              onClick: () => { if (isChecked) selectedSavedIndices.delete(i); else selectedSavedIndices.add(i); renderPanel(); }
+            }, [
+              el('input', { type: 'checkbox', checked: isChecked, style: { pointerEvents: 'none' } }),
+              el('span', { text: display, style: { fontSize: '13px', flex: '1', fontWeight: 'bold' } }),
+              el('button', {
+                class: 'btn btn-sm btn-primary', text: '应用',
+                onClick: (e) => { e.stopPropagation(); applySort((idx) => fmt.replace(/{n}/g, idx + 1) + ' '); }
+              })
+            ]));
+          });
+        }
+      }
+
+      // 应用列表
+      const appliedHeader = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '13px', fontWeight: 'bold', color: 'var(--text-2)', marginTop: '16px', marginBottom: '10px', paddingBottom: '6px', borderBottom: '1px dashed rgba(0,0,0,0.05)' },
+        onClick: () => { isAppliedExpanded = !isAppliedExpanded; renderPanel(); }
+      }, [el('span', { text: '📋 应用列表' }), el('span', { text: isAppliedExpanded ? '▾' : '▸' })]);
+      box.appendChild(appliedHeader);
+
+      if (isAppliedExpanded) {
+        if (appliedFormats.length === 0) {
+          box.appendChild(el('div', { text: '暂无应用记录', style: { fontSize: '12px', color: 'var(--text-3)', marginBottom: '12px' } }));
+        } else {
+          appliedFormats.forEach((fmt, i) => {
+            const display = fmt.replace(/{n}/g, '1').replace('$', '');
+            box.appendChild(el('div', {
+              style: { display: 'flex', alignItems: 'center', gap: '8px', padding: '8px', background: 'var(--bg)', borderRadius: '6px', marginBottom: '6px' }
+            }, [
+              el('span', { text: display, style: { fontSize: '13px', flex: '1', fontWeight: 'bold' } }),
+              el('button', {
+                class: 'btn btn-sm btn-primary', text: '应用',
+                onClick: (e) => { e.stopPropagation(); applySort((idx) => fmt.replace(/{n}/g, idx + 1) + ' '); }
+              })
+            ]));
+          });
+        }
+      }
+    }
+
+    // ================== 底部按钮 ==================
+    box.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,0.1)', marginTop: '16px', paddingTop: '12px', display: 'flex', justifyContent: 'flex-end', gap: '10px' } }, [
+      el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
+      el('button', {
+        class: 'btn btn-primary', text: '✅ 确认应用',
+        onClick: () => {
+          if (activeTab === 'custom') {
+            const s = customSymbol;
+            applySort((i) => `${customPrefix}${s.replace(/{n}/g, i + 1)}${customSuffix} `);
+          } else if (activeTab === 'preset') {
+            const fmt = presets[activePresetIndex];
+            applySort(fmt.p);
+          } else {
+            mask.remove();
+          }
+        }
+      })
+    ]));
+  };
+
+  function applySort(getPrefixFn) {
+    let selectedPoints = Array.from(ptSelected).map(id => store.getPoint(id)).filter(Boolean);
+
+    // 👈 记录历史快照到全局栈
+    const snapshot = selectedPoints.map(p => ({
+      id: p.id,
+      oldContent: p.content,
+      oldOrder: p.order
+    }));
+    globalUndoStack.push(snapshot);
+    if (globalUndoStack.length > 20) globalUndoStack.shift();
+
+    if (sortMode === 'time-asc') selectedPoints.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+    else if (sortMode === 'time-desc') selectedPoints.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    else if (sortMode === 'alpha-asc') selectedPoints.sort((a, b) => (a.content || '').localeCompare(b.content || ''));
+    else if (sortMode === 'alpha-desc') selectedPoints.sort((a, b) => (b.content || '').localeCompare(a.content || ''));
+    else selectedPoints.sort((a, b) => a.order - b.order);
+
+    const sample = getPrefixFn(0);
+    const recordFormat = sample.replace('1', '{n}').trim() + ' ';
+
+    if (!appliedFormats.includes(recordFormat)) {
+      appliedFormats.unshift(recordFormat);
+      if (appliedFormats.length > 10) appliedFormats.pop();
+      localStorage.setItem('kg_applied_sort_formats', JSON.stringify(appliedFormats));
+    }
+
+    selectedPoints.forEach((p, index) => {
+      const prefix = getPrefixFn(index);
+      store.updatePoint(p.id, { content: prefix + p.content, order: index });
+    });
+
+    toastSuccess(`排版完成，共 ${selectedPoints.length} 张卡片`);
+
+    mask.remove(); // 👈 应用后直接关弹窗
+    if (typeof window.renderFolderGlobal === 'function') window.renderFolderGlobal(); // 👈 原地刷新
+  }
+
+  renderPanel();
+  mask.appendChild(box);
   document.body.appendChild(mask);
 }
 // 把它挂载到全局，这样在 home.js 也能直接调用

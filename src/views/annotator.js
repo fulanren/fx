@@ -15,6 +15,7 @@ import {
   eraseCircle, eraseSquare, eraseRect, drawFountainPen, drawBrush, drawPencil
 } from '../utils/canvas.js';
 import { renderColorPicker } from '../ui/colorPicker.js';
+import { ensurePdfJs } from '../utils/deps.js';
 window.__isEditingText = false;
 // ============ 通用长按提示 ============
 function attachLongPressTooltip(btn, text) {
@@ -226,6 +227,7 @@ export async function renderAnnotator({ params, query }) {
         const pdfRec = await dbGet('pdfs', query.pdfId);
         if (pdfRec && pdfRec.blob) {
           const buf = await pdfRec.blob.arrayBuffer();
+          ensurePdfJs();
           const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
           const page = await pdfDoc.getPage(parseInt(query.page));
           const vp = page.getViewport({ scale: 1.5 });
@@ -282,6 +284,7 @@ export async function renderAnnotator({ params, query }) {
       const pdfRec = await dbGet('pdfs', currentPdfId);
       if (pdfRec && pdfRec.blob) {
         const buf = await pdfRec.blob.arrayBuffer();
+        ensurePdfJs();
         const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
         totalPages = pdfDoc.numPages;
       }
@@ -291,6 +294,7 @@ export async function renderAnnotator({ params, query }) {
       const pdfRec = await dbGet('pdfs', currentPdfId);
       if (!pdfRec || !pdfRec.blob) return null;
       const buf = await pdfRec.blob.arrayBuffer();
+      ensurePdfJs();
       const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
       const page = await pdfDoc.getPage(pageNum);
       const vp = page.getViewport({ scale: 1.5 });
@@ -1035,10 +1039,13 @@ export async function renderAnnotator({ params, query }) {
     const strokeBlob = await new Promise((r) => strokeCanvas.toBlob(r, 'image/png'));
     const paperStrokeBlob = await new Promise((r) => paperStrokeCanvas.toBlob(r, 'image/png'));
 
-    // 3. 手动合成干净的大图
+    // 导出分辨率与显示层 dpr 口径统一（renderScale 已含 Retina 上限），否则存出来的图比屏幕糊
+    const exportScale = renderScale;
     const merged = document.createElement('canvas');
-    merged.width = W; merged.height = H;
+    merged.width = Math.floor(W * exportScale);
+    merged.height = Math.floor(H * exportScale);
     const mctx = merged.getContext('2d');
+    mctx.scale(exportScale, exportScale); // 之后所有绘制仍用逻辑坐标 W/H，底层自动放大到高清
 
     mctx.drawImage(baseImg, 0, 0, W, H);
     mctx.drawImage(paperCanvas, 0, 0, W, H);
@@ -1166,6 +1173,28 @@ export async function renderAnnotator({ params, query }) {
     // 等待 50 毫秒，让浏览器的失焦动画和重绘彻底完成，然后再保存
     await new Promise(resolve => setTimeout(resolve, 50));
     await saveAll(false);
+
+    // 回写反向链接：让卡片里出现「🔗 来自资料」，点了能跳回这份 PDF 的对应页
+    // 依赖已在文件内可用：query(182 行入参) / pointId(189) / store(7) / dbGet(8)
+    try {
+      if (pointId && query && query.pdfId && query.page) {
+        const pageN = parseInt(query.page) || 1;
+        const pt = store.getPoint(pointId);
+        if (pt) {
+          let pdfName = query.pdfName;
+          if (!pdfName) {
+            const prec = await dbGet('pdfs', query.pdfId);
+            pdfName = (prec && prec.name) || '未命名文档';
+          }
+          const list = Array.isArray(pt.linkedPdfs) ? pt.linkedPdfs.slice() : [];
+          // 同一份 PDF 同一页只登记一次
+          if (!list.some(x => x && x.pdfId === query.pdfId && Number(x.page) === pageN)) {
+            list.push({ pdfId: query.pdfId, pdfName, page: pageN });
+            store.updatePoint(pointId, { linkedPdfs: list });
+          }
+        }
+      }
+    } catch (e) { console.warn('反向链接登记失败（不影响返回）', e); }
 
     if (window.__annotatorCleanup) window.__annotatorCleanup();
 
@@ -1865,7 +1894,7 @@ export async function renderAnnotator({ params, query }) {
             ].map(p => el('button', {
               class: 'tape-chip', text: p.name,
               onClick: (e) => {
-                e.stopPropagation(); //核心
+                e.stopPropagation();
                 sel.fontSize = p.fontSize; sel.color = p.color; sel.bgColor = p.bgColor; sel.noBg = p.noBg;
                 const lines = sel.text.split('\n');
                 sel.h = Math.max(40, lines.length * p.fontSize * (sel.lineHeight || 1.5) + 8);
@@ -2389,7 +2418,7 @@ export async function renderAnnotator({ params, query }) {
       textLayer.redraw();
     });
 
-    // 核心：点击外部，才保存并退出
+    // 点击外部，才保存并退出
     const handleOutsideClick = (e) => {
       if (inlineEditorEl === editor) {
         // 如果是点工具栏，或者点自己，就不退出
@@ -2799,6 +2828,7 @@ export async function renderAnnotator({ params, query }) {
           const pdfRec = await dbGet('pdfs', currentPdfId);
           if (pdfRec && pdfRec.blob) {
             const buf = await pdfRec.blob.arrayBuffer();
+            ensurePdfJs();
             const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
             totalPages = pdfDoc.numPages;
             const totalLabel = document.getElementById('pdf-nav-total');
@@ -4698,7 +4728,7 @@ export async function renderAnnotator({ params, query }) {
       }
       store.saveTape(imageId, tapeLayer.getTapes());
 
-      drawing = false; // 核心：结束拖动状态
+      drawing = false; // 结束拖动状态
       paperDragOffset = null;
       updateSubToolbar();
       return;
@@ -4938,6 +4968,7 @@ async function openTextLinkModal(textItem) {
 
             try {
               const buf = await p.blob.arrayBuffer();
+              ensurePdfJs();
               const pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
               currentTotalPages = pdfDoc.numPages;
             } catch (e) { }

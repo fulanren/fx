@@ -4,16 +4,12 @@ import { dbGet, dbPut, dbDelete, dbAll } from '../db.js';
 import { toastSuccess, toastError } from '../ui/toast.js';
 import { uuid } from '../utils/id.js';
 import { drawSmoothCurve, drawPressurePath, drawRect, drawLine, drawArrow, eraseCircle } from '../utils/canvas.js';
+import { ensurePdfJs, missingLibMsg, ocrRecognize, checkLib } from '../utils/deps.js';
 window.dbPut = dbPut;
 window.uuid = uuid;
 
 // 全局 PDF 渲染缩放比例
 export let pdfRenderScale = parseFloat(localStorage.getItem('kg_pdf_render_scale') || '1.3');
-
-//强制指定 PDF 渲染引擎的 Worker 路径，解决 404 报错
-if (window.pdfjsLib) {
-    window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
-}
 
 // ============ 统一的偏好读写 ============
 const DEFAULT_PREFS = {
@@ -93,15 +89,24 @@ export async function renderPdfViewer({ params, query }) {
         container.innerHTML = '<div style="padding:20px;text-align:center;">加载中...</div>';
         try {
             pdfRecord = await dbGet('pdfs', id);
-            if (!pdfRecord) { container.innerHTML = '文件丢失'; return; }
-            const buf = await pdfRecord.blob.arrayBuffer();
-
-            // 确保 Worker 路径被正确指定
-            if (window.pdfjsLib) {
-                window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+            if (!pdfRecord) { container.innerHTML = '<div style="padding:20px;text-align:center;color:#B3261E;">文件丢失（pdfs 表里没有这条记录）</div>'; return; }
+            if (!pdfRecord.blob || !pdfRecord.blob.size) {
+                container.innerHTML = '<div style="padding:20px;text-align:center;color:#B3261E;">这份 PDF 的数据体是空的（导入时没落库），删掉重新导入即可。</div>';
+                return;
             }
 
+            // 确保 Worker 指向本地文件；引擎缺失时给中文提示，不再静默空白
+            if (!ensurePdfJs()) {
+                container.innerHTML = `<div style="padding:20px;text-align:center;color:#B3261E;">${missingLibMsg('pdfjsLib')}</div>`;
+                return;
+            }
+            const buf = await pdfRecord.blob.arrayBuffer();
+
             pdfDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+            if (!pdfDoc.numPages) {
+                container.innerHTML = '<div style="padding:20px;text-align:center;color:#B3261E;">这份 PDF 是 0 页（文件损坏），重新导入。</div>';
+                return;
+            }
             total = pdfDoc.numPages;
 
             currentPage = 1;
@@ -192,7 +197,7 @@ export async function renderPdfViewer({ params, query }) {
                     if (!file) return;
                     toastSuccess('正在识别手写文字...');
                     try {
-                        const result = await window.Tesseract.recognize(file, 'chi_sim+eng');
+                        const result = await ocrRecognize(file, 'chi_sim+eng');
                         const text = result.data.text.trim();
                         if (text) { input.value = text; doSearch(); }
                         else { toastError('未识别到文字'); }
@@ -998,7 +1003,7 @@ export async function renderPdfViewer({ params, query }) {
         ]);
         container.appendChild(topBar);
 
-        // 👇👇“ⓘ”功能说明按钮 (代替长按) 👇👇👇
+        //“ⓘ”功能说明按钮 (代替长按) 
         const infoBtn = el('button', {
             class: 'btn btn-sm btn-ghost', text: 'ⓘ', title: '功能说明',
             style: { width: '32px', height: '32px', padding: 0, fontSize: '16px', marginLeft: '4px' },
@@ -1087,7 +1092,18 @@ export async function renderPdfViewer({ params, query }) {
         scrollWrap.appendChild(canvasWrap);
         container.appendChild(scrollWrap);
 
-        renderPages(canvasWrap);
+        renderPages(canvasWrap).then(() => {
+            // 兜底：整本都没画出一页时给出可操作提示，而不是留一片白
+            setTimeout(() => {
+                const painted = canvasWrap.querySelector('canvas[data-rendered="1"]');
+                if (!painted && total > 0) {
+                    canvasWrap.insertBefore(el('div', {
+                        style: { padding: '20px', textAlign: 'center', color: 'var(--text-2)', fontSize: '14px', lineHeight: '1.8' },
+                        innerHTML: '页面没能渲染出来。<br>可试试：切到「单页」模式 / 把清晰度调低（localStorage 里 kg_pdf_hi 设为 1）/ 重新导入该 PDF。'
+                    }), canvasWrap.firstChild);
+                }
+            }, 800);
+        });
 
         // 当 PDF 页面渲染完后，强制立刻滚动到当前页
         setTimeout(() => {
@@ -1857,7 +1873,16 @@ export async function renderPdfViewer({ params, query }) {
         toastSuccess('已加入大纲');
     }
 
+    // 登记当前仍在渲染的任务，切页/缩放重建 DOM 前统一取消，避免 pdf.js 渲染任务泄漏与叠绘竞态
+    const activeRenderTasks = new Set();
+    let renderTask = null;
+    function cancelAllRenderTasks() {
+        activeRenderTasks.forEach(t => { try { t.cancel(); } catch (e) { } });
+        activeRenderTasks.clear();
+    }
+
     async function renderPages(canvasWrap) {
+        cancelAllRenderTasks();   // DOM 即将被清空，先掐掉上一批还在跑的渲染任务
         canvasWrap.innerHTML = '<div style="padding:20px;color:var(--text-2);">正在渲染...</div>';
         await new Promise(r => setTimeout(r, 50));
         canvasWrap.innerHTML = '';
@@ -1914,20 +1939,26 @@ export async function renderPdfViewer({ params, query }) {
 
         //直接读取完整的预览图（无蓝框，带文字）
         const c = document.createElement('canvas');
-        c.width = vp.width; c.height = vp.height;
+        // 高清渲染倍率：canvas 位图尺寸必须与渲染用的 viewport 同源，否则画面被拉伸/裁切
+        const hiRatio = Math.min(2, Math.max(1, window.devicePixelRatio || 1))
+            * (parseFloat(localStorage.getItem('kg_pdf_hi') || '1.5'));
+        const hiVp = page.getViewport({ scale: pdfRenderScale * hiRatio });   // ← 原来这个变量根本没定义
+        c.width = Math.floor(hiVp.width); c.height = Math.floor(hiVp.height);
         c.style.display = 'block'; c.style.width = '100%'; c.style.height = 'auto';
 
-        // =================懒加载核心逻辑=================
+        // 懒加载核心逻辑=================
         const observer = new IntersectionObserver((entries) => {
             entries.forEach(async entry => {
-                if (entry.isIntersecting && !c.dataset.rendered) {
-                    c.dataset.rendered = '1';
+                if (!entry.isIntersecting) return;
+                if (c.dataset.rendered === '1') return;
+                c.dataset.rendered = '1';          // 先占位，防同页并发重入
+                let keep = true;                   // false = 本次失败，需回滚重试
 
-                    //直接用主键查，零遍历，速度极快！
+                try {
+                    // 已标注页：直接用笔迹合成图（主键查，零遍历）
                     let savedAnnotated = null;
                     try {
-                        const pageTag = `pdf_${pdfId}_page_${num}`;
-                        const matched = await dbGet('images', pageTag);
+                        const matched = await dbGet('images', `pdf_${pdfId}_page_${num}`);
                         if (matched && matched.annotatedBlob) savedAnnotated = matched.annotatedBlob;
                     } catch (e) { }
 
@@ -1938,15 +1969,33 @@ export async function renderPdfViewer({ params, query }) {
                         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
                         URL.revokeObjectURL(url);
                     } else {
-                        await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                        // ---- P1-6：先取消可能仍在跑的同页任务，再开新任务 ----
+                        if (renderTask) { try { renderTask.cancel(); } catch (e) { } }
+                        renderTask = page.render({ canvasContext: c.getContext('2d'), viewport: hiVp });
+                        activeRenderTasks.add(renderTask);
+                        await renderTask.promise;   // 整个 render 调用必须一起包住
                     }
-
-                    observer.disconnect();
+                } catch (e) {
+                    keep = false;
+                    const cancelled = e && (e.name === 'RenderingCancelledException' || /cancel/i.test(e.message || ''));
+                    if (!cancelled) {
+                        console.warn(`第 ${num} 页渲染失败`, e);
+                        window.__pdfRenderFail = (window.__pdfRenderFail || 0) + 1;
+                        if (window.__pdfRenderFail === 1) toastError(`PDF 渲染失败：${e.message || e}`);
+                    }
+                } finally {
+                    activeRenderTasks.delete(renderTask);
+                    if (!keep) {
+                        // 失败就把标志位撤了并观察下一页，否则永远白着不再重画
+                        c.dataset.rendered = '';
+                        try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch (e) { }
+                    } else {
+                        observer.disconnect();      // 只成功才停观察
+                    }
                 }
             });
         }, { rootMargin: '500px' });
         observer.observe(wrap);
-        // ================= 👆 懒加载核心逻辑结束 👆 =================
 
         // 滤镜组合
         const filters = [];
@@ -2435,30 +2484,33 @@ export async function renderPdfViewer({ params, query }) {
                     const grid = el('div', { class: 'pdf-pages-grid', style: { display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '8px', maxHeight: '50vh', overflowY: 'auto', margin: '12px 0' } });
                     const selectedSet = new Set();
 
+                    if (!ensurePdfJs()) { toastError('PDF 引擎未就绪（缺少 vendor/pdfjs/）'); resolve(null); return; }
                     for (const file of files) {
-                        const buf = await file.arrayBuffer();
-                        const extDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
+                        try {
+                            const buf = await file.arrayBuffer();
+                            const extDoc = await window.pdfjsLib.getDocument({ data: buf }).promise;
 
-                        for (let i = 1; i <= extDoc.numPages; i++) {
-                            const page = await extDoc.getPage(i);
-                            const vp = page.getViewport({ scale: 0.3 });
-                            const c = document.createElement('canvas');
-                            c.width = vp.width; c.height = vp.height;
-                            await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
+                            for (let i = 1; i <= extDoc.numPages; i++) {
+                                const page = await extDoc.getPage(i);
+                                const vp = page.getViewport({ scale: 0.3 });
+                                const c = document.createElement('canvas');
+                                c.width = vp.width; c.height = vp.height;
+                                await page.render({ canvasContext: c.getContext('2d'), viewport: vp }).promise;
 
-                            const thumb = el('div', {
-                                style: { border: '2px solid transparent', borderRadius: '4px', overflow: 'hidden', cursor: 'pointer', position: 'relative', background: '#eee' },
-                                onClick: () => {
-                                    const key = `${file.name}::${i}`;
-                                    if (selectedSet.has(key)) { selectedSet.delete(key); thumb.style.borderColor = 'transparent'; }
-                                    else { selectedSet.add(key); thumb.style.borderColor = 'var(--primary)'; }
-                                }
-                            }, [
-                                el('img', { src: c.toDataURL(), style: { width: '100%', display: 'block' } }),
-                                el('div', { style: { position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', textAlign: 'center' }, text: `${file.name.slice(0, 5)}... 第${i}页` })
-                            ]);
-                            grid.appendChild(thumb);
-                        }
+                                const thumb = el('div', {
+                                    style: { border: '2px solid transparent', borderRadius: '4px', overflow: 'hidden', cursor: 'pointer', position: 'relative', background: '#eee' },
+                                    onClick: () => {
+                                        const key = `${file.name}::${i}`;
+                                        if (selectedSet.has(key)) { selectedSet.delete(key); thumb.style.borderColor = 'transparent'; }
+                                        else { selectedSet.add(key); thumb.style.borderColor = 'var(--primary)'; }
+                                    }
+                                }, [
+                                    el('img', { src: c.toDataURL(), style: { width: '100%', display: 'block' } }),
+                                    el('div', { style: { position: 'absolute', bottom: 0, left: 0, right: 0, background: 'rgba(0,0,0,0.6)', color: '#fff', fontSize: '10px', textAlign: 'center' }, text: `${file.name.slice(0, 5)}... 第${i}页` })
+                                ]);
+                                grid.appendChild(thumb);
+                            }
+                        } catch (e) { console.warn('外部 PDF 解析失败', file && file.name, e); }
                     }
 
                     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } }, [
@@ -2479,6 +2531,7 @@ export async function renderPdfViewer({ params, query }) {
 
                 // 4. 执行精细合并
                 toastSuccess('正在合并文档…');
+                if (!checkLib('PDFLib')) { toastError(missingLibMsg('PDFLib')); return; }
                 const { PDFDocument } = window.PDFLib;
                 const newDoc = await PDFDocument.create();
                 const srcDoc = await PDFDocument.load(await pdfRecord.blob.arrayBuffer());
@@ -3368,20 +3421,18 @@ async function downloadFileWithPath(blob, filename, mimeType, extensions) {
 
 // ============ 图片文字识别 (OCR) ============
 async function runOcrForPdf(imageBlob) {
-    if (!window.Tesseract) {
-        throw new Error('Tesseract 库未加载，请检查 index.html');
-    }
+    const c = checkLib('Tesseract');
+    if (!c.ok) throw new Error(c.hint);
 
     //把进度直接显示在弹窗里
     const progressText = document.getElementById('ocr-text-result');
 
     try {
-        const result = await window.Tesseract.recognize(
+        const result = await ocrRecognize(
             imageBlob,
             'chi_sim+eng',
             {
                 logger: m => {
-                    console.log(m);
                     if (progressText && m.status === 'recognizing text') {
                         const percent = Math.round(m.progress * 100);
                         progressText.textContent = `🔍 正在识别文字... ${percent}%`;

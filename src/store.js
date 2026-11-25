@@ -11,7 +11,6 @@ export function autoCleanRecycleBin() {
   });
 
   if (keep.length !== bin.length) {
-    console.log(`[自动清理] 彻底删除了 ${bin.length - keep.length} 个过期回收站文件`);
     write(K.recycle, keep);
     // 顺便调用之前的垃圾清理引擎
     cleanOrphanImages();
@@ -79,7 +78,7 @@ export function subscribe(fn) {
 }
 
 // ============ 回收站 ============
-function pushRecycle(type, obj) {
+export function pushRecycle(type, obj) {
   const bin = read(K.recycle);
   bin.push({
     id: uuid(),
@@ -90,7 +89,35 @@ function pushRecycle(type, obj) {
   });
   write(K.recycle, bin);
 }
-export function getRecycleBin() { return read(K.recycle); }
+export function getRecycleBin() {
+  const bin = read(K.recycle);
+  const pointsData = read(K.points);
+  const chaptersData = read(K.chapters);
+
+  return bin.map(item => {
+    // 只处理图片 / 合成图类型
+    if (!['image', 'composite'].includes(item.type)) return item;
+    const p = item.payload;
+    if (!p || !p.pointId) return item;
+
+    // 找到图片所属的卡片
+    const point = pointsData.find(pt => pt.id === p.pointId);
+    if (!point) return item;
+
+    // 补全卡片名
+    p.pointName = (point.name || point.content || '未命名卡片').replace(/<[^>]+>/g, '').slice(0, 30);
+
+    // 你的 chapters 是用 taskId 反向绑定任务的
+    let folderName = '根目录/未分类';
+    if (point.taskId) {
+      const folder = chaptersData.find(c => c.taskId === point.taskId);
+      if (folder) folderName = (folder.name || '未命名文件夹').replace(/<[^>]+>/g, '').slice(0, 20);
+    }
+    p.folderName = folderName;
+
+    return item;
+  });
+}
 export function restoreRecycle(id) {
   const bin = getRecycleBin();
   const index = bin.findIndex(x => x.id === id);
@@ -109,20 +136,18 @@ export function restoreRecycle(id) {
     filtered.push(data);
     write(K.tasks, filtered);
 
-    // 把属于这个任务的所有章节也复活
+    // 复活该任务下的章节
     const chapters = read(K.chapters);
-    chapters.forEach(c => {
-      if (c.taskId === data.id) {
-        c.deletedAt = null;
-        // 顺便把章节下的知识点也复活
-        const points = read(K.points);
-        points.forEach(p => {
-          if (p.chapterId === c.id) p.deletedAt = null;
-        });
-        write(K.points, points);
-      }
-    });
+    chapters.forEach(c => { if (c.taskId === data.id) c.deletedAt = null; });
     write(K.chapters, chapters);
+
+    // 复活属于该任务的知识点：两层直挂 taskId + 旧数据经由章节归属
+    const chIds = new Set(chapters.filter(c => c.taskId === data.id).map(c => c.id));
+    const points = read(K.points);
+    points.forEach(p => {
+      if (p.taskId === data.id || (p.chapterId && chIds.has(p.chapterId))) p.deletedAt = null;
+    });
+    write(K.points, points);
   }
   // 2. 恢复章节
   else if (item.type === 'chapter') {
@@ -155,25 +180,80 @@ export function restoreRecycle(id) {
     const chapters = read(K.chapters);
     const points = read(K.points);
 
-    // 兜底：检查父章节在不在
-    if (!chapters.some(c => c.id === data.chapterId)) {
-      let fallbackTask = tasks.find(t => t.name === '未分类恢复的任务');
-      if (!fallbackTask) {
-        fallbackTask = { id: uuid(), name: '未分类恢复的任务', createdAt: now() };
-        tasks.push(fallbackTask);
-        write(K.tasks, tasks);
+    if (data.taskId) {
+      // 两层：父任务在就直接复活；父任务没了则归入"未分类恢复的任务"
+      if (!tasks.some(t => t.id === data.taskId)) {
+        let fallbackTask = tasks.find(t => t.name === '未分类恢复的任务');
+        if (!fallbackTask) {
+          fallbackTask = { id: uuid(), name: '未分类恢复的任务', createdAt: now() };
+          tasks.push(fallbackTask);
+          write(K.tasks, tasks);
+        }
+        data.taskId = fallbackTask.id;
       }
-
-      const fallbackChapterId = uuid();
-      chapters.push({ id: fallbackChapterId, taskId: fallbackTask.id, name: '未分类恢复的章节', createdAt: now() });
-      write(K.chapters, chapters);
-      data.chapterId = fallbackChapterId;
+    } else if (data.chapterId) {
+      // 旧数据：检查父章节在不在，不在则重建兜底章节
+      if (!chapters.some(c => c.id === data.chapterId)) {
+        let fallbackTask = tasks.find(t => t.name === '未分类恢复的任务');
+        if (!fallbackTask) {
+          fallbackTask = { id: uuid(), name: '未分类恢复的任务', createdAt: now() };
+          tasks.push(fallbackTask);
+          write(K.tasks, tasks);
+        }
+        const fallbackChapterId = uuid();
+        chapters.push({ id: fallbackChapterId, taskId: fallbackTask.id, name: '未分类恢复的章节', createdAt: now() });
+        write(K.chapters, chapters);
+        data.chapterId = fallbackChapterId;
+      }
     }
 
     const filtered = points.filter(p => p.id !== data.id);
     data.deletedAt = null;
+
+    // 同名防冲突：恢复时若已有同名卡片，自动补 (1)(2)...
+    let baseName = data.content || '未命名卡片';
+    let finalName = baseName;
+    let counter = 1;
+    const stripHtml = (s) => (s || '').replace(/<[^>]+>/g, '').trim();
+    const hasDup = (name) => filtered.some(p => !p.deletedAt && stripHtml(p.content) === name);
+    while (hasDup(stripHtml(finalName))) {
+      finalName = `${baseName} (${counter})`;
+      counter++;
+    }
+    data.content = finalName;
+
     filtered.push(data);
     write(K.points, filtered);
+  }
+  // 4. 恢复图片引用（将图片重新挂回原卡片）
+  else if (item.type === 'image') {
+    const pts = read(K.points);
+    const pi = pts.findIndex(p => p.id === data.pointId && !p.deletedAt);
+    if (pi >= 0) {
+      if (!pts[pi].imageIds) pts[pi].imageIds = [];
+      if (!pts[pi].imageIds.includes(data.imageId)) {
+        pts[pi].imageIds.push(data.imageId);
+      }
+      pts[pi].updatedAt = now();
+      write(K.points, pts);
+    }
+  }
+  // 5. 恢复附件（把附件对象重新挂回原实体）
+  else if (item.type === 'attachment') {
+    const keyMap = { task: K.tasks, chapter: K.chapters, point: K.points };
+    const key = keyMap[data.entity];
+    if (key) {
+      const list = read(key);
+      const ei = list.findIndex(x => x.id === data.entityId);
+      if (ei >= 0) {
+        if (!list[ei].attachments) list[ei].attachments = [];
+        if (!list[ei].attachments.some(a => a.id === data.attachment.id)) {
+          list[ei].attachments.push(data.attachment);
+        }
+        list[ei].updatedAt = now();
+        write(key, list);
+      }
+    }
   }
 
   // 从回收站移除
@@ -269,10 +349,15 @@ export function deleteTask(id) {
   const chs = read(K.chapters);
   chs.filter(c => c.taskId === id && !c.deletedAt).forEach(c => c.deletedAt = now());
   write(K.chapters, chs);
+  // 两层：软删直挂在该任务下的知识点，避免变成永远删不掉的孤儿
+  const pts = read(K.points);
+  pts.filter(p => p.taskId === id && !p.deletedAt).forEach(p => p.deletedAt = now());
+  write(K.points, pts);
 }
 export function mergeTasks(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep') {
   const tasks = read(K.tasks);
   const chapters = read(K.chapters);
+  const points = read(K.points);
   const target = tasks.find(t => t.id === targetId);
   if (!target) return;
   if (newName) target.name = newName;
@@ -286,14 +371,27 @@ export function mergeTasks(sourceIds, targetId, dedupe = false, newName = null, 
       }
       c.taskId = targetId;
     });
+    // 两层：把直挂在源任务下的知识点也并入目标任务
+    points.filter(p => p.taskId === sid && !p.deletedAt).forEach(p => {
+      if (dedupe) {
+        const dup = points.find(x => x.taskId === targetId && !x.deletedAt && x.content === p.content);
+        if (dup) { p.deletedAt = now(); return; }
+      }
+      p.taskId = targetId;
+    });
     s.deletedAt = now();
     pushRecycle('task', s);
   });
   const targetChapters = chapters.filter(c => c.taskId === targetId && !c.deletedAt);
   sortItems(targetChapters, sortMode);
   targetChapters.forEach((c, i) => c.order = i);
+  // 两层：合并后对目标任务下的知识点也排序并重编 order
+  const targetPoints = points.filter(p => p.taskId === targetId && !p.deletedAt);
+  sortItems(targetPoints, sortMode);
+  targetPoints.forEach((p, i) => p.order = i);
   write(K.tasks, tasks);
   write(K.chapters, chapters);
+  write(K.points, points);
 }
 
 export function mergeChapters(sourceIds, targetId, dedupe = false, newName = null, sortMode = 'keep') {
@@ -368,8 +466,16 @@ export function getPoints(taskId) {
   return allPoints.sort((a, b) => a.order - b.order);
 }
 
-export function getPoint(id) { 
-  return read(K.points).find(p => p.id === id); 
+// 按任务收集"活"知识点：优先 taskId 直挂；兼容旧数据经由 chapter 归属该任务
+function livePointsOfTask(taskId) {
+  const points = read(K.points);
+  const chapters = read(K.chapters);
+  const chIds = new Set(chapters.filter(c => c.taskId === taskId).map(c => c.id));
+  return points.filter(p => !p.deletedAt && (p.taskId === taskId || (p.chapterId && chIds.has(p.chapterId))));
+}
+
+export function getPoint(id) {
+  return read(K.points).find(p => p.id === id);
 }
 export function createPoint(patch) {
   const list = read(K.points);
@@ -505,12 +611,19 @@ export function batchUpdatePoints(ids, patch) {
   write(K.points, list);
 }
 
-export function batchMovePoints(ids, targetChapterId) {
+export function batchMovePoints(ids, targetFolderId) {
   const list = read(K.points);
+  const chapters = read(K.chapters);
+
+  // targetFolderId 可能是 task.id（两层），也可能是旧 chapter.id（三层），统一解析成权威 taskId
+  const asChapter = chapters.find(c => c.id === targetFolderId);
+  const resolvedTaskId = asChapter ? asChapter.taskId : targetFolderId;
+
   ids.forEach(id => {
     const i = list.findIndex(x => x.id === id);
     if (i >= 0) {
-      list[i].chapterId = targetChapterId;
+      list[i].taskId = resolvedTaskId;   // 写入权威归属
+      delete list[i].chapterId;          // 清除残留，避免与 getRecycleBin / getPoints 双口径打架
       list[i].updatedAt = now();
     }
   });
@@ -540,10 +653,11 @@ export function reorderChapters(taskId, orderedIds) {
   write(K.chapters, list);
 }
 
-export function reorderPoints(chapterId, orderedIds) {
+export function reorderPoints(parentId, orderedIds) {
   const list = read(K.points);
   orderedIds.forEach((id, idx) => {
-    const p = list.find(x => x.id === id && x.chapterId === chapterId);
+    // 两层：按 taskId 匹配；旧三层：按 chapterId 匹配
+    const p = list.find(x => x.id === id && (x.taskId === parentId || x.chapterId === parentId));
     if (p) p.order = idx;
   });
   write(K.points, list);
@@ -552,13 +666,15 @@ export function reorderPoints(chapterId, orderedIds) {
 export function movePoint(id, direction) {
   const p = getPoint(id);
   if (!p) return;
-  const siblings = getPoints(p.chapterId);
+  // 两层：用 taskId 获取兄弟；旧三层兜底用 chapterId
+  const parentId = p.taskId || p.chapterId;
+  const siblings = getPoints(parentId);
   const idx = siblings.findIndex(x => x.id === id);
   const target = direction === 'up' ? idx - 1 : idx + 1;
   if (target < 0 || target >= siblings.length) return;
   const ids = siblings.map(x => x.id);
   [ids[idx], ids[target]] = [ids[target], ids[idx]];
-  reorderPoints(p.chapterId, ids);
+  reorderPoints(parentId, ids);
 }
 
 export function moveChapter(id, direction) {
@@ -708,8 +824,21 @@ export function removeImageFromPoint(pointId, imageId) {
   const list = read(K.points);
   const i = list.findIndex(p => p.id === pointId);
   if (i < 0) return;
-  list[i].imageIds = (list[i].imageIds || []).filter(id => id !== imageId);
-  list[i].updatedAt = now();
+
+  const point = list[i];
+  // 通过卡片的 taskId 反查所属文件夹名（chapters 用 taskId 绑定任务）
+  const chapters = read(K.chapters);
+  const folder = point.taskId ? chapters.find(c => c.taskId === point.taskId) : null;
+
+  pushRecycle('image', {
+    imageId,
+    pointId,
+    pointName: point.content || '未命名卡片',
+    folderName: folder ? (folder.name || '未命名文件夹') : '根目录/未分类'
+  });
+
+  point.imageIds = (point.imageIds || []).filter(id => id !== imageId);
+  point.updatedAt = now();
   write(K.points, list);
 }
 
@@ -743,6 +872,9 @@ export function removeAttachment(entity, entityId, attachmentId) {
   const list = read(key);
   const i = list.findIndex(x => x.id === entityId);
   if (i < 0) return;
+  // 删除前先推入回收站（保留 storedFileId，不物理删，恢复时直接挂回原实体）
+  const removed = (list[i].attachments || []).find(a => a.id === attachmentId);
+  if (removed) pushRecycle('attachment', { entity, entityId, attachment: removed });
   list[i].attachments = (list[i].attachments || []).filter(a => a.id !== attachmentId);
   list[i].updatedAt = now();
   write(key, list);
@@ -867,7 +999,8 @@ export function mergePoints(sourceIds, targetId, dedupe = false, newName = null,
 export function getStats() {
   const tasks = getTasks();
   const allChapters = tasks.flatMap(t => getChapters(t.id));
-  const allPoints = allChapters.flatMap(c => getPoints(c.id));
+  // 两层：直接以"全量活知识点"统计，避免经由 chapter 链路漏掉直挂 taskId 的卡片
+  const allPoints = read(K.points).filter(p => !p.deletedAt);
   const now = Date.now();
   const weekAgo = now - 7 * 86400000;
 
@@ -985,7 +1118,7 @@ export function deleteTemplate(id) {
   return list;
 }
 
-//支持跨级粘贴/复制的 Task
+//支持跨级粘贴/复制的 Task（递归复制子文件夹）
 export function copyTask(taskId, targetParentId = null) {
   const tasks = read(K.tasks);
   const chapters = read(K.chapters);
@@ -994,32 +1127,47 @@ export function copyTask(taskId, targetParentId = null) {
   const task = tasks.find(t => t.id === taskId);
   if (!task) return false;
 
-  const newTaskId = uuid();
-  const newTaskName = `${task.name} (副本)`;
+  // 内部递归：复制一个任务及其全部子孙文件夹
+  function deepCopyTask(srcTaskId, destParentId) {
+    const src = tasks.find(t => t.id === srcTaskId);
+    if (!src) return null;
 
-  const newTask = { ...task, id: newTaskId, name: newTaskName, parentId: targetParentId, createdAt: now(), updatedAt: now() };
-  tasks.push(newTask);
+    const newId = uuid();
+    // 顶层加"副本"后缀，子文件夹保持原名（父级已标识副本）
+    const newName = srcTaskId === taskId ? `${src.name} (副本)` : src.name;
+    const siblingCount = tasks.filter(x => !x.deletedAt && x.parentId === destParentId).length;
+    const newT = { ...src, id: newId, name: newName, parentId: destParentId, order: siblingCount, createdAt: now(), updatedAt: now() };
+    tasks.push(newT);
 
-  // 收集该任务下的所有章节
-  const taskChapters = chapters.filter(c => c.taskId === taskId && !c.deletedAt);
-  const chapterMap = {};
+    // 复制该任务下的章节（旧三层兼容）
+    const srcChapters = chapters.filter(c => c.taskId === srcTaskId && !c.deletedAt);
+    const chMap = {};
+    srcChapters.forEach(c => {
+      const newCid = uuid();
+      chMap[c.id] = newCid;
+      chapters.push({ ...c, id: newCid, taskId: newId, createdAt: now(), updatedAt: now() });
+    });
 
-  taskChapters.forEach(c => {
-    const newCid = uuid();
-    chapterMap[c.id] = newCid;
-    chapters.push({ ...c, id: newCid, taskId: newTaskId, createdAt: now(), updatedAt: now() });
-  });
+    // 复制该任务下的知识点（两层 + 旧三层兼容）
+    const chIds = srcChapters.map(c => c.id);
+    // 旧三层：经 chapter 归属的卡片
+    points.filter(p => chIds.includes(p.chapterId) && !p.deletedAt).forEach(p => {
+      const newCid = chMap[p.chapterId];
+      points.push({ ...p, id: uuid(), taskId: newId, chapterId: newCid || undefined, createdAt: now(), updatedAt: now() });
+    });
+    // 两层：直挂 taskId 的卡片（排除已被上面复制的）
+    points.filter(p => p.taskId === srcTaskId && !p.deletedAt && !(p.chapterId && chIds.includes(p.chapterId))).forEach(p => {
+      points.push({ ...p, id: uuid(), taskId: newId, createdAt: now(), updatedAt: now() });
+    });
 
-  // 收集知识点
-  const chapterIds = taskChapters.map(c => c.id);
-  const taskPoints = points.filter(p => chapterIds.includes(p.chapterId) && !p.deletedAt);
+    // 递归复制子文件夹
+    const childTasks = tasks.filter(t => t.parentId === srcTaskId && !t.deletedAt);
+    childTasks.forEach(child => deepCopyTask(child.id, newId));
 
-  taskPoints.forEach(p => {
-    const newCid = chapterMap[p.chapterId];
-    if (newCid) {
-      points.push({ ...p, id: uuid(), chapterId: newCid, createdAt: now(), updatedAt: now() });
-    }
-  });
+    return newId;
+  }
+
+  deepCopyTask(taskId, targetParentId);
 
   write(K.tasks, tasks);
   write(K.chapters, chapters);
@@ -1127,6 +1275,12 @@ export async function cleanOrphanImages() {
       if (p.pdfFiles) p.pdfFiles.forEach(f => activePdfIds.add(f.id));
     });
 
+    // 回收站里待恢复的图片，删除其 blob 前必须保护，否则恢复会指向已丢失的数据
+    const recycle = read(K.recycle);
+    recycle.forEach(r => {
+      if (r.type === 'image' && r.payload && r.payload.imageId) activeImageIds.add(r.payload.imageId);
+    });
+
     // 2. 扫描 IndexedDB 里的 images
     const allImages = await dbAll('images');
     let deletedCount = 0;
@@ -1149,10 +1303,46 @@ export async function cleanOrphanImages() {
       }
     }
 
-    console.log(`[清理] 成功清除了 ${deletedCount} 个废弃图片/PDF`);
+    // 扫描 IndexedDB 里的附件 storedFileId：被活实体引用或在回收站里的保留，其余物理删除
+    const activeStoredIds = new Set();
+    [...read(K.tasks), ...read(K.chapters), ...read(K.points)].filter(x => !x.deletedAt).forEach(ent => {
+      (ent.attachments || []).forEach(a => { if (a.storedFileId) activeStoredIds.add(a.storedFileId); });
+    });
+    recycle.forEach(r => {
+      if (r.type === 'attachment' && r.payload && r.payload.attachment && r.payload.attachment.storedFileId) activeStoredIds.add(r.payload.attachment.storedFileId);
+    });
+    let allAttachments = [];
+    try { allAttachments = await dbAll('attachments'); } catch (_) { allAttachments = []; }
+    for (const att of allAttachments) {
+      if (!activeStoredIds.has(att.id)) {
+        await dbDelete('attachments', att.id);
+        deletedCount++;
+      }
+    }
+
     return deletedCount;
   } catch (e) {
     console.error('清理垃圾图片失败:', e);
     return 0;
   }
+}
+
+// 一次性迁移：把旧三层"只挂 chapterId"的卡片归一成权威 taskId
+export function normalizePointOwnership() {
+  const points = read(K.points);
+  const chapters = read(K.chapters);
+  const chMap = new Map(chapters.map(c => [c.id, c.taskId]));
+
+  let migrated = 0;
+  points.forEach(p => {
+    if (!p.taskId && p.chapterId && chMap.has(p.chapterId)) {
+      p.taskId = chMap.get(p.chapterId);
+      delete p.chapterId;
+      p.updatedAt = now();
+      migrated++;
+    }
+  });
+
+  write(K.points, points);
+  return migrated;
 }
