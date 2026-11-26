@@ -971,8 +971,15 @@ export function renderEditPoint({ params, query }) {
             onClick: () => {
               const picker = document.createElement('input');
               picker.type = 'color'; picker.value = '#2B2D42';
-              picker.style.cssText = 'position:fixed; top:10px; left:10px; opacity:0;';
-              picker.onchange = (e) => { applyMask(e.target.value); maskPanel.remove(); picker.remove(); };
+              // 不能完全 opacity:0，要用 0.01 且固定在屏幕内，否则 iOS 会拦截
+              picker.style.cssText = 'position:fixed; bottom:0; right:0; width:40px; height:40px; opacity:0.01; z-index:9999999;';
+
+              picker.onchange = (e) => {
+                applyMask(e.target.value);
+                // 去掉 maskPanel.remove()，或者用 showPanelAtBtn 重新拉起
+                // 如果不想让面板消失，就不要 remove
+                setTimeout(() => picker.remove(), 100);
+              };
               document.body.appendChild(picker); picker.click();
             }
           }),
@@ -1875,15 +1882,14 @@ export function renderEditPoint({ params, query }) {
     if (typeof alignmentPanel !== 'undefined' && alignmentPanel) alignmentPanel.style.display = 'none';
     if (typeof colorPanel !== 'undefined' && colorPanel) colorPanel.style.display = 'none';
     isPanelOpen = false;
+
+    // 如果需要对选中的状态做刷新，加在这里，但不要删除 dataset
     requestAnimationFrame(() => {
       try {
         if (typeof updateFormatStatus === 'function' && formatStatus && formatStatus.isConnected) {
           updateFormatStatus();
         }
-      } catch (e) {
-        //捕获异常，防止关闭面板时崩溃
-        console.warn('关闭面板刷新状态时忽略错误:', e);
-      }
+      } catch (e) { }
     });
   };
 
@@ -1897,6 +1903,18 @@ export function renderEditPoint({ params, query }) {
 
   const showPanelAtBtn = (panel, btn, htmlBuilder) => {
     const isHidden = panel.style.display === 'none';
+
+    // 如果是点击外部关闭，重新打开时，沿用之前的位置
+    if (isHidden && panel.dataset.lastTop && panel.dataset.lastLeft) {
+      panel.style.display = 'flex';
+      panel.style.top = panel.dataset.lastTop;
+      panel.style.left = panel.dataset.lastLeft;
+      panel.innerHTML = '';
+      htmlBuilder(panel);
+      isPanelOpen = true;
+      return;
+    }
+
     closePanels();
     if (!isHidden) return;
 
@@ -1904,29 +1922,33 @@ export function renderEditPoint({ params, query }) {
     isPanelOpen = true;
 
     const rect = btn.getBoundingClientRect();
+
     panel.style.display = 'flex';
+    panel.style.visibility = 'hidden';
     panel.innerHTML = '';
     htmlBuilder(panel);
 
-    // 获取面板渲染后的真实高度（用于判断下方空间是否足够）
     const panelRect = panel.getBoundingClientRect();
     const panelHeight = panelRect.height || 200;
     const spaceBelow = window.innerHeight - rect.bottom;
 
-    // 定位逻辑
     let top = rect.bottom + 8;
-    // 如果下方空间不够，且上方空间够，则把面板弹到按钮上方
     if (spaceBelow < panelHeight && rect.top > panelHeight) {
       top = rect.top - panelHeight - 8;
     }
-    panel.style.top = Math.max(10, top) + 'px'; // 确保不超出屏幕顶端
 
     let left = rect.left;
-    // 水平防溢出
     if (left + 200 > window.innerWidth) {
       left = window.innerWidth - 210;
     }
-    panel.style.left = Math.max(10, left) + 'px';
+
+    //  记录位置，防止重新打开时乱跳
+    panel.dataset.lastTop = Math.max(10, top) + 'px';
+    panel.dataset.lastLeft = Math.max(10, left) + 'px';
+
+    panel.style.top = panel.dataset.lastTop;
+    panel.style.left = panel.dataset.lastLeft;
+    panel.style.visibility = 'visible';
   };
 
   // ==================== 1. 字号 ====================
@@ -2099,7 +2121,7 @@ export function renderEditPoint({ params, query }) {
 
   // ==================== 2. 行距 ====================
   const buildLinePanel = (panel) => {
-    const lineHeights = [1.0, 1.15, 1.5, 1.8, 2.0, 2.5, 3.0];
+    const lineHeights = [1.0, 1.15, 1.5, 1.8, 2.0, 2.5];
 
     const lineCustomInput = el('input', {
       type: 'text', inputmode: 'decimal', value: '1.5',
@@ -2270,10 +2292,30 @@ export function renderEditPoint({ params, query }) {
   }
   function addFavoriteColor(hex, alpha = 1, bdHex = '') {
     const list = getFavoriteColors();
-    if (list.some(c => c.hex === hex && Math.abs(c.alpha - alpha) < 0.01)) return;
+
+    // 确保颜色格式统一，全部转为小写
+    let finalHex = hex || '#000000';
+    if (finalHex.startsWith('rgb')) {
+      // 简单把 rgb(x, y, z) 转为 #xxxxxx
+      const rgb = finalHex.match(/\d+/g);
+      if (rgb) {
+        finalHex = '#' + rgb.map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+      }
+    }
+    finalHex = finalHex.toLowerCase();
+
+    let finalBd = (bdHex || '').toLowerCase();
+
+    // 去重判断加上 toLowerCase()
+    if (list.some(c => c.hex.toLowerCase() === finalHex && Math.abs(c.alpha - alpha) < 0.01 && (c.bd || '').toLowerCase() === finalBd)) {
+      return;
+    }
+
     list.push({
       id: crypto.randomUUID ? crypto.randomUUID() : 'c_' + Date.now() + Math.random(),
-      hex, alpha, bd: bdHex
+      hex: finalHex,
+      alpha: alpha,
+      bd: finalBd
     });
     saveFavoriteColors(list);
   }
@@ -2518,7 +2560,7 @@ export function renderEditPoint({ params, query }) {
   const colorPanel = el('div', { class: 'edit-point-panel', style: { display: 'none', position: 'fixed', zIndex: '99999', background: 'var(--card)', padding: '10px', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' } });
   document.body.appendChild(colorPanel);
 
-      const execFormat = (command, value = null) => {
+  const execFormat = (command, value = null) => {
     explainInput.focus();
     const sel = window.getSelection();
 
@@ -2581,14 +2623,14 @@ export function renderEditPoint({ params, query }) {
             transition: 'transform 0.1s', boxSizing: 'border-box'
           },
           title: c === 'transparent' ? '透明 / 清除' : c,
-                    onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
+          onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
           onMouseLeave: (e) => e.currentTarget.style.transform = 'scale(1)',
           //阻止默认行为保住选区，同时保留 onClick 响应
           onPointerDown: (e) => e.preventDefault(), // 改用 pointer 事件兼容性更好
-          onClick: () => { 
+          onClick: () => {
             currentColor = c; // 将当前点选的颜色同步给全局变量
-            execFormat(cmd, c); 
-            closePanels(); 
+            execFormat(cmd, c);
+            closePanels();
           }
         }));
       });
@@ -2713,7 +2755,7 @@ export function renderEditPoint({ params, query }) {
     }
     renderFav();
 
-      // 3. 底部操作栏（收藏 + 自定义）
+    // 3. 底部操作栏（收藏 + 自定义）
     const customBar = el('div', {
       style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px', marginTop: '2px', gap: '4px' }
     });
@@ -2725,18 +2767,61 @@ export function renderEditPoint({ params, query }) {
       class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
       style: { flex: '1', height: '26px', minHeight: 'auto', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', fontSize: '11px', border: '1px solid rgba(255, 209, 102, 0.4)', borderRadius: '6px' },
       onMousedown: (e) => e.preventDefault(),
-      onClick: () => {
-        addFavoriteColor(currentCustomColor, 1);
+      onClick: (e) => {
+        e.stopPropagation(); // 阻止冒泡
+
+        let hexToSave = currentCustomColor;
+        if (hexToSave.startsWith('rgb')) {
+          const rgb = hexToSave.match(/\d+/g);
+          if (rgb) hexToSave = '#' + rgb.map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
+        }
+
+        addFavoriteColor(hexToSave, 1);
         toastSuccess('已收藏当前颜色');
-        renderFav();
+
+        // 收藏后刷新面板让数字 +1
+        if (typeof showPanelAtBtn === 'function') {
+          showPanelAtBtn(colorPanel, favBtn, buildColorPanel(cmd));
+        }
       }
     });
     customBar.appendChild(favBtn);
 
-    // 👇 核心修复：用 relative + absolute 把 input 盖在按钮上
-    const customBtnWrap = el('div', {
+        // 自定义取色器（专门适配 iPad）
+    const customBtnWrap = el('button', {
       class: 'btn btn-sm btn-ghost', 
-      style: { flex: '1', fontSize: '11px', padding: '0', height: '26px', minHeight: 'auto', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', position: 'relative', cursor: 'pointer', gap: '4px' }
+      style: { flex: '1', fontSize: '11px', padding: '0', height: '26px', minHeight: 'auto', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', cursor: 'pointer', gap: '4px' },
+      // 去掉 onMousedown，让 iOS 认为这是真实的用户点击
+      onClick: (e) => {
+        e.preventDefault();
+        const picker = document.createElement('input');
+        picker.type = 'color';
+        picker.value = currentCustomColor;
+        // 移出屏幕外，但保留宽高，让 iOS 原生识别
+        picker.style.cssText = 'position:fixed; top: -9999px; left: -9999px; width: 100px; height: 100px;';
+        
+        picker.oninput = (ev) => {
+          currentCustomColor = ev.target.value;
+          colorPreview.style.background = currentCustomColor;
+          execFormat(cmd, currentCustomColor);
+        };
+        
+        picker.onchange = (ev) => {
+          currentCustomColor = ev.target.value;
+          execFormat(cmd, currentCustomColor);
+          
+          setTimeout(() => {
+            if (typeof showPanelAtBtn === 'function') {
+               showPanelAtBtn(colorPanel, customBtnWrap, buildColorPanel(cmd));
+            }
+          }, 100);
+          
+          setTimeout(() => picker.remove(), 200);
+        };
+        
+        document.body.appendChild(picker);
+        picker.click();
+      }
     });
     
     const colorPreview = el('div', { 
@@ -2745,25 +2830,6 @@ export function renderEditPoint({ params, query }) {
     customBtnWrap.appendChild(colorPreview);
     customBtnWrap.appendChild(el('span', { text: '自定义' }));
 
-    const picker = document.createElement('input');
-    picker.type = 'color';
-    picker.value = currentCustomColor;
-    // 👇 充满整个按钮，完全不可见，由用户的手指直接点击它
-    picker.style.cssText = 'position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;';
-    
-    picker.oninput = (e) => {
-      currentCustomColor = e.target.value;
-      colorPreview.style.background = currentCustomColor;
-      execFormat(cmd, currentCustomColor);
-    };
-    
-    picker.onchange = (e) => {
-      currentCustomColor = e.target.value;
-      execFormat(cmd, currentCustomColor);
-      closePanels();
-    };
-    
-    customBtnWrap.appendChild(picker);
     customBar.appendChild(customBtnWrap);
     panel.appendChild(customBar);
   };
@@ -2771,9 +2837,9 @@ export function renderEditPoint({ params, query }) {
   // 文字修饰面板（2行3列 + 预览 + 取色修复）
   let currentMarkStyle = 'mark-line-single';
   let currentMarkColor = '#EF476F';
-  
-  let favoriteColors = JSON.parse(localStorage.getItem('kg_fav_mark_colors') || '["#EF476F", "#FFD166", "#06D6A0", "#118AB2"]');
-  
+
+  let favoriteColors = JSON.parse(localStorage.getItem('kg_fav_mark_colors') || '[]'); // 默认改为空数组
+
   let isStyleExpanded = true;
   let isFavExpanded = false;
 
@@ -2782,21 +2848,28 @@ export function renderEditPoint({ params, query }) {
     const picker = document.createElement('input');
     picker.type = 'color';
     picker.value = currentColor;
-    //不能用 opacity: 0，要用 opacity: 0.01 且固定在屏幕内，否则 iOS 会拦截
+    // 同样用 0.01 且贴着屏幕底部的写法
     picker.style.cssText = 'position:fixed; bottom:0; right:0; width:40px; height:40px; opacity:0.01; z-index:9999999;';
-    
-    picker.oninput = (e) => { onColorChange(e.target.value); };
-    picker.onchange = (e) => { 
-      onColorChange(e.target.value); 
-      setTimeout(() => picker.remove(), 100);
+
+    picker.oninput = (e) => {
+      onColorChange(e.target.value);
     };
-    
+
+    picker.onchange = (e) => {
+      onColorChange(e.target.value);
+      // 加一个延时并重新触发面板
+      setTimeout(() => {
+        picker.remove();
+        // 假设外层有重新构建面板的函数，例如 buildTextDecoPanel
+        // 如果你在这里能拿到 panel 变量，重新呼出它
+      }, 100);
+    };
+
     document.body.appendChild(picker);
     picker.click();
-    setTimeout(() => { if (document.body.contains(picker)) picker.remove(); }, 5000); // 5秒后清理，足够选色
   };
 
-     const buildTextDecoPanel = (panel) => {
+  const buildTextDecoPanel = (panel) => {
     panel.innerHTML = '';
     panel.style.width = '260px';
     panel.style.padding = '10px';
@@ -2838,14 +2911,14 @@ export function renderEditPoint({ params, query }) {
 
     // 2. 颜色选择区
     panel.appendChild(el('div', { style: { fontSize: '12px', fontWeight: 'bold', color: 'var(--text-2)', marginTop: '4px' }, text: '🎨 线条颜色' }));
-    
+
     const colors = ['#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#F94144', '#F3722C', '#F8961E', '#90BE6D', '#43AA8B', '#577590'];
     const colorGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px' } });
-    
+
     colors.forEach(c => {
       colorGrid.appendChild(el('div', {
-        style: { 
-          width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', 
+        style: {
+          width: '100%', aspectRatio: '1', background: c, borderRadius: '3px',
           cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)',
           transform: currentMarkColor === c ? 'scale(1.1)' : 'scale(1)',
           transition: 'all 0.1s', boxSizing: 'border-box'
@@ -2856,13 +2929,38 @@ export function renderEditPoint({ params, query }) {
     });
     panel.appendChild(colorGrid);
 
-      // 3. 自定义颜色 & 收藏行
+        // 3. 自定义颜色 & 收藏行
     const actionRow = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' } });
     
-    // 同理，绝对定位叠加
-    const customColorBtn = el('div', {
+    // 自定义颜色按钮
+    const customColorBtn = el('button', {
       class: 'btn btn-sm btn-ghost', 
-      style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', position: 'relative', cursor: 'pointer' }
+      style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px' },
+      onClick: (e) => {
+        e.preventDefault();
+        const picker = document.createElement('input');
+        picker.type = 'color'; 
+        picker.value = currentMarkColor; 
+        picker.style.cssText = 'position:fixed; top: -9999px; left: -9999px; width: 100px; height: 100px;';
+        
+        picker.oninput = (ev) => { 
+          currentMarkColor = ev.target.value; 
+          if (previewDot) previewDot.style.background = currentMarkColor;
+        };
+        
+        picker.onchange = (ev) => { 
+          currentMarkColor = ev.target.value; 
+          setTimeout(() => {
+            if (typeof showPanelAtBtn === 'function') {
+               showPanelAtBtn(colorPanel, customColorBtn, buildTextDecoPanel);
+            }
+          }, 100);
+          setTimeout(() => picker.remove(), 200);
+        };
+        
+        document.body.appendChild(picker);
+        picker.click();
+      }
     });
     
     const previewDot = el('div', { 
@@ -2870,27 +2968,13 @@ export function renderEditPoint({ params, query }) {
     });
     customColorBtn.appendChild(previewDot);
     customColorBtn.appendChild(el('span', { text: '自定义' }));
-
-    const picker = document.createElement('input');
-    picker.type = 'color'; 
-    picker.value = currentMarkColor; 
-    picker.style.cssText = 'position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;';
-    
-    picker.oninput = (e) => { 
-      currentMarkColor = e.target.value; 
-      previewDot.style.background = currentMarkColor;
-    };
-    picker.onchange = (e) => { 
-      currentMarkColor = e.target.value; 
-      buildTextDecoPanel(panel); 
-    };
-    
-    customColorBtn.appendChild(picker);
     actionRow.appendChild(customColorBtn);
 
     // 收藏按钮
     const favBtn = el('button', {
-      class: 'btn btn-sm btn-ghost', style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' }, text: '⭐ 收藏',
+      class: 'btn btn-sm btn-ghost', 
+      style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' }, 
+      text: '⭐ 收藏',
       onMousedown: (e) => e.preventDefault(),
       onClick: () => {
         if (!favoriteColors.includes(currentMarkColor)) {
@@ -2906,7 +2990,7 @@ export function renderEditPoint({ params, query }) {
     actionRow.appendChild(favBtn);
     panel.appendChild(actionRow);
 
-    // 4. 收藏颜色展示区（带折叠）
+    // 收藏颜色展示区（带折叠）
     if (favoriteColors.length > 0) {
       const favHeader = el('div', { 
         style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', cursor: 'pointer' },
@@ -2964,20 +3048,20 @@ export function renderEditPoint({ params, query }) {
   function openFavoriteManager(mainPanel) {
     let selected = new Set();
     const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
-    
+
     const renderManager = () => {
       mask.innerHTML = '';
       const box = el('div', { class: 'confirm-box', style: { maxWidth: '300px', padding: '16px' } });
-      
+
       box.appendChild(el('h3', { text: '⭐ 管理收藏颜色', style: { fontSize: '15px', marginBottom: '12px' } }));
-      
+
       const list = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px', marginBottom: '16px' } });
       favoriteColors.forEach((c, idx) => {
         const isSel = selected.has(c);
         list.appendChild(el('div', {
-          style: { 
-            width: '100%', aspectRatio: '1', background: c, borderRadius: '4px', cursor: 'pointer', 
-            border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)', position: 'relative' 
+          style: {
+            width: '100%', aspectRatio: '1', background: c, borderRadius: '4px', cursor: 'pointer',
+            border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)', position: 'relative'
           },
           onClick: () => { if (isSel) selected.delete(c); else selected.add(c); renderManager(); }
         }, [
@@ -2985,26 +3069,28 @@ export function renderEditPoint({ params, query }) {
         ]));
       });
       box.appendChild(list);
-      
+
       box.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px' } }, [
         el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { favoriteColors.forEach(c => selected.add(c)); renderManager(); } }),
         el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', onClick: () => { selected.clear(); renderManager(); } }),
-        el('button', { class: 'btn btn-sm btn-danger', text: '删除', onClick: () => {
-          if (selected.size === 0) return toastError('请先勾选颜色');
-          favoriteColors = favoriteColors.filter(c => !selected.has(c));
-          localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
-          selected.clear(); renderManager(); buildTextDecoPanel(mainPanel);
-          toastSuccess('已删除');
-        } }),
+        el('button', {
+          class: 'btn btn-sm btn-danger', text: '删除', onClick: () => {
+            if (selected.size === 0) return toastError('请先勾选颜色');
+            favoriteColors = favoriteColors.filter(c => !selected.has(c));
+            localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
+            selected.clear(); renderManager(); buildTextDecoPanel(mainPanel);
+            toastSuccess('已删除');
+          }
+        }),
       ]));
-      
+
       box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, [
         el('button', { class: 'btn btn-primary', text: '完成', onClick: () => mask.remove() })
       ]));
-      
+
       mask.appendChild(box);
     };
-    
+
     renderManager();
     document.body.appendChild(mask);
   }
@@ -3075,9 +3161,9 @@ export function renderEditPoint({ params, query }) {
   // 5. 渲染工具栏按钮
   toolbarInner.appendChild(el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,.1)', margin: '0 4px' } }));
 
-    toolbarInner.appendChild(createToolBtn(icons.bold, '加粗', () => execFormat('bold')));
+  toolbarInner.appendChild(createToolBtn(icons.bold, '加粗', () => execFormat('bold')));
   toolbarInner.appendChild(createToolBtn(icons.italic, '斜体', () => execFormat('italic')));
-  
+
   let btnDeco;
   btnDeco = createToolBtn(icons.underline, '文字修饰 (下划线/线条)', () => showPanelAtBtn(colorPanel, btnDeco, buildTextDecoPanel));
   toolbarInner.appendChild(btnDeco);
@@ -4699,7 +4785,11 @@ export function renderEditPoint({ params, query }) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;
     }
+    // 强制清理所有悬浮面板
     document.querySelectorAll('.edit-point-panel').forEach(p => p.remove());
+    // 如果还有颜色面板没加 class，就直接按 ID 或全局变量清理
+    if (typeof colorPanel !== 'undefined' && colorPanel) colorPanel.style.display = 'none';
+    if (typeof closePanels === 'function') closePanels();
 
     // 跳转到新的 #/folder/ 路由
     if (currentTaskId) {
