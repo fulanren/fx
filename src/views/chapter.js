@@ -675,7 +675,12 @@ export function renderFolderDetail({ params, query }) {
       el('div', { text: '点击右下角 + 新建文件夹或卡片', style: { fontSize: '13px', marginTop: '8px' } })
     ]));
   } else if (points.length > 0) {
-    const list = el('div', { id: 'point-list' });
+    const list = el('div', {
+      id: 'point-list', style: {
+        marginTop: '0px',   // 消除列表上方的默认间距
+        paddingTop: '0px'   // 消除内边距
+      }
+    });
     points.forEach(p => list.appendChild(pointCard(p, folderId)));
     view.appendChild(list);
     if (!ptMulti && typeof makeSortable === 'function') {
@@ -795,7 +800,7 @@ function pointCard(p, folderId) {
   });
 
   if (p.imageIds && p.imageIds.length > 0) {
-    footerRow.appendChild(el('div', { style: { fontSize: '13px', color: 'var(--primary)', fontWeight: '600' }, text: `🖼 包含 ${p.imageIds.length} 张图文附件` }));
+    footerRow.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-2)', fontWeight: 'normal' }, text: `🖼 包含 ${p.imageIds.length} 张图文附件` }));
   } else {
     footerRow.appendChild(el('div'));
   }
@@ -815,7 +820,14 @@ function pointCard(p, folderId) {
 
   const container = el('div', {
     class: 'point-card-container',
-    style: { marginBottom: '6px', position: 'relative', overflow: 'hidden', borderRadius: '6px', background: 'var(--card)' }
+    style: {
+      marginTop: '0px',    // 强制清除顶部间距
+      marginBottom: '0px', // 强制清除底部间距
+      position: 'relative',
+      overflow: 'hidden',
+      borderRadius: '0px',
+      background: 'transparent'
+    }
   }, [
     card,
     el('div', {
@@ -2402,12 +2414,17 @@ export function taskCard(task, currentFolderId, depth = 0) {
     'data-id': task.id,
     style: {
       display: 'flex', flexDirection: 'column', gap: '2px', cursor: 'pointer',
-      marginBottom: '4px', marginLeft: indent + 'px',
+      marginBottom: '0px',
+      marginLeft: indent + 'px',
       borderLeft: depth > 0 ? '2px solid rgba(142,202,230,0.3)' : 'none',
-      padding: '6px 10px',
-      // 强制去掉了外层巨厚的白边，普通状态下背景透明，批量选中时才有边框
-      background: 'transparent',
-      border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.05)'
+      padding: '4px 10px',
+      background: 'rgba(0,0,0,0.02)',
+
+      // 去掉下边框，改成顶部高亮
+      border: isSelected ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.04)',
+      borderTop: depth === 0 ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.04)',
+
+      boxSizing: 'border-box'
     },
     onClick: (e) => {
 
@@ -2456,11 +2473,16 @@ export function taskCard(task, currentFolderId, depth = 0) {
             }
             localStorage.setItem('kg_collapsed_folders', JSON.stringify([...set]));
 
-            // 既然在当前页面，直接调用当前页面的专用刷新函数
-            if (window.currentPageRefresh) {
-              window.currentPageRefresh();
+            // 不再刷新整个页面，而是直接找旁边的 subContainer 进行切换
+            const thisCard = e.target.closest('.card');
+            if (thisCard && thisCard.nextElementSibling && thisCard.nextElementSibling.classList.contains('sub-folder-container')) {
+              const subContainer = thisCard.nextElementSibling;
+              const isHidden = subContainer.style.display === 'none';
+              subContainer.style.display = isHidden ? 'flex' : 'none';
+              e.target.textContent = isHidden ? '▾' : '▸';
             } else {
-              window.location.reload();
+              // 兜底：如果没有找到子容器，再尝试重绘
+              if (window.currentPageRefresh) window.currentPageRefresh();
             }
           }
         }) : el('span', { style: { width: isBatchMode ? '0' : '24px', display: 'inline-block' } }),
@@ -2479,7 +2501,11 @@ export function taskCard(task, currentFolderId, depth = 0) {
         ])
       ]),
 
-      el('div', { class: 'card-actions', style: { display: 'flex', gap: '2px' } }, [
+      el('div', { class: 'card-actions', style: { display: 'flex', gap: '6px', alignItems: 'center' } }, [
+        // 卡片数量统计
+        el('span', { style: { fontSize: '11px', color: 'var(--text-2)', whiteSpace: 'nowrap' }, text: `💡 ${totalPointCount} 张卡片` }),
+
+        // 下面是你原有的操作按钮
         !isBatchMode ? el('button', { class: 'btn btn-sm btn-ghost', text: '🏷️', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '管理状态标签', onClick: (e) => { e.stopPropagation(); showStatusTagManager(task); } }) : null,
         !isBatchMode ? el('button', {
           class: 'btn btn-sm btn-ghost', text: '➕📁', style: { padding: '0 4px', height: '24px', minHeight: '24px' }, title: '新建子文件夹',
@@ -2509,22 +2535,20 @@ export function taskCard(task, currentFolderId, depth = 0) {
     ]),
 
     task.note ? el('div', { style: { fontSize: '12px', color: 'var(--text-2)', lineHeight: '1.2' }, text: task.note }) : null,
-
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px', marginTop: '0px', paddingLeft: isBatchMode ? '24px' : '24px' } }, [
-      el('span', { style: { fontSize: '11px', color: 'var(--text-2)' }, text: `💡 ${totalPointCount} 张卡片` }),
-      hasSub ? el('span', { style: { fontSize: '11px', color: 'var(--primary)' }, text: `📁 ${subFolders.length} 个子文件夹` }) : null
-    ])
   ]);
 
   // 递归渲染子文件夹
-  if (hasSub && !isCollapsed) {
-    const subContainer = el('div', { style: { paddingLeft: '12px' } });
+  if (hasSub) {
+    // 无论折叠与否，我们都在 DOM 里生成这个容器，只是控制它的 display
+    const subContainer = el('div', {
+      class: 'sub-folder-container',
+      style: { display: isCollapsed ? 'none' : 'flex', flexDirection: 'column', paddingLeft: '0px' }
+    });
     subFolders.forEach(sub => {
       subContainer.appendChild(taskCard(sub, currentFolderId, depth + 1));
     });
-    return el('div', { style: { background: 'transparent' } }, [cardEl, subContainer]); //  去掉包裹层的白底
+    return el('div', { style: { background: 'transparent' } }, [cardEl, subContainer]);
   }
-
   return cardEl;
 }
 

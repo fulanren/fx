@@ -479,9 +479,16 @@ export function getPoint(id) {
 }
 export function createPoint(patch) {
   const list = read(K.points);
+
+  // 这里必须先算出当前的 order，绝不能使用未定义的 p
+  const currentTaskId = patch.taskId || patch.chapterId || null;
+  const orderCount = list.filter(x => (x.taskId === currentTaskId || x.chapterId === currentTaskId) && !x.deletedAt).length;
+
   const p = {
     id: uuid(),
-    taskId: patch.taskId || null, // 用 taskId 代替 chapterId
+    chapterId: patch.chapterId || patch.taskId || null,
+    taskId: patch.taskId || patch.chapterId || null,
+
     content: patch.content || '未命名卡片',
     explanation: patch.explanation || '',
     imageIds: patch.imageIds || [],
@@ -493,23 +500,30 @@ export function createPoint(patch) {
     nextReviewAt: now(),
     reviewHistory: [],
     isErrorProne: patch.isErrorProne || false,
-    order: list.filter(x => x.taskId === patch.taskId && !x.deletedAt).length,
+
+    // 这里使用刚才算好的 orderCount
+    order: orderCount,
     createdAt: now(),
     updatedAt: now(),
   };
+
   list.push(p);
   write(K.points, list);
   return p;
 }
+
 export function updatePoint(id, patch) {
   const list = read(K.points);
   const i = list.findIndex(p => p.id === id);
   if (i < 0) return null;
-  // 把 patch 里的 chapterId 转为 taskId（如果传了的话）
-  if (patch.chapterId !== undefined) {
+
+  // 如果更新了 taskId，顺手把 chapterId 也同步更新，保证双向兼容
+  if (patch.taskId !== undefined) {
+    patch.chapterId = patch.taskId;
+  } else if (patch.chapterId !== undefined) {
     patch.taskId = patch.chapterId;
-    delete patch.chapterId;
   }
+
   list[i] = { ...list[i], ...patch, updatedAt: now() };
   write(K.points, list);
   return list[i];

@@ -4164,12 +4164,13 @@ export function renderEditPoint({ params, query }) {
     view.appendChild(audioSection);
   }
 
-  view.appendChild(el('div', { class: 'edit-footer' }, [
-    status,
+  view.appendChild(el('div', { class: 'edit-footer', style: { display: 'flex', gap: '8px', alignItems: 'center' } }, [
+    el('div', { style: { flex: '1', display: 'flex', justifyContent: 'flex-start' } }, [status]),
+
     el('button', {
       class: 'btn btn-ghost',
       text: '📸 生成分享图/PDF',
-      style: { flex: '0 1 auto', padding: '0 12px', color: 'var(--primary-dark)' },
+      style: { flex: '2', padding: '0 8px', minHeight: '36px', fontSize: '13px', color: 'var(--primary-dark)', whiteSpace: 'nowrap' },
       onClick: async () => {
         if (!form.content.trim()) {
           toastError('内容为空，无法生成');
@@ -4352,13 +4353,43 @@ export function renderEditPoint({ params, query }) {
         }
       }
     }),
-    el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => goBack() }),
-    el('button', { class: 'btn btn-primary', text: '保存', onClick: () => doSave() }),
+    el('button', {
+      class: 'btn btn-ghost',
+      text: '取消',
+      style: { flex: '1', minHeight: '36px', fontSize: '13px' },
+      onClick: () => goBack()
+    }),
+
+    el('button', {
+      class: 'btn btn-primary',
+      text: '保存',
+      style: { flex: '1', minHeight: '36px', fontSize: '14px', fontWeight: 'bold' },
+      onClick: () => doSave()
+    }),
   ]));
 
   async function doSave() {
-    // 对于富文本，content 依然可以是纯文本，但 explanation 是 HTML
-    if (!form.content.trim()) { setStatus('请填写内容', 'failed'); contentInput.focus(); return; }
+    // 强行从 DOM 抓取最新的内容，防止因未触发 input 事件导致 form 为空
+    if (contentInput.tagName === 'TEXTAREA') {
+      form.content = contentInput.value;
+    } else {
+      form.content = contentInput.innerHTML;
+    }
+
+    // 兼容纯文本和富文本的空内容校验，并给出明确提示
+    let plainTextContent = '';
+    if (contentInput.tagName === 'TEXTAREA') {
+      plainTextContent = form.content.trim();
+    } else {
+      plainTextContent = form.content.replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').trim();
+    }
+
+    if (!plainTextContent) {
+      setStatus('请填写内容', 'failed');
+      contentInput.focus();
+      toastError('内容不能为空'); // 加上提示，防止按了没反应
+      return;
+    }
 
     // 直接从 DOM 读取勾选框状态，不依赖 form 缓存
     const diffCheckbox = document.querySelector('input[type="checkbox"][data-key="showDiff"]');
@@ -4367,57 +4398,53 @@ export function renderEditPoint({ params, query }) {
     const finalShowDiff = diffCheckbox ? diffCheckbox.checked : false;
     const finalShowCount = countCheckbox ? countCheckbox.checked : false;
 
-    // 简单清洗一下富文本里的垃圾标签
-    // 强行从 DOM 抓取最新的内容，防止 onInput 偶尔失灵
+    // 强行从 DOM 抓取最新的解释内容
     if (explainInput) {
       form.explanation = explainInput.innerHTML;
     }
     let cleanExplanation = form.explanation || '';
 
-    //保存时，把可视化的公式节点洗回纯文本的 $...$ 格式
+    // 保存时，把可视化的公式节点洗回纯文本的 $...$ 格式
     cleanExplanation = cleanExplanation.replace(/<span class="math-node"[^>]*data-latex="([^"]+)"[^>]*>.*?<\/span>/g, (match, latex) => {
-      // 把转义的引号还原
       const decodedLatex = latex.replace(/&quot;/g, '"');
       return ` $${decodedLatex}$ `;
     });
 
-    // 落库前剥掉所有临时 blob 预览链接，只保留 data-img-id 引用。
-    // 图片本体已在 IndexedDB(images)，读回时由 hydrateExplainImgs() 重新水合，
-    // 因此不再需要 base64 内嵌 —— 这是卡片体积膨胀、保存转圈、导出变慢的直接原因。
+    // 落库前剥掉所有临时 blob 预览链接
     cleanExplanation = cleanExplanation.replace(
       /<img[^>]*>/g,
       tag => /\bdata-img-id=/.test(tag) ? tag.replace(/\s*src="blob:[^"]*"/g, '') : tag
     );
 
-    //提取纯背景色，存入独立字段（不再包裹 div 造成视觉套娃）
+    // 提取纯背景色
     const currentBg = explainInput.style.backgroundColor;
     const finalBg = (currentBg && currentBg !== 'var(--card)' && currentBg !== 'transparent' && currentBg !== 'rgba(0, 0, 0, 0)') ? currentBg : '';
 
     // 卡片重名检测：严格限定在“同一归属范围”内比对。
-    // currentTaskId 为空（散落卡片）时绝不能调 getPoints(undefined)——
     const allLive = store.getPoints();
     const currentFolderPoints = currentTaskId
       ? allLive.filter(p => p.taskId === currentTaskId || p.chapterId === currentTaskId)
       : allLive.filter(p => !p.taskId && !p.chapterId);
+
     const isDuplicate = currentFolderPoints.some(p => {
-      // 排除自己（如果是编辑旧卡片的话）
       if (!isNew && p.id === params.id) return false;
-      // 去掉空格后比较名字
-      return p.content.trim() === form.content.trim();
+      // 处理纯文本比较，防止富文本标签干扰
+      const pCleanContent = (p.content || '').replace(/<[^>]+>/g, '').trim();
+      return pCleanContent === plainTextContent;
     });
 
     if (isDuplicate) {
       setStatus('当前文件夹已存在同名卡片', 'failed');
       toastError('当前文件夹已存在同名卡片！');
-      return; // 拦截保存
+      return;
     }
 
     if (isNew) {
       store.createPoint({
         taskId: currentTaskId,
-        content: form.content,
-        explanation: cleanExplanation, //保存纯净的富文本 HTML
-        themeBg: finalBg,              //独立保存主题背景色
+        content: form.content.trim(),
+        explanation: cleanExplanation,
+        themeBg: finalBg,
         difficulty: form.difficulty,
         showDifficultyBeforeExpand: finalShowDiff,
         showReviewCountBeforeExpand: finalShowCount,
@@ -4427,9 +4454,9 @@ export function renderEditPoint({ params, query }) {
     } else {
       store.updatePoint(params.id, {
         taskId: currentTaskId,
-        content: form.content,
-        explanation: cleanExplanation, //保存纯净的富文本 HTML
-        themeBg: finalBg,              //独立保存主题背景色
+        content: form.content.trim(),
+        explanation: cleanExplanation,
+        themeBg: finalBg,
         difficulty: form.difficulty,
         isErrorProne: form.isErrorProne,
         reviewCount: form.reviewCount,
@@ -4444,7 +4471,6 @@ export function renderEditPoint({ params, query }) {
 
     clearDraft('point', entityId);
 
-    // 主动释放本页的 document 级监听与面板
     if (window.__editPointAbort) {
       window.__editPointAbort.abort();
       window.__editPointAbort = null;

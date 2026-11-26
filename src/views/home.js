@@ -164,7 +164,6 @@ export function renderHome() {
   }
 
   // ================== 如果是普通模式 ==================
-
   // 3. 渲染散落卡片
   if (scatteredPoints.length > 0) {
     const isCollapsed = getInboxCollapsed();
@@ -203,6 +202,7 @@ export function renderHome() {
               toastSuccess(`已复制 ${items.length} 张卡片`);
             }
           }),
+          // 散落卡片的“粘贴”按钮
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '📥 粘贴', onClick: () => {
               const raw = localStorage.getItem('kg_clipboard_points');
@@ -210,12 +210,34 @@ export function renderHome() {
               const points = JSON.parse(raw);
               import('./importDoc.js').then(({ showPasteOptionsModal }) => {
                 showPasteOptionsModal(async (finalChapterId, finalTaskId, targetName) => {
-                  if (!finalChapterId) return toastError('请选择目标文件夹');
+                  if (!finalTaskId) return toastError('请选择目标文件夹');
                   if (await confirmBox({ title: '粘贴卡片', message: `确定要将 ${points.length} 张卡片粘贴到「${targetName}」吗？` })) {
+
+                    // 获取目标文件夹现有的所有卡片，用于查重
+                    const existingPoints = store.getPoints(finalTaskId) || [];
+                    const existingContents = new Set(existingPoints.map(ep => ep.content));
+
                     points.forEach(p => {
-                      store.createPoint({ chapterId: finalChapterId, content: p.content, explanation: p.explanation, difficulty: p.difficulty, imageIds: p.imageIds });
+                      let finalContent = p.content;
+                      let counter = 1;
+                      // 自动递增重名检测
+                      while (existingContents.has(finalContent)) {
+                        finalContent = `${p.content} (${counter})`;
+                        counter++;
+                      }
+                      existingContents.add(finalContent);
+
+                      store.createPoint({
+                        taskId: finalTaskId,
+                        content: finalContent,
+                        explanation: p.explanation,
+                        difficulty: p.difficulty,
+                        imageIds: p.imageIds
+                      });
                     });
-                    toastSuccess('粘贴成功'); selectedCardIds.clear(); renderHome();
+                    toastSuccess('粘贴成功');
+                    selectedCardIds.clear();
+                    renderHome();
                   }
                 }, null, null, '粘贴');
               });
@@ -225,10 +247,32 @@ export function renderHome() {
             class: 'btn btn-sm btn-primary', text: `📁 移入 (${selectedCardIds.size})`, onClick: () => {
               import('./importDoc.js').then(({ showPasteOptionsModal }) => {
                 showPasteOptionsModal(async (finalChapterId, finalTaskId, targetName) => {
-                  if (!finalChapterId) return toastError('请选择目标文件夹');
+                  if (!finalTaskId) return toastError('请选择目标文件夹');
                   if (await confirmBox({ title: '移入', message: `确定将 ${selectedCardIds.size} 张卡片移入「${targetName}」吗？` })) {
-                    selectedCardIds.forEach(id => store.updatePoint(id, { chapterId: finalChapterId }));
-                    toastSuccess('已移入'); selectedCardIds.clear(); renderHome();
+
+                    // 获取目标文件夹现有的所有卡片，用于查重
+                    const existingPoints = store.getPoints(finalTaskId) || [];
+                    const existingContents = new Set(existingPoints.map(ep => ep.content));
+
+                    selectedCardIds.forEach(id => {
+                      const pt = store.getPoint(id);
+                      if (!pt) return;
+
+                      let finalContent = pt.content;
+                      let counter = 1;
+                      // 自动递增重名检测
+                      while (existingContents.has(finalContent)) {
+                        finalContent = `${pt.content} (${counter})`;
+                        counter++;
+                      }
+                      existingContents.add(finalContent);
+
+                      store.updatePoint(id, { taskId: finalTaskId, content: finalContent });
+                    });
+
+                    toastSuccess('已移入');
+                    selectedCardIds.clear();
+                    renderHome();
                   }
                 }, null, null, '移动');
               });

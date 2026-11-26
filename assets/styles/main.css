@@ -339,3 +339,31 @@ input[type="color"] { -webkit-appearance: none; appearance: none; border: none; 
 
 /* ================= 工具类 ================= */
 .hidden { display: none !important; }
+
+/* 针对首页文件夹列表的极致紧凑优化 */
+#task-list .card {
+  min-height: 32px;
+  border-radius: 8px;
+  box-shadow: none;
+}
+
+/* 强制让卡片列表的顶部和底部紧贴 */
+#point-list, #task-list {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  margin-top: 0 !important;
+  margin-bottom: 0 !important;
+}
+
+/* 强制消除卡片列表顶部的所有缝隙 */
+#point-list {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* 如果你的卡片容器有默认的 gap，也把它干掉 */
+#point-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0 !important;
+}

@@ -307,13 +307,11 @@ export { batchImportModal as globalBatchImportModal } from './batchImport.js';
 
 // ============ 通用：选择目标文件夹（支持粘贴、移动、嵌套新建） ============
 export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId, actionText = '粘贴') {
-  // 如果在首页（两个 ID 都是 null），默认选中“其他”以便让用户主动选
   let targetMode = (defaultChapterId || defaultTaskId) ? 'current' : 'other';
   let selectedOtherChapterId = null;
   let selectedOtherTaskId = null;
   let selectedOtherTaskName = '';
 
-  // 记录新建文件夹的信息
   let newFolderName = '';
   let newFolderParentTaskId = null;
   let newFolderParentTaskName = '根目录';
@@ -325,7 +323,6 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
 
     // 1. 当前层级 / 根目录
     if (defaultChapterId || defaultTaskId) {
-      // 有明确上下文（比如在某个章节里，或某个特定文件夹里）
       targetSection.appendChild(el('div', {
         style: { padding: '12px', background: targetMode === 'current' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${targetMode === 'current' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' },
         onClick: () => { targetMode = 'current'; renderTargetOptions(); }
@@ -334,7 +331,6 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
         el('span', { style: { fontWeight: '600', fontSize: '14px' }, text: `${actionText}到当前文件夹` })
       ]));
     } else {
-      // 在首页，没有当前章节，但有“根目录”的概念
       targetSection.appendChild(el('div', {
         style: { padding: '12px', background: targetMode === 'current' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${targetMode === 'current' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '10px' },
         onClick: () => { targetMode = 'current'; renderTargetOptions(); }
@@ -352,7 +348,7 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
       el('input', { type: 'radio', checked: targetMode === 'other', style: { width: '18px', height: '18px' }, readOnly: true }),
       el('div', { style: { display: 'flex', flexDirection: 'column', flex: '1', minWidth: '120px' } }, [
         el('span', { style: { fontWeight: '600', fontSize: '14px' }, text: `📂 ${actionText}到其他文件夹` }),
-        targetMode === 'other' ? el('span', { style: { fontSize: '11px', color: selectedOtherChapterId ? 'var(--primary-dark)' : 'var(--danger)' }, text: selectedOtherChapterId ? `✅ 已选：${selectedOtherTaskName}` : '⚠️ 请点击右侧按钮选择' }) : null
+        targetMode === 'other' ? el('span', { style: { fontSize: '11px', color: selectedOtherTaskId ? 'var(--primary-dark)' : 'var(--danger)' }, text: selectedOtherTaskId ? `✅ 已选：${selectedOtherTaskName}` : '⚠️ 请点击右侧按钮选择' }) : null
       ]),
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '🔍 选择',
@@ -365,6 +361,9 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           const list = el('div', { style: { maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
 
           tasks.forEach(t => {
+            // 过滤掉无效的卡片作为文件夹
+            if (!t || t.type === 'point') return;
+
             list.appendChild(el('div', {
               style: { fontWeight: '600', fontSize: '13px', padding: '8px 12px', background: 'rgba(142,202,230,.1)', borderRadius: '6px', cursor: 'pointer', marginTop: '4px' },
               text: `📁 ${t.name}`,
@@ -372,26 +371,11 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
                 const chapters = store.getChapters(t.id);
                 if (chapters.length > 0) { selectedOtherChapterId = chapters[0].id; }
                 else { selectedOtherChapterId = store.createChapter({ taskId: t.id, name: t.name }).id; }
-                selectedOtherTaskId = t.id; //记录父级 Task ID
+                selectedOtherTaskId = t.id;
                 selectedOtherTaskName = t.name;
                 targetMode = 'other'; mask.remove(); renderTargetOptions();
               }
             }));
-            store.getChapters(t.id).forEach(c => {
-              const displayName = c.name === '默认子模块' ? t.name : c.name;
-              list.appendChild(el('div', {
-                style: { padding: '8px 12px', background: 'var(--bg)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', marginLeft: '16px' },
-                text: `📄 ${displayName}`,
-                onClick: () => {
-                  selectedOtherChapterId = c.id;
-                  selectedOtherTaskId = t.id; //记录父级 Task ID
-                  selectedOtherTaskName = displayName;
-                  targetMode = 'other';
-                  mask.remove();
-                  renderTargetOptions();
-                }
-              }));
-            });
           });
           const box = el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
             el('h3', { text: '选择目标文件夹' }), list,
@@ -406,10 +390,8 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
     targetSection.appendChild(el('div', {
       style: { padding: '12px', background: targetMode === 'new' ? 'rgba(142,202,230,.15)' : 'var(--bg)', border: `1px solid ${targetMode === 'new' ? 'var(--primary)' : 'rgba(0,0,0,0.05)'}`, borderRadius: '8px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '10px' },
       onClick: (e) => {
-        //如果点的是输入框或按钮，不触发重绘，避免打断输入
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return;
-        targetMode = 'new';
-        renderTargetOptions();
+        targetMode = 'new'; renderTargetOptions();
       }
     }, [
       el('div', { style: { display: 'flex', alignItems: 'center', gap: '10px' } }, [
@@ -421,7 +403,6 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           type: 'text', placeholder: '请输入新文件夹名称...',
           value: newFolderName,
           style: { width: '100%', padding: '8px 12px', borderRadius: '6px', border: '1px solid #ccc', fontSize: '13px', outline: 'none' },
-          //阻止点击和聚焦时的事件冒泡
           onClick: (e) => e.stopPropagation(),
           onFocus: (e) => e.stopPropagation(),
           onInput: (e) => { newFolderName = e.target.value; }
@@ -431,8 +412,8 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           el('button', {
             class: 'btn btn-sm btn-ghost', text: '选择',
             onClick: (e) => {
-              e.stopPropagation(); // 防止按钮点击触发重绘
-              const tasks = store.getTasks();
+              e.stopPropagation();
+              const tasks = store.getTasks().filter(t => t && t.type !== 'point');
               const parentMask = el('div', { class: 'confirm-mask', style: { zIndex: 9999999 } });
               const parentList = el('div', { style: { maxHeight: '300px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '6px', margin: '12px 0' } });
 
@@ -477,37 +458,33 @@ export function showPasteOptionsModal(onConfirm, defaultChapterId, defaultTaskId
           class: 'btn btn-primary', text: `确认${actionText}`,
           onClick: async () => {
             let finalChapterId = defaultChapterId;
-            let finalTaskId = defaultTaskId; //记录最终的 Task ID
-            let finalTargetName = '当前层级';
+            let finalTaskId = defaultTaskId;
 
             if (targetMode === 'current') {
-              if (!finalTaskId) return toastError('没有当前层级');
-              finalTargetName = store.getTask(finalTaskId)?.name || '当前文件夹';
+              if (!finalTaskId && !finalChapterId) {
+                return toastError('没有当前层级，请选择其他文件夹或新建');
+              }
             } else if (targetMode === 'other') {
-              if (!selectedOtherChapterId) return toastError('请先挑选目标文件夹');
+              if (!selectedOtherTaskId) return toastError('请先点击右侧「🔍 选择」挑选目标');
+              finalTaskId = selectedOtherTaskId;
               finalChapterId = selectedOtherChapterId;
-              finalTargetName = selectedOtherTaskName;
             } else if (targetMode === 'new') {
               if (!newFolderName.trim()) return toastError('请输入新文件夹名称');
-              const name = newFolderName.trim();
+              const newName = newFolderName.trim();
 
-              // 建文件夹（兼容 parentId）
-              const taskPatch = { name };
+              const taskPatch = { name: newName };
               if (newFolderParentTaskId) taskPatch.parentId = newFolderParentTaskId;
               const newTask = store.createTask(taskPatch);
+              const newChap = store.createChapter({ taskId: newTask.id, name: newName });
 
-              // 建个同名子模块，防止空文件夹不显示
-              const newChap = store.createChapter({ taskId: newTask.id, name });
-
+              finalTaskId = newTask.id;
               finalChapterId = newChap.id;
-              finalTargetName = `${newFolderParentTaskName} / ${name}`;
             }
 
-            if (!finalChapterId) return toastError('请选择一个目标文件夹');
+            if (!finalTaskId) return toastError('请选择有效目标');
 
             mask.remove();
-            //注意这里多返回一个参数
-            onConfirm(finalChapterId, finalTaskId, finalTargetName);
+            onConfirm(finalChapterId, finalTaskId, '目标位置');
           }
         })
       ])
