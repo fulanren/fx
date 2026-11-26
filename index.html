@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="zh-CN">
 
@@ -82,8 +83,32 @@
   <!-- 8. html2pdf (html转pdf，结合 jspdf 使用) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
-  <!-- 9. html-docx (导出 Word) -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html-docx.js/0.1.0/html-docx.min.js"></script>
+  <!-- 9. html-docx (导出 Word)  -- 修复: cdnjs 无此库, 原地址 html-docx.js/0.1.0/html-docx.min.js 库名与文件名均错, 联网也 404
+       改用 npm 系正确源(unpkg), 同步阻塞加载, 成功后 window.htmlDocx 即就绪, 依赖体检不再报缺
+       下方 IIFE 为多重回落: 仅当 unpkg 失败时, 依次尝试 jsdelivr CDN 与项目本地 vendor(与 sw.js 预缓存清单对齐) -->
+  <script src="https://unpkg.com/html-docx-js@0.1.0/dist/html-docx.js"></script>
+  <script>
+    (function () {
+      if (window.htmlDocx) return; // 主源已成功, 无需回落
+      var chain = [
+        'https://cdn.jsdelivr.net/npm/html-docx-js@0.1.0/dist/html-docx.js',
+        './vendor/html-docx/html-docx.js'
+      ];
+      var i = 0;
+      function next() {
+        if (i >= chain.length) {
+          console.warn('[html-docx] unpkg/jsdelivr/本地 vendor 均加载失败, 导出 Word 暂不可用');
+          return;
+        }
+        var s = document.createElement('script');
+        s.src = chain[i++];
+        s.onerror = next;
+        s.onload = function () { if (!window.htmlDocx) next(); };
+        document.head.appendChild(s);
+      }
+      next();
+    })();
+  </script>
 
   <!-- 10. KaTeX (公式渲染) —— css 内部按相对路径引用 ./fonts/，本地化后字体自动生效 -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">

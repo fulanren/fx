@@ -1,3 +1,4 @@
+
 import { el, clear } from '../utils/dom.js';
 
 export function renderHelp() {
@@ -14,7 +15,20 @@ export function renderHelp() {
   const container = el('div', { style: { width: '100%', maxWidth: '100%', display: 'flex', flexDirection: 'column', gap: '10px' } });
   view.appendChild(container);
 
-  container.appendChild(el('h2', { text: '📖 资料复习系统 - 终极操作手册', style: { textAlign: 'center', marginBottom: '4px', color: 'var(--primary-dark)', fontSize: '20px' } }));
+  container.appendChild(el('h2', { text: '📖 资料复习 - 终极操作手册', style: { textAlign: 'center', marginBottom: '4px', color: 'var(--primary-dark)', fontSize: '20px' } }));
+
+  // ================= 🚨 全局红字警告 =================
+  container.appendChild(el('div', {
+    style: {
+      background: 'rgba(239,71,111,0.1)', border: '1px solid var(--danger)', color: 'var(--danger)',
+      padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold', lineHeight: '1.6', marginBottom: '10px'
+    }
+  }, [
+    el('div', { text: '🚨 数据绝对安全警告（必读）' }),
+    el('div', { text: '1. 【清除缓存极高危】在浏览器设置里清除数据时：勾选⚠️“清除网页数据/Cookie/站点数据/IndexedDB（不同浏览器稍许不同，若不确定要勾选哪些可先测试一下）”！这等同于把本系统彻底格式化。如果一定要清理，请只清理“缓存的图片和文件”。', style: { fontWeight: 'normal', marginTop: '4px' } }),
+    el('div', { text: '2. 【换浏览器/换设备】数据完全隔离，请务必先用【导出数据】功能打包 ZIP 备份。', style: { fontWeight: 'normal', marginTop: '4px' } }),
+    el('div', { text: '3. 【安装到本地】如果你想下载安装为独立 App（PWA），必须在浏览器弹出的权限弹窗中点击“允许”，否则会安装失败。若没弹窗，就前往本地权限打开允许', style: { fontWeight: 'normal', marginTop: '4px' } })
+  ]));
 
   // ================= 核心折叠面板生成器 =================
   function createSection(title, htmlContent) {
@@ -58,22 +72,60 @@ export function renderHelp() {
     <div style="margin-bottom: 8px;"><b>👉 散落卡片特殊管理：</b><br>无归属的卡片进入首页“散落卡片”区。点击「☑ 多选」同样支持全选、复制、粘贴、移入指定文件夹及批量删除。</div>
   `));
 
-  container.appendChild(createSection('✍️ 2. 富文本编辑器与高级工具', `
-    <div style="margin-bottom: 8px;"><b>👉 多格式混排：</b><br>在「文字解释」输入框中，支持加粗、斜体、下划线、无级调字号、行距、对齐方式，以及文字变色和荧光笔高亮。</div>
-    <div style="margin-bottom: 8px;"><b>👉 防退防闪退机制：</b><br>点击工具栏修改格式时，系统会自动锁定你的文字选区，绝不丢失；双击输入文字时，底层画布全局锁死，彻底杜绝打字光标闪退。</div>
-    <div style="margin-bottom: 8px;"><b>👉 高级双向链接：</b><br>在解释框里输入 <code>[[</code> 即可唤起全局检索，直接插入一张卡片或文件夹的跳转链接。点击链接可直达，长按链接可重置或删除。</div>
-    <div style="margin-bottom: 8px;"><b>👉 数学公式与符号：</b><br>点击 <code>∑</code> 调出 KaTeX 公式面板，支持搜索、预览和收藏。插入的公式双击可重新编辑。工具栏集成了常用标点符号和外置快捷输入组。</div>
+  container.appendChild(createSection('📊 2. 资源总览页（文件夹视图）常见问答 FAQ', `
+    <div style="margin-bottom: 10px; color: var(--text-2);">下面是资源总览页「文件夹下拉 / 筛选 / 列表标签」最常见的 10 个问题，逐条点击展开查看。</div>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 资源总览页顶部那两个开关（按卡片文件夹 / 按文件文件夹）是做什么的？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">它们是<b>两个互斥视角</b>：<b>「按卡片文件夹」</b>按<b>知识点卡片</b>所属文件夹归类筛选；<b>「按文件文件夹」</b>按<b>附件文件</b>的分组归类。两个开关的下拉展示<b>同一棵文件夹树</b>，只是底层匹配字段不同（前者匹配卡片的文件夹归属，后者匹配文件的分组）。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 下拉里的文件夹树是从哪来的？和左侧侧边栏一致吗？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">完全一致。下拉直接读取系统唯一文件夹数据源（<code>kg_tasks</code>），按 <code>parentId</code> 递归还原层级，并<b>按深度缩进</b>逐层显示任务名，跟侧边栏一样。<b>📂 表示有子文件夹</b>，<b>📄 表示末端节点</b>。例如：📂 11 →（缩进）📂 22 →（缩进）📄 11 / 📄 12。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 选中一个父文件夹，它下面子文件夹里的卡片会自动出来吗？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">会。选中任意父节点，系统会把它<b>本身 + 下面所有层级的子文件夹</b>里的卡片一并筛出来，不需要逐个子文件夹去点。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 我有两个同名「11 (副本)」，筛选会不会把它们串在一起？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">不会。即使下拉里两个选项文字一模一样，底层也用<b>每个文件夹各自的唯一 ID</b> 作区分——你点中哪个就只筛哪个的子树。显示文字不变，区分在内部完成。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 下拉里那几个「全部 / 无任务归属 / 未分组文件」是什么意思？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">三个固定特殊选项：<b>「📁 全部卡片文件夹 / 全部文件文件夹」</b>＝不筛选、看全部；<b>「🗂 无任务归属」</b>＝列出没归到任何文件夹的散落卡片；<b>「🗂 未分组文件」</b>＝文件视角下还没分组的文件。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 列表模式下，怎么知道每条记录属于哪个文件夹？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">切到列表视图后，<b>每一行右侧始终显示</b>该记录的完整文件夹路径标签（如「📁 11/22」）；没有归属的显示灰字「未归属」。<b>直接点这枚标签就能按该文件夹筛选</b>，省得再去下拉里翻。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 点击卡片名称会发生什么？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">会直接跳转到它所属文件夹的页面（路由 <code>#/folder/文件夹ID</code>）。注意目前只<b>跳到文件夹页</b>，还不会自动高亮那张具体的卡片。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 「按文件文件夹」这一栏几乎是空的，是不是坏了？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">不是故障，是数据现状——文件记录里暂时还没写入「所属分组(group)」字段，所以文件视角下绝大多数落进「🗂 未分组文件」。等你用 <b>「📁 移动到…」批量把文件分进文件夹</b>之后，这棵树会自动出现内容，无需额外操作。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 顶部黄色「共有 N 个附件仅保留了关联记录」是什么意思？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">说明这些图片/PDF 的<b>实际文件已不在本机存储</b>（多为换设备、清缓存或文件被瘦身），系统只剩名称与归属。<b style="color:var(--danger)">这类条目点击或预览可能打不开</b>，属预期现象；但名称、所属关系仍可正常浏览、搜索和导出。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">❓ 怎么导出、怎么批量多选？</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">顶部提供 <b>JSON / CSV 一键导出</b>（会弹出路径选择），并有 <b>「☑ 多选」</b> 批量操作。导出表里保留了「任务 / 章节」等溯源列，仅用于表格溯源，不影响界面分组展示。</div>
+    </details>
   `));
 
-  container.appendChild(createSection('🔍 3. 搜索与批量替换 (全局联动)', `
-    <div style="margin-bottom: 8px;"><b>👉 悬浮搜索面板：</b><br>在编辑页面点击「🔍 搜索/替换」按钮，会弹出一个可拖拽的悬浮面板。</div>
-    <div style="margin-bottom: 8px;"><b>👉 查找规则：</b><br>支持“当前内容”、“内容+解释”以及<b>“全局资料库”</b>三种范围。支持区分大小写和全词匹配。甚至能穿透富文本标签，即使文字被加粗变色也能精准搜到。</div>
-    <div style="margin-bottom: 8px;"><b>👉 替换与撤销：</b><br>点击“全部替换”会二次确认。面板左下角自带<b>“撤销/重做”</b>栈，替换错了可一键还原。在“全局资料库”模式下，能直接批量替换全站所有卡片里的文字。</div>
-    <div style="margin-bottom: 8px;"><b>👉 历史记录管理：</b><br>搜索框下方保留最近搜词，点击快速填入。支持展开/收起，以及全选删除。</div>
+  container.appendChild(createSection('🔍 3. 批量查找替换与文本管理 (全局联动)', `
+    <div style="margin-bottom: 8px;"><b>👉 支持多种替换模式：</b><br>在批量选择页面，点击「🔍 查找替换」即可调出高级面板。支持<b>普通文本替换</b>和<b>序列自动替换</b>（如将 <code>1.</code> 批量转为 <code>一、</code>）。</div>
+    <div style="margin-bottom: 8px;"><b>👉 序列递进与前后缀：</b><br>勾选“序列自动替换”后，可设置数字/中文/字母递进。还能自定义在数字前加符号（如 <code>(1)</code>）或在后加符号（如 <code>1、</code>）。支持指定特定序号（如只替换第 4、6、7 个）。</div>
+    <div style="margin-bottom: 8px;"><b>👉 常用场景一键套用：</b><br>内置了 9 种超实用场景（删混合序号、删空行、去首尾空格等），点击「📋 套用」即可一键填入，无需手写正则表达式。</div>
+    <div style="margin-bottom: 8px;"><b>👉 历史撤销栈：</b><br>在排版的工具栏左侧，点击「撤销历史记录」，会弹出所有操作的时间线，支持一键回滚到特定的状态。</div>
   `));
 
   container.appendChild(createSection('🖼️ 4. 附件、PDF 与多模态录入', `
     <div style="margin-bottom: 8px;"><b>👉 多源极速录入：</b><br>点击输入框右侧的 <code>📷</code>，支持<b>拍照识别</b>、<b>选相册图</b>、或<b>从 PDF 选页提取</b>。系统自动 OCR 提取文字并插入输入框。</div>
+    <div style="margin-bottom: 8px;"><b>👉 画质自由选择：</b><br>导入 PDF 时可以自由选择清晰度（超清/高清/标准/流畅），流畅模式能大幅减少平板卡顿。</div>
     <div style="margin-bottom: 8px;"><b>👉 图文附件管理：</b><br>支持批量上传、重名自动加后缀、图片自动压缩、视图切换、批量移动、导出 ZIP、批量删除。</div>
     <div style="margin-bottom: 8px;"><b>👉 PDF 高级阅读：</b><br>支持双指缩放、单双页、全屏。支持大纲与书签自动顺延页码。支持框选截图、划词提取、插入新页面（横线/方格/答题卡）。</div>
   `));
@@ -112,17 +164,8 @@ export function renderHelp() {
     <div style="margin-top: 12px;"><b>👉 平板专属手势：</b><br>全局长按任意按钮 500ms 弹出气泡提示；部分卡片支持左滑删除、右滑标星；输入框聚焦时自动躲避软键盘。</div>
   `));
 
-  container.appendChild(createSection('📱 10. 全平台安装指南与数据迁移警告', `
-    <div style="margin-bottom: 12px; color: var(--danger); font-weight: bold; font-size: 15px;">🚨 极其重要：数据安全与换浏览器须知</div>
-    <div style="margin-bottom: 8px; background: rgba(239,71,111,0.08); padding: 10px; border-radius: 6px; border-left: 3px solid var(--danger);">
-      本系统的所有数据（卡片、图片、PDF、录音）全部**100% 存储在你当前浏览器的本地沙盒中**（IndexedDB 和 localStorage）。
-      <br><br>
-      <b>1. 换浏览器的代价：</b>如果你用 Chrome 录入了数据，然后换用 Edge 浏览器打开，**数据是空的！** 因为不同浏览器的数据完全隔离。<br>
-      <b>2. 换网址的代价：</b>如果你今天用 <code>xxx.github.io</code> 打开，明天换成了新域名，浏览器会把它们当成两个不同的网站，**数据绝不互通！**<br>
-      <b>3. 终极解决法：</b>在更换设备或浏览器之前，务必去「设置」页点击 <b>「📦 导出数据」</b>，把 ZIP 备份包存到网盘或电脑里。到了新浏览器，再用「📥 导入备份」恢复即可！
-    </div>
-
-    <div style="margin-bottom: 8px; margin-top: 16px;"><b>👉 电脑端安装（Edge / Chrome）：</b><br>
+  container.appendChild(createSection('📱 10. 全平台安装指南 (PWA)', `
+    <div style="margin-bottom: 8px;"><b>👉 电脑端安装（Edge / Chrome）：</b><br>
     在地址栏右侧点击类似“电脑屏幕带向下箭头”的小图标（或在右上角菜单里找“安装应用”），即可安装为独立桌面 App，以后像微信一样双击打开。</div>
 
     <div style="margin-bottom: 8px;"><b>👉 iPad / iPhone 安装 (Safari 浏览器)：</b><br>
@@ -138,11 +181,10 @@ export function renderHelp() {
     1. 用 Chrome 打开网址。<br>
     2. 点击右上角三个点 <code>⋮</code>。<br>
     3. 选择 <b>「安装应用」</b> 或 <b>「添加到主屏幕」</b>。<br>
-    Chrome 的兼容性是目前全世界最好的，保证一键安装，全屏独立运行！<br>
-    <i>(注：如果你用的是安卓版 Edge，它在平板上经常出 Bug，点了“安装”会没反应，建议直接放弃 Edge 换 Chrome。)</i></div>
+    Chrome 的兼容性是目前全世界最好的，保证一键安装，全屏独立运行！</div>
 
     <div style="margin-bottom: 8px;"><b>👉 为什么点安装“没反应”？</b><br>
-    如果你之前装过旧版本，或者点了没反应，请去浏览器设置里 <b>清除该网站的缓存和 Cookie</b>。如果依然不行，请打开浏览器的 <b>无痕模式 / 隐私模式</b>，输入网址再点安装。无痕模式没有缓存干扰，100% 能测出到底能不能装。</div>
+    如果你之前装过旧版本，或者点了没反应，请去浏览器设置里 <b>清除该网站的缓存和 Cookie</b>。如果依然不行，请打开浏览器的 <b>无痕模式 / 隐私模式</b>，输入网址再点安装。</div>
 
     <div style="margin-bottom: 8px; margin-top: 16px; border-top: 1px dashed rgba(0,0,0,.1); padding-top: 16px;">
       <b>👉 安装好了，但是“下载”列表里为什么找不到？</b><br>
@@ -153,7 +195,7 @@ export function renderHelp() {
     <div style="margin-bottom: 8px;">
       <b>👉 那到底去哪里找？</b><br>
       1. 去平板的<b>系统桌面</b>向左或向右滑，或者打开平板底部的<b>“所有应用 / 应用抽屉”</b>。<br>
-      2. 有些平板（如华为、小米）会自动把它放进一个叫“浏览器快捷方式”或“推荐应用”的系统文件夹里。仔细找找名为“资料复习”或带有您自定义图标的按钮。
+      2. 有些平板会自动把它放进一个叫“浏览器快捷方式”或“推荐应用”的系统文件夹里。仔细找找名为“资料复习”的图标。
     </div>
 
     <div style="margin-bottom: 8px;">
@@ -161,22 +203,75 @@ export function renderHelp() {
       去桌面点击打开那个新建的图标：<br>
       - <b>如果是真的 PWA App：</b>打开后，顶部<b>没有</b>浏览器的地址栏、没有底部的浏览器黑边、没有任何多余按钮，直接全屏展示你的系统。<br>
       - <b>如果只是普通书签快捷方式：</b>打开后，顶部依然有网址栏。这说明你用的这款平板自带浏览器阉割了 PWA 全屏功能。<br>
-      <i>(这也是为什么强烈推荐用 Google Chrome 的原因！)</i>
     </div>
   `));
 
-    container.appendChild(createSection('⚙️ 11. PDF 高级设置与加载优化', `
-    <div style="margin-bottom: 8px;"><b>👉 导入 PDF 时的画质选择（重要）：</b><br>当你点击「加 PDF」或「导入 PDF」时，选页框顶部会出现画质选择按钮：<br>
-    - <b>超清 (2.0x)</b>：适合电脑端查看细节。<br>
-    - <b>高清 (1.5x)</b>：推荐画质。<br>
-    - <b>标准 (1.0x)</b>：适合日常使用。<br>
-    - <b>流畅 (0.8x)</b>：<b style="color:var(--danger)">平板强烈推荐！</b>体积只有 1/4，极大减少卡顿。<br>
-    选择不同的画质，系统会按对应比例渲染 Canvas 并存入 IndexedDB。画质越低，占用存储和内存越小。</div>
-
+  container.appendChild(createSection('⚙️ 11. PDF 高级设置与加载优化（含全部 8 档画质）', `
+    <div style="margin-bottom: 8px;"><b>👉 导入 PDF 时的画质选择（重要）：</b><br>当你点击「加 PDF」或「导入 PDF」时，选页框顶部会出现完整画质选择按钮，共 <b>8 档</b>。系统会按对应比例（scale）渲染 Canvas 并存入 IndexedDB，画质越高越清晰、占用存储和内存也越大：</div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 8px;">
+      <thead><tr style="background: rgba(0,0,0,.05);"><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: left;">档位</th><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">缩放比</th><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: left;">说明</th><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">体积</th></tr></thead>
+      <tbody>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>超清 2.0x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">2.0</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">打印级清晰度，文字锐利可放大查看</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积最大</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>高清 1.5x（默认推荐）</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.5</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">推荐日常使用，清晰度与体积平衡</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积适中</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>很清 1.4x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.4</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">接近超清，比 2.0x 省约 30% 空间</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积适中</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>清晰 1.3x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.3</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">与阅读端默认清晰度一致，性价比高</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积较小</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>清晰 1.2x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.2</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">屏幕阅读足够清晰</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积较小</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>轻清 1.1x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.1</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">轻微压缩，肉眼几乎无差别</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积小</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b>标准 1.0x</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">1.0</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">原始比例，适合纯预览</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积小</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;"><b style="color:var(--danger)">流畅 0.8x（平板强烈推荐）</b></td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">0.8</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">大幅节省空间，适合页数很多的文档</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: center;">体积最小</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-bottom: 8px;"><b>👉 默认档位：</b><br>不手动选择时，系统默认落在 <b>「高清 1.5x」</b>，兼顾清晰度与体积。</div>
     <div style="margin-bottom: 8px;"><b>👉 导入 PDF 提取文字的加速技巧：</b><br>如果你的 PDF 是为了直接提取文字生成知识点（模板导入），而不是为了原样保留页面截图，系统会使用 <code>0.8</code> 的低比例来渲染画布，仅提取纯文本，实现极速导入，不占多余空间。</div>
-
-    <div style="margin-bottom: 8px;"><b>👉 阅读器渲染性能：</b><br>为了在平板上保持丝滑，PDF 阅读器默认采用 1.3 倍的渲染比例。它使用 <code>IntersectionObserver</code> 实现了懒加载，只有滑动到可视区域的页面才会被真正渲染，所以即使打开几百页的大文档也不会卡死。</div>
   `));
 
-  container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习系统 · 祝你早日上岸' }));
+  container.appendChild(createSection('✍️ 12. 富文本编辑器与高级工具', `
+    <div style="margin-bottom: 8px;"><b>👉 多格式混排：</b><br>在「文字解释」输入框中，支持加粗、斜体、下划线、无级调字号、行距、对齐方式，以及文字变色和荧光笔高亮。</div>
+    <div style="margin-bottom: 8px;"><b>👉 防退防闪退机制：</b><br>点击工具栏修改格式时，系统会自动锁定你的文字选区，绝不丢失；双击输入文字时，底层画布全局锁死，彻底杜绝打字光标闪退。</div>
+    <div style="margin-bottom: 8px;"><b>👉 高级双向链接：</b><br>在解释框里输入 <code>[[</code> 即可唤起全局检索，直接插入一张卡片或文件夹的跳转链接。点击链接可直达，长按链接可重置或删除。</div>
+    <div style="margin-bottom: 8px;"><b>👉 数学公式与符号：</b><br>点击 <code>∑</code> 调出 KaTeX 公式面板，支持搜索、预览和收藏。插入的公式双击可重新编辑。工具栏集成了常用标点符号和外置快捷输入组。</div>
+  `));
+
+  container.appendChild(createSection('🔄 13. 如何安全更新至最新版本（保证数据不丢失）', `
+    <div style="margin-bottom: 10px;"><b>核心结论：</b><br>你的任务树、章节、卡片全部存在浏览器的 <b>localStorage</b>（<code>kg_tasks</code>、<code>kg_chapters</code> 等键）里；而 <code>resourceOverview.js</code>、<code>help.js</code> 只是逻辑代码。<b>换代码 = 只换“怎么读数据”，不动“数据本身”</b>，所以正常更新不会丢数据。</div>
+    <div style="margin-bottom: 8px; color: var(--danger);"><b>⚠️ 真正会丢数据的是这几件事，更新时务必绕开：</b></div>
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 10px;">
+      <thead><tr style="background: rgba(239,71,111,.08);"><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: left;">危险操作</th><th style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px; text-align: left;">为什么危险</th></tr></thead>
+      <tbody>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">DevTools / 浏览器设置里点“清除站点数据 / Clear site data / 清除 Cookie / 清除 IndexedDB”</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">连带清空 localStorage，数据全没</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">把桌面应用“卸载”再重装</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">部分浏览器会顺带清站点数据</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">换打开方式（原 file:// 双击，改用 http://127.0.0.1，或反之）</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">origin 变了＝读另一个 localStorage 桶，看似丢了其实存了两份</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">用无痕 / 隐私窗口打开</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">关掉窗口即清空</td></tr>
+        <tr><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">换浏览器 / 换电脑</td><td style="border: 1px solid rgba(0,0,0,.12); padding: 5px 6px;">localStorage 不跨设备同步</td></tr>
+      </tbody>
+    </table>
+    <div style="margin-bottom: 8px;"><b>👉 安全的操作是：</b>注销 Service Worker、删除 CacheStorage 缓存条目、硬刷新——这三个都<b>不碰 localStorage</b>。</div>
+    <div style="margin-bottom: 8px; margin-top: 12px; border-top: 1px dashed rgba(0,0,0,.12); padding-top: 12px;"><b>📌 标准更新流程（5 步，照做即可）</b></div>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">🔧 第 1 步　更新前先备份（每次都要做，约 10 秒）</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">打开应用 → 按 <code>F12</code> → Console → 运行备份脚本里的 <code>kgBackupToFile()</code>，会下载一个带时间戳的 <code>.json</code>。<b>把它存到项目目录外面</b>（桌面/文档），防止下次覆盖代码时被一起删。顺手跑 <code>kgStatus()</code>，把“kg_ 键数量 / 数组元素合计”记下来，更新后对账。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">🔧 第 2 步　覆盖代码文件</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">按你平时的加载方式覆盖 <code>views/resourceOverview.js</code>、<code>views/help.js</code> 等更新后的文件。这一步不用关浏览器，也不用关窗口。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">🔧 第 3 步　让 Service Worker 缓存失效（PWA 卡旧代码就在这）</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">三选一：<br>① <b>最正规</b>：改 <code>sw.js</code> 里的缓存版本号，把 <code>CACHE_NAME</code> 从 <code>v6</code> 改成 <code>v7</code>，新 SW 接管后自动删旧缓存。<br>② <b>最快捷</b>：F12 → Console 跑 <code>kgRefreshNoDataLoss()</code>（只注销 SW + 清空 CacheStorage，明确不动数据）。<br>③ <b>调试用</b>：F12 → Network 勾选 <b>Update on reload</b> 和 <b>Disable cache</b>，再 <code>Ctrl+Shift+R</code>。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">🔧 第 4 步　重开桌面应用</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">把桌面图标打开的<b>所有窗口全部关掉</b>（SW 只有在没有旧文档引用时才会接管），再重新双击图标打开。若界面自带“发现新版本，点击更新”提示条，点它一次更干净。</div>
+    </details>
+    <details style="margin-bottom: 8px; border: 1px solid rgba(0,0,0,.08); border-radius: 8px;">
+      <summary style="cursor: pointer; padding: 10px 12px; font-weight: 600; color: var(--primary-dark); background: rgba(0,0,0,.03); border-radius: 8px;">🔧 第 5 步　校验数据是否还在</summary>
+      <div style="padding: 10px 14px; line-height: 1.8;">新窗口 F12 → Console 跑 <code>kgVerify()</code>，打印 <code>kg_tasks</code> 条数、根节点数量、所有 <code>kg_</code> 键。数字和第 1 步记的一致 → 更新成功；若显示“缺失关键键”红字 → 立刻跑 <code>kgRestorePick()</code> 选第 1 步那个 json 恢复，再刷新。</div>
+    </details>
+    <div style="margin-bottom: 8px; margin-top: 12px; border-top: 1px dashed rgba(0,0,0,.12); padding-top: 12px;"><b>📌 我属于哪种加载方式？（决定第 3 步要不要做）</b><br>
+      - 地址栏是 <code>http://localhost:xxxx</code> 或 <code>https://…</code> → 有 PWA + SW，<b>必须做第 3 步</b>，否则覆盖一万次文件，页面读的还是旧缓存。<br>
+      - 地址栏是 <code>file:index.html</code> → 没有 SW 缓存层，“添加到桌面”只是快捷方式，覆盖文件后 <code>Ctrl+F5</code> 即可；跑 <code>kgRefreshNoDataLoss()</code> 会提示“未发现 SW/缓存”，属正常。<br>
+      - 进一步确认：F12 → Application 左侧有没有 <b>Service Workers</b> 与 <b>Manifest</b> 两个区块，有就是真 PWA。</div>
+    <div style="margin-bottom: 8px;"><b>👉 配套辅助脚本：</b><br>此前交付的 <code>PWA更新数据备份辅助脚本.js</code> 提供 <code>kgStatus()</code> 看概况、<code>kgBackupToFile()</code> 备份、<code>kgBackupToClipboard()</code> 复制、<code>kgRestorePick()</code> 恢复、<code>kgRefreshNoDataLoss()</code> 只清缓存、<code>kgVerify()</code> 自检。脚本全程<b>只读</b> localStorage，不会删除或覆盖任何数据。</div>
+  `));
+  container.appendChild(el('div', { style: { textAlign: 'center', color: 'var(--text-2)', fontSize: '12px', marginTop: '20px', marginBottom: '40px' }, text: '资料复习' }));
 }
