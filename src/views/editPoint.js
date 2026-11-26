@@ -2680,7 +2680,7 @@ export function renderEditPoint({ params, query }) {
 
     function renderFav() {
       favHeader.innerHTML = '';
-      favHeader.appendChild(el('span', { text: `⭐ 收藏颜色 (${getFavoriteColors().length})` }));
+      favHeader.appendChild(el('span', { class: 'fav-header-span', text: `⭐ 收藏颜色 (${getFavoriteColors().length})` }));
       favHeader.appendChild(el('span', { text: favExpanded ? '▾' : '▸' }));
 
       if (!favExpanded) { favBody.innerHTML = ''; return; }
@@ -2763,13 +2763,15 @@ export function renderEditPoint({ params, query }) {
     let currentCustomColor = cmd === 'foreColor' ? '#EF476F' : '#FFD166';
 
     // ================== 1. 收藏按钮 ==================
+    // 收藏按钮
     const favBtn = el('button', {
       class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
       style: { flex: '1', height: '26px', minHeight: 'auto', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', fontSize: '11px', border: '1px solid rgba(255, 209, 102, 0.4)', borderRadius: '6px' },
-      // 去掉 onMousedown preventDefault
+      // 平板专属强制拦截，阻止任何失焦和冒泡
+      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
       onClick: (e) => {
         e.preventDefault();
-        e.stopPropagation(); // 阻止冒泡
+        e.stopPropagation();
 
         let hexToSave = currentCustomColor || colorPreview.style.background || '#000000';
         if (hexToSave.startsWith('rgb')) {
@@ -2780,14 +2782,15 @@ export function renderEditPoint({ params, query }) {
         addFavoriteColor(hexToSave, 1);
         toastSuccess('已收藏当前颜色');
 
-        // 不重新构建面板，而是直接强行刷新面板里收藏列表的数字
+        // 不重绘面板，局部更新 UI
         const favHeaderSpan = panel.querySelector('.fav-header-span');
         if (favHeaderSpan) {
           favHeaderSpan.textContent = `⭐ 收藏颜色 (${getFavoriteColors().length})`;
         }
-        // 如果想立刻看到颜色，强行展开并调用内部的 renderFav
+
+        // 强行展开并局部添加新颜色块（不发异步请求，绝不闪退）
+        favExpanded = true;
         if (typeof renderFav === 'function') {
-          favExpanded = true; // 强行展开
           renderFav();
         }
       }
@@ -2983,9 +2986,11 @@ export function renderEditPoint({ params, query }) {
       class: 'btn btn-sm btn-ghost',
       style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' },
       text: '⭐ 收藏',
+      // 同样加上 onPointerDown 拦截
+      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
       onClick: (e) => {
         e.preventDefault();
-        e.stopPropagation(); // 阻止冒泡
+        e.stopPropagation();
 
         if (!favoriteColors.includes(currentMarkColor)) {
           favoriteColors.push(currentMarkColor);
@@ -2993,7 +2998,6 @@ export function renderEditPoint({ params, query }) {
 
           toastSuccess('已收藏颜色');
 
-          // 延迟 50ms 重绘面板，等当前点击事件彻底结束再重新渲染
           setTimeout(() => {
             buildTextDecoPanel(panel);
           }, 50);
