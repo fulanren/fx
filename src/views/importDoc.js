@@ -613,12 +613,12 @@ function openDirectBatchParser() {
   });
 
   const box = el('div', { class: 'confirm-box', style: { maxWidth: '650px', width: '90vw' } }, [
-    el('h3', { text: '🚀 批量解析并生成卡片' }),
+    el('h3', { text: '🍉 批量解析并生成卡片' }),
     el('div', { style: { fontSize: '12px', color: 'var(--text-2)', marginBottom: '8px' }, text: '提示：你可以直接从 Excel 里复制“词语”和“解释”两列，粘贴进来。' }),
 
     el('div', { style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '4px' }, text: '📁 选择导入到哪个文件夹：' }),
     taskSelect,
-    newFolderArea, // 👈 新建文件夹的 UI
+    newFolderArea, //  新建文件夹的 UI
 
     el('div', { style: { fontSize: '13px', fontWeight: 'bold', marginBottom: '4px' }, text: '📝 粘贴解析内容：' }),
     textarea,
@@ -626,7 +626,7 @@ function openDirectBatchParser() {
     el('div', { class: 'confirm-actions' }, [
       el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
       el('button', {
-        class: 'btn btn-primary', text: '🚀 立即解析并导入',
+        class: 'btn btn-primary', text: '🍉 立即解析并导入',
         onClick: () => {
           const val = textarea.value.trim();
           if (!val) return toastError('内容为空');

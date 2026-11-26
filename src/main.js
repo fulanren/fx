@@ -87,8 +87,8 @@ async function boot() {
         }
       },
       {
-        id: 'quickNote', icon: '⚡️', title: '速记', action: () => {
-          const text = prompt('⚡️ 速记：随手记下灵感或错题');
+        id: 'quickNote', icon: '🌩️', title: '速记', action: () => {
+          const text = prompt('🌩️ 速记：随手记下灵感或错题');
           if (text && text.trim()) { store.addInbox(text.trim()); toastSuccess('已存入速记收件箱'); }
         }
       },
@@ -100,7 +100,7 @@ async function boot() {
       { id: 'importDoc', icon: '📄', title: '文档导入', action: () => import('./views/importDoc.js').then(m => m.globalImportDocModal()) },
       { id: 'home', icon: '🏠', title: '首页', href: '#/' },
       { id: 'resources', icon: '📁', title: '资源总览', href: '#/resources' },
-      { id: 'inbox', icon: '📥', title: '速记收件箱', href: '#/inbox' },
+      { id: 'inbox', icon: '📬', title: '速记收件箱', href: '#/inbox' },
       { id: 'countdown', icon: '⏰', title: '考试倒计时', href: '#/countdown' },
       { id: 'trash', icon: '🗑', title: '回收站', href: '#/trash' },
       { id: 'help', icon: '❓', title: '帮助', href: '#/help' },
@@ -324,7 +324,7 @@ function openMoreMenu() {
     { icon: '📁', label: '资源总览', href: '#/resources' },
     { icon: '🎯', label: '待复习管理', href: '#/review' },
     { icon: '🔍', label: '搜索', href: '#/search' },
-    { icon: '📥', label: '速记', href: '#/inbox' },
+    { icon: '🌩️', label: '速记', href: '#/inbox' },
     { icon: '📤', label: '导出数据', action: 'export' },
     { icon: '📥', label: '导入备份', action: 'import' },
     { icon: '📑', label: '资料模板', href: '#/template' },
@@ -529,7 +529,7 @@ function openPasteCreateModal(text, hasImage) {
   const mask = el('div', { class: 'confirm-mask', style: { zIndex: 99999 } });
   const textarea = el('textarea', { value: text || '', placeholder: hasImage ? '[包含图片，请去编辑页粘贴上传]' : '粘贴的内容...', style: { width: '100%', minHeight: '80px', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0,0,0,.1)', marginBottom: '12px', outline: 'none', resize: 'vertical' } });
   const box = el('div', { class: 'confirm-box', style: { maxWidth: '400px' } }, [
-    el('h3', { text: '⚡ 极速记录' }), textarea,
+    el('h3', { text: '🌩️ 极速记录' }), textarea,
     el('div', { class: 'confirm-actions' }, [
       el('button', { class: 'btn btn-ghost', text: '取消', onClick: () => mask.remove() }),
       el('button', {

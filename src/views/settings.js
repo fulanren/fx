@@ -10,7 +10,7 @@ const MODULES = [
   { key: 'kg_points', label: '💡 知识点（含笔记）' },
   { key: 'images', label: '🖼️ 图片（含笔迹）' },
   { key: 'pdfs', label: '📁 文档附件 (PDF)' },
-  { key: 'kg_inbox', label: '📥 速记收件箱' },
+  { key: 'kg_inbox', label: '📬 速记收件箱' },
   { key: 'kg_settings', label: '⚙️ 系统设置' },
 ];
 
@@ -236,7 +236,7 @@ export function renderSettings() {
 
         const checkboxes = [
           { id: 'theme', label: '🌙 切换主题' },
-          { id: 'quickNote', label: '⚡️ 速记' },
+          { id: 'quickNote', label: '🌩️ 速记' },
           { id: 'review', label: '🎯 复习' },
           { id: 'search', label: '🔍 搜索' },
           { id: 'export', label: '📤 导出数据' },
@@ -245,7 +245,7 @@ export function renderSettings() {
           { id: 'importDoc', label: '📄 文档导入' },
           { id: 'home', label: '🏠 背诵首页' },
           { id: 'resources', label: '📁 资源总览' },
-          { id: 'inbox', label: '📥 速记收件箱' },
+          { id: 'inbox', label: '📬 速记收件箱' },
           { id: 'countdown', label: '⏰ 考试倒计时' },
           { id: 'trash', label: '🗑 回收站' },
           { id: 'help', label: '❓ 帮助' },

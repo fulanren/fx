@@ -3412,7 +3412,7 @@ export function renderEditPoint({ params, query }) {
   renderBasicSection();
   view.appendChild(basicSection);
 
-  // ==================== 搜索/替换功能（终极完全体） ====================
+  // ==================== 搜索/替换功能 ====================
   function openSearchReplaceModal() {
     const mask = el('div', { style: { position: 'fixed', inset: 0, zIndex: 999998 } });
     const panel = el('div', {
@@ -3473,9 +3473,7 @@ export function renderEditPoint({ params, query }) {
       ]);
       historyContainer.appendChild(historyHeader);
 
-      // 如果展开了，就渲染列表和管理工具栏
       if (historyExpanded) {
-        // 1. 工具栏（管理/全选/删除）
         const hToolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } }, [
           el('button', {
             class: 'btn btn-sm btn-ghost',
@@ -3502,7 +3500,6 @@ export function renderEditPoint({ params, query }) {
               searchHistory = searchHistory.filter(h => !selectedHistory.has(h));
               localStorage.setItem('kg_search_history', JSON.stringify(searchHistory));
               selectedHistory.clear();
-              // 如果删完了，退出管理模式
               if (searchHistory.length === 0) historyManageMode = false;
               renderHistory();
             }
@@ -3510,7 +3507,6 @@ export function renderEditPoint({ params, query }) {
         ]);
         historyContainer.appendChild(hToolbar);
 
-        // 2. 标签列表
         historyList.innerHTML = '';
         searchHistory.forEach(kw => {
           const isSel = selectedHistory.has(kw);
@@ -3531,7 +3527,6 @@ export function renderEditPoint({ params, query }) {
                 searchInput.value = kw;
                 searchIndex = 1;
                 doSearch(false);
-                // 选完历史后顺便收起列表
                 historyExpanded = false;
                 renderHistory();
               }
@@ -3593,7 +3588,7 @@ export function renderEditPoint({ params, query }) {
     const applyState = (state) => {
       if (contentInput.tagName === 'TEXTAREA') contentInput.value = state.content; else contentInput.innerHTML = state.content;
       form.content = contentInput.value || contentInput.innerHTML;
-      hydrateExplainImgs(state.explanation).then(h => { explainInput.innerHTML = h; }); form.explanation = state.explanation;
+      explainInput.innerHTML = state.explanation; form.explanation = state.explanation;
       queueSave();
     };
     const doUndo = () => { if (historyIndex > 0) { historyIndex--; applyState(historyStack[historyIndex]); updateUndoRedoState(); } };
@@ -3868,10 +3863,10 @@ export function renderEditPoint({ params, query }) {
     panel.appendChild(scopeRow);
     panel.appendChild(optionRow);
     panel.appendChild(searchInput);
-    renderHistory(); // 渲染历史
+    renderHistory();
     panel.appendChild(historyContainer);
     panel.appendChild(replaceInput);
-    panel.appendChild(globalListContainer); // 全局列表容器
+    panel.appendChild(globalListContainer);
     panel.appendChild(actionRow);
 
     document.body.appendChild(mask);

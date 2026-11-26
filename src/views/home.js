@@ -90,9 +90,7 @@ export function renderHome() {
   const tasks = store.getTasks();
   const scatteredPoints = store.getPoints(null).filter(p => !p.chapterId);
 
-  // ==========================================
   // ================== 如果是管理模式 ==================
-  // ==========================================
   if (multiSelectMode) {
     // 渲染顶部批量操作栏
     view.appendChild(el('div', {
@@ -165,9 +163,7 @@ export function renderHome() {
     return; // 管理模式到此结束
   }
 
-  // ==========================================
   // ================== 如果是普通模式 ==================
-  // ==========================================
 
   // 3. 渲染散落卡片
   if (scatteredPoints.length > 0) {
