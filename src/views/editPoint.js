@@ -97,7 +97,8 @@ export function renderEditPoint({ params, query }) {
   let isUnlocked = isNew;      // 编辑时锁定，新建时解锁
   let showDifficultyBeforeExpand = original?.showDifficultyBeforeExpand || false;
   let isDraftResolved = false; // 是否已经处理过草稿弹窗
-  let draftRejected = false;   // 用户在弹窗里点了“放弃”        
+  let draftRejected = false;   // 用户在弹窗里点了“放弃”   
+  let currentColor = '#EF476F';  // 全局颜色变量     
 
   const view = document.getElementById('view');
   clear(view);
@@ -1636,7 +1637,6 @@ export function renderEditPoint({ params, query }) {
   // ================== 下面是你原本就有的排版按钮 ==================
   // (如果你原本后面还有加粗、斜体等按钮的 appendChild，由于这段替换没包含它们，
   // 请确保它们在代码的更下方没有被删掉)
-
   // 接下来是你的双向链接按钮 🔗
   const linkBtn = el('button', {
     class: 'btn btn-sm btn-ghost',
@@ -2518,11 +2518,10 @@ export function renderEditPoint({ params, query }) {
   const colorPanel = el('div', { class: 'edit-point-panel', style: { display: 'none', position: 'fixed', zIndex: '99999', background: 'var(--card)', padding: '10px', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)' } });
   document.body.appendChild(colorPanel);
 
-  const execFormat = (command, value = null) => {
+      const execFormat = (command, value = null) => {
     explainInput.focus();
     const sel = window.getSelection();
 
-    //保证选区不丢失
     if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
       if (savedRange && explainInput.contains(savedRange.startContainer)) {
         sel.removeAllRanges();
@@ -2541,12 +2540,16 @@ export function renderEditPoint({ params, query }) {
     else if (command === 'underline') document.execCommand('underline', false, null);
     else if (command === 'removeFormat') document.execCommand('removeFormat', false, null);
     else if (command === 'insertHTML') document.execCommand('insertHTML', false, value);
+    // 标记样式功能
+    else if (command === 'mark-line-single') document.execCommand('insertHTML', false, `<span style="text-decoration: underline; text-decoration-color: ${value}; text-decoration-thickness: 2px;">${sel.toString()}</span>`);
+    else if (command === 'mark-line-double') document.execCommand('insertHTML', false, `<span style="border-bottom: 3px double ${value}; padding-bottom: 2px;">${sel.toString()}</span>`);
+    else if (command === 'mark-line-wave') document.execCommand('insertHTML', false, `<span style="text-decoration: underline wavy ${value}; text-decoration-skip-ink: none;">${sel.toString()}</span>`);
+    else if (command === 'mark-line-dotted') document.execCommand('insertHTML', false, `<span style="border-bottom: 2px dotted ${value}; padding-bottom: 1px;">${sel.toString()}</span>`);
+    else if (command === 'mark-line-thick') document.execCommand('insertHTML', false, `<span style="border-bottom: 3px solid ${value}; padding-bottom: 1px;">${sel.toString()}</span>`);
 
     form.explanation = explainInput.innerHTML;
     saveExplainRange();
     queueSave();
-
-    // 操作后立即记录一步历史
     pushHistory();
     requestAnimationFrame(() => updateFormatStatus());
   };
@@ -2578,11 +2581,15 @@ export function renderEditPoint({ params, query }) {
             transition: 'transform 0.1s', boxSizing: 'border-box'
           },
           title: c === 'transparent' ? '透明 / 清除' : c,
-          onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
+                    onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
           onMouseLeave: (e) => e.currentTarget.style.transform = 'scale(1)',
           //阻止默认行为保住选区，同时保留 onClick 响应
-          onMouseDown: (e) => e.preventDefault(),
-          onClick: () => { execFormat(cmd, c); closePanels(); }
+          onPointerDown: (e) => e.preventDefault(), // 改用 pointer 事件兼容性更好
+          onClick: () => { 
+            currentColor = c; // 将当前点选的颜色同步给全局变量
+            execFormat(cmd, c); 
+            closePanels(); 
+          }
         }));
       });
       container.appendChild(grid);
@@ -2706,87 +2713,301 @@ export function renderEditPoint({ params, query }) {
     }
     renderFav();
 
-    // 3. 底部操作栏（收藏 + 自定义）
+      // 3. 底部操作栏（收藏 + 自定义）
     const customBar = el('div', {
       style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px', marginTop: '2px', gap: '4px' }
     });
 
-    // 用变量记录当前选中的颜色
     let currentCustomColor = cmd === 'foreColor' ? '#EF476F' : '#FFD166';
 
-    //点击自定义时，现场动态创建一个输入框（避开全局 CSS 污染）
-    const openColorPicker = () => {
-      const picker = document.createElement('input');
-      picker.type = 'color';
-      picker.value = currentCustomColor;
-      // 强行把它定位在屏幕外，确保能弹出系统取色盘
-      picker.style.cssText = 'position:fixed; top:-100px; left:-100px; opacity:0;';
-
-      picker.oninput = (e) => {
-        currentCustomColor = e.target.value;
-        execFormat(cmd, currentCustomColor);
-      };
-
-      picker.onchange = (e) => {
-        currentCustomColor = e.target.value;
-        execFormat(cmd, currentCustomColor);
-        closePanels();
-      };
-
-      document.body.appendChild(picker);
-      picker.click();
-      setTimeout(() => picker.remove(), 1000); // 选完销毁
-    };
-
-    // 收藏按钮：加宽，设定马卡龙背景色
-    customBar.appendChild(el('button', {
+    // 收藏按钮
+    const favBtn = el('button', {
       class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
-      title: '收藏当前选中的颜色',
-      style: {
-        flex: '1',               //与自定义按钮平分空间
-        height: '26px',
-        minHeight: 'auto',
-        padding: '0',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(255, 209, 102, 0.2)', //浅黄色高亮背景
-        color: '#B8860B',        //深金色文字
-        fontSize: '11px',
-        border: '1px solid rgba(255, 209, 102, 0.4)',
-        borderRadius: '6px'
-      },
+      style: { flex: '1', height: '26px', minHeight: 'auto', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', fontSize: '11px', border: '1px solid rgba(255, 209, 102, 0.4)', borderRadius: '6px' },
       onMousedown: (e) => e.preventDefault(),
       onClick: () => {
         addFavoriteColor(currentCustomColor, 1);
         toastSuccess('已收藏当前颜色');
         renderFav();
       }
-    }));
+    });
+    customBar.appendChild(favBtn);
 
-    // 自定义按钮：平分空间，设定马卡龙背景色
-    customBar.appendChild(el('button', {
-      class: 'btn btn-sm btn-ghost', text: '🎨 自定义',
-      style: {
-        flex: '1',               //与收藏按钮平分空间
-        fontSize: '11px',
-        padding: '0',
-        height: '26px',
-        minHeight: 'auto',
-        background: 'rgba(186, 225, 255, 0.3)', //浅蓝色高亮背景
-        color: 'var(--primary-dark)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        border: '1px solid rgba(186, 225, 255, 0.6)',
-        borderRadius: '6px'
-      },
-      onMousedown: (e) => e.preventDefault(),
-      onClick: openColorPicker
-    }));
+    // 👇 核心修复：用 relative + absolute 把 input 盖在按钮上
+    const customBtnWrap = el('div', {
+      class: 'btn btn-sm btn-ghost', 
+      style: { flex: '1', fontSize: '11px', padding: '0', height: '26px', minHeight: 'auto', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', position: 'relative', cursor: 'pointer', gap: '4px' }
+    });
+    
+    const colorPreview = el('div', { 
+      style: { width: '12px', height: '12px', borderRadius: '3px', background: currentCustomColor, border: '1px solid rgba(0,0,0,.2)' }
+    });
+    customBtnWrap.appendChild(colorPreview);
+    customBtnWrap.appendChild(el('span', { text: '自定义' }));
 
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = currentCustomColor;
+    // 👇 充满整个按钮，完全不可见，由用户的手指直接点击它
+    picker.style.cssText = 'position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;';
+    
+    picker.oninput = (e) => {
+      currentCustomColor = e.target.value;
+      colorPreview.style.background = currentCustomColor;
+      execFormat(cmd, currentCustomColor);
+    };
+    
+    picker.onchange = (e) => {
+      currentCustomColor = e.target.value;
+      execFormat(cmd, currentCustomColor);
+      closePanels();
+    };
+    
+    customBtnWrap.appendChild(picker);
+    customBar.appendChild(customBtnWrap);
     panel.appendChild(customBar);
   };
+
+  // 文字修饰面板（2行3列 + 预览 + 取色修复）
+  let currentMarkStyle = 'mark-line-single';
+  let currentMarkColor = '#EF476F';
+  
+  let favoriteColors = JSON.parse(localStorage.getItem('kg_fav_mark_colors') || '["#EF476F", "#FFD166", "#06D6A0", "#118AB2"]');
+  
+  let isStyleExpanded = true;
+  let isFavExpanded = false;
+
+  // 通用的取色器唤醒函数，防止 Safari 秒退
+  const openNativeColorPicker = (currentColor, onColorChange) => {
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = currentColor;
+    //不能用 opacity: 0，要用 opacity: 0.01 且固定在屏幕内，否则 iOS 会拦截
+    picker.style.cssText = 'position:fixed; bottom:0; right:0; width:40px; height:40px; opacity:0.01; z-index:9999999;';
+    
+    picker.oninput = (e) => { onColorChange(e.target.value); };
+    picker.onchange = (e) => { 
+      onColorChange(e.target.value); 
+      setTimeout(() => picker.remove(), 100);
+    };
+    
+    document.body.appendChild(picker);
+    picker.click();
+    setTimeout(() => { if (document.body.contains(picker)) picker.remove(); }, 5000); // 5秒后清理，足够选色
+  };
+
+     const buildTextDecoPanel = (panel) => {
+    panel.innerHTML = '';
+    panel.style.width = '260px';
+    panel.style.padding = '10px';
+    panel.style.display = 'flex';
+    panel.style.flexDirection = 'column';
+    panel.style.gap = '8px';
+
+    // 1. 样式标题与折叠区
+    const styleHeader = el('div', {
+      style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '12px', fontWeight: 'bold', color: 'var(--text-2)', paddingBottom: '4px', borderBottom: '1px dashed rgba(0,0,0,.05)' },
+      onClick: () => { isStyleExpanded = !isStyleExpanded; buildTextDecoPanel(panel); }
+    }, [
+      el('span', { text: '🖍 文字修饰样式' }),
+      el('span', { text: isStyleExpanded ? '▾' : '▸' })
+    ]);
+    panel.appendChild(styleHeader);
+
+    if (isStyleExpanded) {
+      const styles = [
+        { id: 'underline', label: 'U 下划线' },
+        { id: 'mark-line-single', label: '▁ 单实线' },
+        { id: 'mark-line-double', label: '═ 双实线' },
+        { id: 'mark-line-wave', label: '〰 波浪线' },
+        { id: 'mark-line-dotted', label: '⋯ 点状线' },
+        { id: 'mark-line-thick', label: '▄ 加粗线' }
+      ];
+
+      const btnGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '6px' } });
+      styles.forEach(s => {
+        btnGrid.appendChild(el('button', {
+          class: `btn btn-sm ${currentMarkStyle === s.id ? 'btn-primary' : 'btn-ghost'}`,
+          style: { fontSize: '11px', padding: '4px', minHeight: '26px', display: 'flex', justifyContent: 'center' },
+          onMousedown: (e) => e.preventDefault(),
+          onClick: () => { currentMarkStyle = s.id; buildTextDecoPanel(panel); }
+        }, [el('span', { text: s.label })]));
+      });
+      panel.appendChild(btnGrid);
+    }
+
+    // 2. 颜色选择区
+    panel.appendChild(el('div', { style: { fontSize: '12px', fontWeight: 'bold', color: 'var(--text-2)', marginTop: '4px' }, text: '🎨 线条颜色' }));
+    
+    const colors = ['#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#F94144', '#F3722C', '#F8961E', '#90BE6D', '#43AA8B', '#577590'];
+    const colorGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px' } });
+    
+    colors.forEach(c => {
+      colorGrid.appendChild(el('div', {
+        style: { 
+          width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', 
+          cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)',
+          transform: currentMarkColor === c ? 'scale(1.1)' : 'scale(1)',
+          transition: 'all 0.1s', boxSizing: 'border-box'
+        },
+        onMousedown: (e) => e.preventDefault(),
+        onClick: () => { currentMarkColor = c; buildTextDecoPanel(panel); }
+      }));
+    });
+    panel.appendChild(colorGrid);
+
+      // 3. 自定义颜色 & 收藏行
+    const actionRow = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' } });
+    
+    // 同理，绝对定位叠加
+    const customColorBtn = el('div', {
+      class: 'btn btn-sm btn-ghost', 
+      style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', position: 'relative', cursor: 'pointer' }
+    });
+    
+    const previewDot = el('div', { 
+      style: { width: '12px', height: '12px', borderRadius: '3px', background: currentMarkColor, border: '1px solid rgba(0,0,0,.2)' }
+    });
+    customColorBtn.appendChild(previewDot);
+    customColorBtn.appendChild(el('span', { text: '自定义' }));
+
+    const picker = document.createElement('input');
+    picker.type = 'color'; 
+    picker.value = currentMarkColor; 
+    picker.style.cssText = 'position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%;';
+    
+    picker.oninput = (e) => { 
+      currentMarkColor = e.target.value; 
+      previewDot.style.background = currentMarkColor;
+    };
+    picker.onchange = (e) => { 
+      currentMarkColor = e.target.value; 
+      buildTextDecoPanel(panel); 
+    };
+    
+    customColorBtn.appendChild(picker);
+    actionRow.appendChild(customColorBtn);
+
+    // 收藏按钮
+    const favBtn = el('button', {
+      class: 'btn btn-sm btn-ghost', style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' }, text: '⭐ 收藏',
+      onMousedown: (e) => e.preventDefault(),
+      onClick: () => {
+        if (!favoriteColors.includes(currentMarkColor)) {
+          favoriteColors.push(currentMarkColor);
+          localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
+          buildTextDecoPanel(panel);
+          toastSuccess('已收藏颜色');
+        } else {
+          toastError('该颜色已收藏');
+        }
+      }
+    });
+    actionRow.appendChild(favBtn);
+    panel.appendChild(actionRow);
+
+    // 4. 收藏颜色展示区（带折叠）
+    if (favoriteColors.length > 0) {
+      const favHeader = el('div', { 
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', cursor: 'pointer' },
+        onClick: () => { isFavExpanded = !isFavExpanded; buildTextDecoPanel(panel); }
+      }, [
+        el('span', { text: `⭐ 已收藏 (${favoriteColors.length})`, style: { fontSize: '11px', color: 'var(--text-2)' } }),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '管理',
+            style: { padding: '0 4px', height: '18px', minHeight: 'auto', fontSize: '10px' },
+            onMousedown: (e) => e.preventDefault(),
+            onClick: (e) => { e.stopPropagation(); openFavoriteManager(panel); }
+          }),
+          el('span', { text: isFavExpanded ? '▾' : '▸', style: { fontSize: '12px' } })
+        ])
+      ]);
+      panel.appendChild(favHeader);
+
+      if (isFavExpanded) {
+        const favGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px', marginTop: '4px' } });
+        favoriteColors.forEach(c => {
+          favGrid.appendChild(el('div', {
+            style: { width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)' },
+            onMousedown: (e) => e.preventDefault(),
+            onClick: () => { currentMarkColor = c; buildTextDecoPanel(panel); }
+          }));
+        });
+        panel.appendChild(favGrid);
+      }
+    }
+
+    // 5. 底部操作（应用、取消）
+    const footer = el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } });
+    footer.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost', text: '取消', style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px' },
+      onMousedown: (e) => e.preventDefault(),
+      onClick: () => closePanels()
+    }));
+    footer.appendChild(el('button', {
+      class: 'btn btn-sm btn-primary', text: '应用', style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px' },
+      onMousedown: (e) => e.preventDefault(),
+      onClick: () => {
+        if (currentMarkStyle === 'underline') {
+          execFormat('underline');
+        } else {
+          execFormat(currentMarkStyle, currentMarkColor);
+        }
+        closePanels();
+      }
+    }));
+    panel.appendChild(footer);
+  };
+
+  // 收藏颜色管理器
+  function openFavoriteManager(mainPanel) {
+    let selected = new Set();
+    const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
+    
+    const renderManager = () => {
+      mask.innerHTML = '';
+      const box = el('div', { class: 'confirm-box', style: { maxWidth: '300px', padding: '16px' } });
+      
+      box.appendChild(el('h3', { text: '⭐ 管理收藏颜色', style: { fontSize: '15px', marginBottom: '12px' } }));
+      
+      const list = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px', marginBottom: '16px' } });
+      favoriteColors.forEach((c, idx) => {
+        const isSel = selected.has(c);
+        list.appendChild(el('div', {
+          style: { 
+            width: '100%', aspectRatio: '1', background: c, borderRadius: '4px', cursor: 'pointer', 
+            border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)', position: 'relative' 
+          },
+          onClick: () => { if (isSel) selected.delete(c); else selected.add(c); renderManager(); }
+        }, [
+          isSel ? el('span', { text: '✓', style: { position: 'absolute', top: '-4px', right: '-4px', background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: '14px', height: '14px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }) : null
+        ]));
+      });
+      box.appendChild(list);
+      
+      box.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px' } }, [
+        el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { favoriteColors.forEach(c => selected.add(c)); renderManager(); } }),
+        el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', onClick: () => { selected.clear(); renderManager(); } }),
+        el('button', { class: 'btn btn-sm btn-danger', text: '删除', onClick: () => {
+          if (selected.size === 0) return toastError('请先勾选颜色');
+          favoriteColors = favoriteColors.filter(c => !selected.has(c));
+          localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
+          selected.clear(); renderManager(); buildTextDecoPanel(mainPanel);
+          toastSuccess('已删除');
+        } }),
+      ]));
+      
+      box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, [
+        el('button', { class: 'btn btn-primary', text: '完成', onClick: () => mask.remove() })
+      ]));
+      
+      mask.appendChild(box);
+    };
+    
+    renderManager();
+    document.body.appendChild(mask);
+  }
 
   // 3. 声明按钮变量与历史记录系统
   let btnColor, btnHighLight;
@@ -2854,9 +3075,12 @@ export function renderEditPoint({ params, query }) {
   // 5. 渲染工具栏按钮
   toolbarInner.appendChild(el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,.1)', margin: '0 4px' } }));
 
-  toolbarInner.appendChild(createToolBtn(icons.bold, '加粗', () => execFormat('bold')));
+    toolbarInner.appendChild(createToolBtn(icons.bold, '加粗', () => execFormat('bold')));
   toolbarInner.appendChild(createToolBtn(icons.italic, '斜体', () => execFormat('italic')));
-  toolbarInner.appendChild(createToolBtn(icons.underline, '下划线', () => execFormat('underline')));
+  
+  let btnDeco;
+  btnDeco = createToolBtn(icons.underline, '文字修饰 (下划线/线条)', () => showPanelAtBtn(colorPanel, btnDeco, buildTextDecoPanel));
+  toolbarInner.appendChild(btnDeco);
 
   btnColor = createToolBtn(icons.color, '文字颜色', () => showPanelAtBtn(colorPanel, btnColor, buildColorPanel('foreColor')));
   btnHighLight = createToolBtn(icons.highlight, '背景高亮', () => showPanelAtBtn(colorPanel, btnHighLight, buildColorPanel('hiliteColor')));
