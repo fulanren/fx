@@ -1875,23 +1875,46 @@ export function renderEditPoint({ params, query }) {
     return b;
   };
 
-  const closePanels = () => {
-    if (fontSizePanel) fontSizePanel.style.display = 'none';
-    if (lineHeightPanel) lineHeightPanel.style.display = 'none';
-    if (themePanel) themePanel.style.display = 'none';
-    if (typeof alignmentPanel !== 'undefined' && alignmentPanel) alignmentPanel.style.display = 'none';
-    if (typeof colorPanel !== 'undefined' && colorPanel) colorPanel.style.display = 'none';
-    isPanelOpen = false;
+  /* ---------- 3.1 历史占位守卫(放模块顶层, 只跑一次的注册)---------- */
+  let _panelPushed = false;     // 当前是否已压入占位层
+let _skipNextPop = false;     // 主动 close 退占位产生的那次 popstate, 跳过处理
 
-    // 如果需要对选中的状态做刷新，加在这里，但不要删除 dataset
-    requestAnimationFrame(() => {
-      try {
-        if (typeof updateFormatStatus === 'function' && formatStatus && formatStatus.isConnected) {
-          updateFormatStatus();
-        }
-      } catch (e) { }
-    });
-  };
+function pushPanelGuard() {
+  if (_panelPushed) return;          // 连续开多个面板只压一层
+  _panelPushed = true;
+  try { history.pushState({ __panelGuard: true }, ''); } catch (e) {}
+}
+function releasePanelGuard() {
+  if (!_panelPushed) return;
+  _panelPushed = false;
+  _skipNextPop = true;               // 这次 back 产生的 popstate 自己吃掉
+  try { history.back(); } catch (e) {}
+}
+window.addEventListener('popstate', function () {
+  if (_skipNextPop) { _skipNextPop = false; return; }   // 主动关面板的回退, 忽略
+  if (isPanelOpen) {
+    closePanels();                   // 关浮层(内部会 releasePanelGuard 退占位)
+  }
+});
+  /* ---------- 3.2 closePanels 覆盖版(末尾加一行 releasePanelGuard)---------- */
+  const closePanels = () => {
+  if (fontSizePanel) fontSizePanel.style.display = 'none';
+  if (lineHeightPanel) lineHeightPanel.style.display = 'none';
+  if (themePanel) themePanel.style.display = 'none';
+  if (typeof alignmentPanel !== 'undefined' && alignmentPanel) alignmentPanel.style.display = 'none';
+  if (typeof colorPanel !== 'undefined' && colorPanel) colorPanel.style.display = 'none';
+  isPanelOpen = false;
+
+  releasePanelGuard();               // 新增: 退掉占位层, 保持历史栈对称
+
+  requestAnimationFrame(() => {
+    try {
+      if (typeof updateFormatStatus === 'function' && formatStatus && formatStatus.isConnected) {
+        updateFormatStatus();
+      }
+    } catch (e) { }
+  });
+};
 
   // 面板挂载到 body，绝对不受父级干扰
   const fontSizePanel = el('div', { class: 'edit-point-panel', style: { display: 'none', position: 'fixed', zIndex: '99999', background: 'var(--card)', padding: '10px', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', flexDirection: 'column', width: '200px', gap: '8px', border: '1px solid rgba(0,0,0,.1)' } });
@@ -1901,55 +1924,54 @@ export function renderEditPoint({ params, query }) {
   const themePanel = el('div', { class: 'edit-point-panel', style: { display: 'none', position: 'fixed', zIndex: '99999', background: 'var(--card)', padding: '12px', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.15)', flexDirection: 'column', width: '220px', gap: '10px', border: '1px solid rgba(0,0,0,.1)' } });
   document.body.appendChild(themePanel);
 
+
+  /* ---------- 3.3 showPanelAtBtn 覆盖版(两处显示分支各加一行 pushPanelGuard)---------- */
   const showPanelAtBtn = (panel, btn, htmlBuilder) => {
-    const isHidden = panel.style.display === 'none';
+  const isHidden = panel.style.display === 'none';
 
-    // 如果是点击外部关闭，重新打开时，沿用之前的位置
-    if (isHidden && panel.dataset.lastTop && panel.dataset.lastLeft) {
-      panel.style.display = 'flex';
-      panel.style.top = panel.dataset.lastTop;
-      panel.style.left = panel.dataset.lastLeft;
-      panel.innerHTML = '';
-      htmlBuilder(panel);
-      isPanelOpen = true;
-      return;
-    }
-
-    closePanels();
-    if (!isHidden) return;
-
-    saveExplainRange();
-    isPanelOpen = true;
-
-    const rect = btn.getBoundingClientRect();
-
+  if (isHidden && panel.dataset.lastTop && panel.dataset.lastLeft) {
     panel.style.display = 'flex';
-    panel.style.visibility = 'hidden';
-    panel.innerHTML = '';
-    htmlBuilder(panel);
-
-    const panelRect = panel.getBoundingClientRect();
-    const panelHeight = panelRect.height || 200;
-    const spaceBelow = window.innerHeight - rect.bottom;
-
-    let top = rect.bottom + 8;
-    if (spaceBelow < panelHeight && rect.top > panelHeight) {
-      top = rect.top - panelHeight - 8;
-    }
-
-    let left = rect.left;
-    if (left + 200 > window.innerWidth) {
-      left = window.innerWidth - 210;
-    }
-
-    //  记录位置，防止重新打开时乱跳
-    panel.dataset.lastTop = Math.max(10, top) + 'px';
-    panel.dataset.lastLeft = Math.max(10, left) + 'px';
-
     panel.style.top = panel.dataset.lastTop;
     panel.style.left = panel.dataset.lastLeft;
-    panel.style.visibility = 'visible';
-  };
+    panel.innerHTML = '';
+    htmlBuilder(panel);
+    isPanelOpen = true;
+    pushPanelGuard();                // 新增: 压一层占位, 侧滑先关浮层
+    return;
+  }
+
+  closePanels();
+  if (!isHidden) return;
+
+  saveExplainRange();
+  isPanelOpen = true;
+
+  const rect = btn.getBoundingClientRect();
+  panel.style.display = 'flex';
+  panel.style.visibility = 'hidden';
+  panel.innerHTML = '';
+  htmlBuilder(panel);
+
+  const panelRect = panel.getBoundingClientRect();
+  const panelHeight = panelRect.height || 200;
+  const spaceBelow = window.innerHeight - rect.bottom;
+
+  let top = rect.bottom + 8;
+  if (spaceBelow < panelHeight && rect.top > panelHeight) {
+    top = rect.top - panelHeight - 8;
+  }
+  let left = rect.left;
+  if (left + 200 > window.innerWidth) {
+    left = window.innerWidth - 210;
+  }
+  panel.dataset.lastTop = Math.max(10, top) + 'px';
+  panel.dataset.lastLeft = Math.max(10, left) + 'px';
+  panel.style.top = panel.dataset.lastTop;
+  panel.style.left = panel.dataset.lastLeft;
+  panel.style.visibility = 'visible';
+
+  pushPanelGuard();                  // 新增: 压一层占位, 侧滑先关浮层
+};
 
   // ==================== 1. 字号 ====================
   const buildFontPanel = (panel) => {
@@ -2798,40 +2820,48 @@ export function renderEditPoint({ params, query }) {
     customBar.appendChild(favBtn);
 
     // ================== 2. 自定义取色器（文字颜色） ==================
-// 注意：colorPreview 提到按钮之前声明，避免闭包/重绘时踩到 TDZ
-const colorPreview = el('div', {
-  style: { width: '12px', height: '12px', borderRadius: '3px', background: currentCustomColor, border: '1px solid rgba(0,0,0,.2)' }
-});
+    // 注意：colorPreview 提到按钮之前声明，避免闭包/重绘时踩到 TDZ
+    const colorPreview = el('div', {
+      style: { width: '12px', height: '12px', borderRadius: '3px', background: currentCustomColor, border: '1px solid rgba(0,0,0,.2)' }
+    });
 
-const customBtnWrap = el('button', {
-  class: 'btn btn-sm btn-ghost',
-  style: { flex: '1', fontSize: '11px', padding: '0', height: '26px', minHeight: 'auto', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', cursor: 'pointer', gap: '4px' },
-  // 已删除 onMousedown: preventDefault —— 触摸端会吃掉随后合成的 click
-  onClick: (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openNativeColorPicker(
-      currentCustomColor,
-      // onInput：实时预览 + 应用（旧 Safari 不触发 input 时由 helper 在 change 里兜底再调一次）
-      (hex) => {
-        currentCustomColor = hex;
-        colorPreview.style.background = hex;
-        execFormat(cmd, hex);
-      },
-      // onDone：选完只更新预览点，不重绘整个面板
-      (hex) => {
-        currentCustomColor = hex;
-        colorPreview.style.background = hex;
+    const customLabel = el('label', {
+      class: 'color-custom-label',
+      style: {
+        flex: '1', fontSize: '11px', height: '26px', padding: '0 6px',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+        background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)',
+        border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', cursor: 'pointer',
+        minWidth: '0'
       }
-    );
-  }
-});
+    });
 
-customBtnWrap.appendChild(colorPreview);
-customBtnWrap.appendChild(el('span', { text: '自定义' }));
-customBar.appendChild(customBtnWrap);
-panel.appendChild(customBar);
-};
+    // 原生 input 本身就充当颜色预览块, 不再需要单独的 colorPreview div
+    const customColorInput = el('input', {
+      type: 'color',
+      class: 'color-swatch-btn',
+      value: currentCustomColor || '#EF476F',
+      style: { width: '20px', height: '18px', flex: 'none' }
+    });
+
+    customColorInput.addEventListener('input', (e) => {
+      currentCustomColor = e.target.value;
+      execFormat(cmd, currentCustomColor);   // 实时应用(与原逻辑一致)
+    });
+    customColorInput.addEventListener('change', (e) => {
+      currentCustomColor = e.target.value;
+      execFormat(cmd, currentCustomColor);
+    });
+    // 取色前先存选区, 但不阻止默认(阻止默认会拦掉原生色盘)
+    customColorInput.addEventListener('pointerdown', () => {
+      if (typeof saveExplainRange === 'function') saveExplainRange();
+    });
+
+    customLabel.appendChild(customColorInput);
+    customLabel.appendChild(el('span', { text: '自定义' }));
+    customBar.appendChild(customLabel);
+    panel.appendChild(customBar);
+  };
 
   // 文字修饰面板（2行3列 + 预览 + 取色修复）
   let currentMarkStyle = 'mark-line-single';
@@ -2843,58 +2873,58 @@ panel.appendChild(customBar);
   let isFavExpanded = false;
 
   // ========== 通用取色器（平板/Safari 兼容版）==========
-let _activeColorPicker = null;
-function openNativeColorPicker(currentColor, onInput, onDone) {
-  // 清掉上一个残留，防止透明 input 叠加
-  if (_activeColorPicker && _activeColorPicker.isConnected) _activeColorPicker.remove();
-  _activeColorPicker = null;
+  let _activeColorPicker = null;
+  function openNativeColorPicker(currentColor, onInput, onDone) {
+    // 清掉上一个残留，防止透明 input 叠加
+    if (_activeColorPicker && _activeColorPicker.isConnected) _activeColorPicker.remove();
+    _activeColorPicker = null;
 
-  const picker = document.createElement('input');
-  picker.type = 'color';
-  picker.value = currentColor || '#000000';
-  // 关键：留在视口内（1×1 + 近透明），平板才认这个 click
-  picker.style.cssText = [
-    'position:fixed', 'top:0', 'left:0',
-    'width:1px', 'height:1px',
-    'opacity:0.01', 'border:none', 'padding:0',
-    'z-index:999999', 'pointer-events:auto'
-  ].join(';');
+    const picker = document.createElement('input');
+    picker.type = 'color';
+    picker.value = currentColor || '#000000';
+    // 关键：留在视口内（1×1 + 近透明），平板才认这个 click
+    picker.style.cssText = [
+      'position:fixed', 'top:0', 'left:0',
+      'width:1px', 'height:1px',
+      'opacity:0.01', 'border:none', 'padding:0',
+      'z-index:999999', 'pointer-events:auto'
+    ].join(';');
 
-  let done = false;
-  const cleanup = () => {
-    if (done) return;
-    done = true;
-    // 延到面板关闭动画之后再移除，根治 Safari 秒退
-    setTimeout(() => {
-      try { picker.remove(); } catch (e) {}
-      if (_activeColorPicker === picker) _activeColorPicker = null;
-    }, 350);
-  };
+    let done = false;
+    const cleanup = () => {
+      if (done) return;
+      done = true;
+      // 延到面板关闭动画之后再移除，根治 Safari 秒退
+      setTimeout(() => {
+        try { picker.remove(); } catch (e) { }
+        if (_activeColorPicker === picker) _activeColorPicker = null;
+      }, 350);
+    };
 
-  picker.addEventListener('input', (e) => {
-    if (onInput) onInput(e.target.value);
-  });
+    picker.addEventListener('input', (e) => {
+      if (onInput) onInput(e.target.value);
+    });
 
-  picker.addEventListener('change', (e) => {
-    const hex = e.target.value;
-    if (onInput) onInput(hex);   // 兜底：旧 Safari 不触发 input
-    if (onDone) onDone(hex);
-    cleanup();
-  });
+    picker.addEventListener('change', (e) => {
+      const hex = e.target.value;
+      if (onInput) onInput(hex);   // 兜底：旧 Safari 不触发 input
+      if (onDone) onDone(hex);
+      cleanup();
+    });
 
-  picker.addEventListener('cancel', cleanup);
-  picker.addEventListener('blur', cleanup);
+    picker.addEventListener('cancel', cleanup);
+    picker.addEventListener('blur', cleanup);
 
-  document.body.appendChild(picker);
-  _activeColorPicker = picker;
+    document.body.appendChild(picker);
+    _activeColorPicker = picker;
 
-  try {
-    picker.click();              // 必须在用户手势的同步栈内调用
-  } catch (err) {
-    console.warn('[取色器] 当前环境不支持原生取色，请改用色板', err);
-    cleanup();
+    try {
+      picker.click();              // 必须在用户手势的同步栈内调用
+    } catch (err) {
+      console.warn('[取色器] 当前环境不支持原生取色，请改用色板', err);
+      cleanup();
+    }
   }
-}
 
   const buildTextDecoPanel = (panel) => {
     panel.innerHTML = '';
@@ -2956,92 +2986,84 @@ function openNativeColorPicker(currentColor, onInput, onDone) {
     });
     panel.appendChild(colorGrid);
 
-    // ================== 3. 自定义颜色 & 收藏行（文字修饰） ==================
-const actionRow = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' } });
+    // 3. 自定义颜色 & 收藏行(文字修饰) —— 取色改真实 input
+    const actionRow = el('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', marginTop: '4px' } });
 
-// previewDot 提到按钮之前，保证 onClick 闭包里能稳定引用
-const previewDot = el('div', {
-  style: { width: '12px', height: '12px', borderRadius: '3px', background: currentMarkColor, border: '1px solid rgba(0,0,0,.2)' }
-});
-
-// 自定义颜色按钮
-const customColorBtn = el('button', {
-  class: 'btn btn-sm btn-ghost',
-  style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', cursor: 'pointer', border: '1px solid #ccc', borderRadius: '4px' },
-  onClick: (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    openNativeColorPicker(
-      currentMarkColor,
-      (hex) => {
-        currentMarkColor = hex;
-        previewDot.style.background = hex;
-      },
-      (hex) => {
-        currentMarkColor = hex;
-        previewDot.style.background = hex;
-        // 需要刷新别处预览写这里，仍不重绘整个面板
+    const customColorLabel = el('label', {
+      class: 'color-custom-label',
+      style: {
+        flex: '1', height: '24px', padding: '0 6px', minWidth: '0',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px',
+        border: '1px solid #ccc', borderRadius: '4px', cursor: 'pointer',
+        fontSize: '11px'
       }
-    );
-  }
-});
-customColorBtn.appendChild(previewDot);
-customColorBtn.appendChild(el('span', { text: '自定义' }));
-actionRow.appendChild(customColorBtn);
-
-// 收藏按钮
-const favBtn = el('button', {
-  class: 'btn btn-sm btn-ghost',
-  style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' },
-  text: '⭐ 收藏',
-  onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
-  onClick: (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!Array.isArray(favoriteColors)) favoriteColors = []; // 兜底：历史值被写坏时防崩
-    if (!favoriteColors.includes(currentMarkColor)) {
-      favoriteColors.push(currentMarkColor);
-      localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
-      toastSuccess('已收藏颜色');
-      setTimeout(() => { buildTextDecoPanel(panel); }, 50);
-    } else {
-      toastError('该颜色已收藏');
-    }
-  }
-});
-actionRow.appendChild(favBtn);
-panel.appendChild(actionRow);
-
-// 收藏颜色展示区（带折叠）
-if (!Array.isArray(favoriteColors)) favoriteColors = [];
-if (favoriteColors.length > 0) {
-  const favHeader = el('div', {
-    style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', cursor: 'pointer' },
-    onClick: () => { isFavExpanded = !isFavExpanded; buildTextDecoPanel(panel); }
-  }, [
-    el('span', { text: `⭐ 已收藏 (${favoriteColors.length})`, style: { fontSize: '11px', color: 'var(--text-2)' } }),
-    el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
-      el('button', {
-        class: 'btn btn-sm btn-ghost', text: '管理',
-        style: { padding: '0 4px', height: '18px', minHeight: 'auto', fontSize: '10px' },
-        onClick: (e) => { e.stopPropagation(); openFavoriteManager(panel); }
-      }),
-      el('span', { text: isFavExpanded ? '▾' : '▸', style: { fontSize: '12px' } })
-    ])
-  ]);
-  panel.appendChild(favHeader);
-
-  if (isFavExpanded) {
-    const favGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px', marginTop: '4px' } });
-    favoriteColors.forEach(c => {
-      favGrid.appendChild(el('div', {
-        style: { width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)' },
-        onClick: () => { currentMarkColor = c; buildTextDecoPanel(panel); }
-      }));
     });
-    panel.appendChild(favGrid);
-  }
-}
+    const markColorInput = el('input', {
+      type: 'color',
+      class: 'color-swatch-btn',
+      value: currentMarkColor || '#EF476F',
+      style: { width: '20px', height: '18px', flex: 'none' }
+    });
+    // 文字修饰这里只更新当前色, 点「应用」才 execFormat(沿用原行为)
+    markColorInput.addEventListener('input', (e) => { currentMarkColor = e.target.value; });
+    markColorInput.addEventListener('change', (e) => { currentMarkColor = e.target.value; });
+
+    customColorLabel.appendChild(markColorInput);
+    customColorLabel.appendChild(el('span', { text: '自定义' }));
+    actionRow.appendChild(customColorLabel);
+
+    // 收藏按钮(逻辑与原文件一致, 仅补了 favoriteColors 数组兜底)
+    const favBtn = el('button', {
+      class: 'btn btn-sm btn-ghost',
+      style: { padding: '0 6px', height: '24px', minHeight: 'auto', fontSize: '11px', flex: '1' },
+      text: '⭐ 收藏',
+      onClick: (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!Array.isArray(favoriteColors)) favoriteColors = [];
+        if (!favoriteColors.includes(currentMarkColor)) {
+          favoriteColors.push(currentMarkColor);
+          localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
+          toastSuccess('已收藏颜色');
+          setTimeout(() => { buildTextDecoPanel(panel); }, 50);
+        } else {
+          toastError('该颜色已收藏');
+        }
+      }
+    });
+    actionRow.appendChild(favBtn);
+    panel.appendChild(actionRow);
+
+    // 收藏颜色展示区（带折叠）
+    if (!Array.isArray(favoriteColors)) favoriteColors = [];
+    if (favoriteColors.length > 0) {
+      const favHeader = el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', cursor: 'pointer' },
+        onClick: () => { isFavExpanded = !isFavExpanded; buildTextDecoPanel(panel); }
+      }, [
+        el('span', { text: `⭐ 已收藏 (${favoriteColors.length})`, style: { fontSize: '11px', color: 'var(--text-2)' } }),
+        el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '管理',
+            style: { padding: '0 4px', height: '18px', minHeight: 'auto', fontSize: '10px' },
+            onClick: (e) => { e.stopPropagation(); openFavoriteManager(panel); }
+          }),
+          el('span', { text: isFavExpanded ? '▾' : '▸', style: { fontSize: '12px' } })
+        ])
+      ]);
+      panel.appendChild(favHeader);
+
+      if (isFavExpanded) {
+        const favGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px', marginTop: '4px' } });
+        favoriteColors.forEach(c => {
+          favGrid.appendChild(el('div', {
+            style: { width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)' },
+            onClick: () => { currentMarkColor = c; buildTextDecoPanel(panel); }
+          }));
+        });
+        panel.appendChild(favGrid);
+      }
+    }
 
     // 5. 底部操作（应用、取消）
     const footer = el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } });

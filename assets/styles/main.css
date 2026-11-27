@@ -367,3 +367,12 @@ input[type="color"] { -webkit-appearance: none; appearance: none; border: none; 
   flex-direction: column;
   gap: 0 !important;
 }
+
+input[type="color"].color-swatch-btn{
+      -webkit-appearance: none; appearance: none;
+      border: 1px solid rgba(0,0,0,.2); border-radius: 4px;
+      background: transparent; padding: 0; cursor: pointer;
+    }
+    input[type="color"].color-swatch-btn::-webkit-color-swatch-wrapper{ padding:0; }
+    input[type="color"].color-swatch-btn::-webkit-color-swatch{ border:none; border-radius:3px; }
+    input[type="color"].color-swatch-btn::-moz-color-swatch{ border:none; border-radius:3px; }
