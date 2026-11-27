@@ -376,3 +376,7 @@ input[type="color"].color-swatch-btn{
     input[type="color"].color-swatch-btn::-webkit-color-swatch-wrapper{ padding:0; }
     input[type="color"].color-swatch-btn::-webkit-color-swatch{ border:none; border-radius:3px; }
     input[type="color"].color-swatch-btn::-moz-color-swatch{ border:none; border-radius:3px; }
+
+    .color-swatch-btn::-webkit-color-swatch-wrapper { padding: 0; }
+.color-swatch-btn::-webkit-color-swatch { border: 1px solid rgba(0,0,0,.2); border-radius: 4px; }
+.color-swatch-btn::-moz-color-swatch { border: 1px solid rgba(0,0,0,.2); border-radius: 4px; }
