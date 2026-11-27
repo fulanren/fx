@@ -2815,7 +2815,7 @@ const favBtn = el('button', {
 });
 customBar.appendChild(favBtn);
 
-// ================== 2. 自定义取色器（缩小版） ==================
+// ================== 2. 自定义取色器（10px 色块） ==================
 const customLabel = el('label', {
   class: 'color-custom-label',
   style: {
@@ -2827,12 +2827,12 @@ const customLabel = el('label', {
   }
 });
 
-// 原生 input 充当颜色预览块，尺寸缩到 14×14
+// 原生 input 充当颜色预览块，尺寸缩到 10×10
 const customColorInput = el('input', {
   type: 'color',
   class: 'color-swatch-btn',
   value: currentCustomColor || '#EF476F',
-  style: { width: '14px', height: '14px', flex: 'none', padding: '0', border: 'none', background: 'none' }
+  style: { width: '10px', height: '10px', flex: 'none', padding: '0', border: 'none', background: 'none' }
 });
 
 customColorInput.addEventListener('input', (e) => {
