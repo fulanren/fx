@@ -1,10 +1,8 @@
-
 <!DOCTYPE html>
 <html lang="zh-CN">
 
 <head>
   <meta charset="UTF-8" />
-  <!-- 锁定屏幕缩放，开启全屏沉浸 -->
   <meta name="viewport"
     content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#FAFAFB" />
@@ -16,7 +14,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="apple-mobile-web-app-title" content="资料复习">
 
-  <!-- 👇 苹果专属图标 (这里直接内嵌了一个极简的矢量图标，不需要文件) -->
+  <!-- 苹果专属图标 (SVG 内嵌) -->
   <link rel="apple-touch-icon"
     href="data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'%3E%3Crect width='180' height='180' rx='40' fill='%238ECAE6'/%3E%3Ctext x='90' y='125' font-size='90' text-anchor='middle' fill='%23fff' font-family='sans-serif'%3E📚%3C/text%3E%3C/svg%3E">
 
@@ -52,9 +50,9 @@
   </div>
   <div id="toast-root"></div>
 
-  <!-- ================= 核心依赖库引入（CDN 在线加载） ================= -->
+  <!-- ================= 核心依赖库引入 ================= -->
 
-  <!-- 1. PDF.js (PDF 阅读核心) -->
+  <!-- 1. PDF.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
     if (window.pdfjsLib) {
@@ -62,44 +60,39 @@
     }
   </script>
 
-  <!-- 2. pdf-lib (PDF 拆分、合并、插入) -->
+  <!-- 2. pdf-lib -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
 
-  <!-- 3. Tesseract.js (OCR 文字识别) —— 路径由 src/utils/deps.js 的 ocrRecognize() 统一注入 -->
+  <!-- 3. Tesseract.js -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.1.1/tesseract.min.js"></script>
 
-  <!-- 4. JSZip (打包下载) -->
+  <!-- 4. JSZip -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 
-  <!-- 5. Mammoth (Word 文档解析) -->
+  <!-- 5. Mammoth -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.8.0/mammoth.browser.min.js"></script>
 
-  <!-- 6. jsPDF (生成导出 PDF) -->
+  <!-- 6. jsPDF -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
-  <!-- 7. html2canvas (网页截图转 PDF 核心，只保留一次) -->
+  <!-- 7. html2canvas -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
-  <!-- 8. html2pdf (html转pdf，结合 jspdf 使用) -->
+  <!-- 8. html2pdf -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
-  <!-- 9. html-docx (导出 Word)  -- 修复: cdnjs 无此库, 原地址 html-docx.js/0.1.0/html-docx.min.js 库名与文件名均错, 联网也 404
-       改用 npm 系正确源(unpkg), 同步阻塞加载, 成功后 window.htmlDocx 即就绪, 依赖体检不再报缺
-       下方 IIFE 为多重回落: 仅当 unpkg 失败时, 依次尝试 jsdelivr CDN 与项目本地 vendor(与 sw.js 预缓存清单对齐) -->
+  <!-- 9. html-docx (导出 Word 备用源加载) -->
   <script src="https://unpkg.com/html-docx-js@0.1.0/dist/html-docx.js"></script>
   <script>
     (function () {
-      if (window.htmlDocx) return; // 主源已成功, 无需回落
+      if (window.htmlDocx) return;
       var chain = [
         'https://cdn.jsdelivr.net/npm/html-docx-js@0.1.0/dist/html-docx.js',
         './vendor/html-docx/html-docx.js'
       ];
       var i = 0;
       function next() {
-        if (i >= chain.length) {
-          console.warn('[html-docx] unpkg/jsdelivr/本地 vendor 均加载失败, 导出 Word 暂不可用');
-          return;
-        }
+        if (i >= chain.length) return;
         var s = document.createElement('script');
         s.src = chain[i++];
         s.onerror = next;
@@ -110,53 +103,30 @@
     })();
   </script>
 
-  <!-- 10. KaTeX (公式渲染) —— css 内部按相对路径引用 ./fonts/，本地化后字体自动生效 -->
+  <!-- 10. KaTeX -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.9/katex.min.js"></script>
-
-  <!-- 依赖体检：缺库时仅记录到控制台，不再在页面顶部弹红条提示 -->
-  <script>
-    (function () {
-      var need = [['pdfjsLib', 'PDF 引擎 (pdf.js)'], ['PDFLib', 'PDF 编辑 (pdf-lib)'], ['JSZip', '打包 (jszip)'],
-      ['Tesseract', 'OCR (tesseract.js)'], ['jspdf', '导出 PDF (jsPDF)'], ['html2canvas', '截图 (html2canvas)'],
-      ['html2pdf', '导出 (html2pdf)'], ['mammoth', 'Word 解析 (mammoth)'], ['htmlDocx', '导出 Word (html-docx)'],
-      ['katex', '公式 (KaTeX)']];
-      var miss = need.filter(function (n) { return !window[n[0]]; }).map(function (n) { return n[1]; });
-      window.__vendorMissing = miss;   // 保留检测结果，供其它功能降级判断使用
-      if (miss.length) {
-        console.warn('[依赖体检] 以下库未加载：', miss.join('、'), '（已隐藏页面顶部提示）');
-      }
-    })();
-  </script>
 
   <!-- ================= 项目主程序入口 ================= -->
   <script type="module" src="./src/main.js"></script>
 
   <!-- PWA Service Worker 注册 -->
   <script>
-    // ============ PWA / Service Worker 注册（含安全上下文诊断） ============
     (function () {
       const isSecure = window.isSecureContext;
       if (!isSecure) {
-        console.warn('[PWA] 当前不是安全上下文，Service Worker 无法注册。'
-          + ' 现在用的是 ' + location.protocol + '//' + location.host
-          + ' ；请用 http://localhost 或 https:// 访问（详见第三节）。');
         window.__swDisabled = true;
       }
       if (!('serviceWorker' in navigator)) return;
-      if (true) { console.log('[PWA] 已停用离线缓存（SW 未注册）'); return; } // ← 不想离线：临时关掉 SW；要恢复删掉这行
+      
+      // 默认关闭 Service Worker（若需开启离线缓存，可注释掉下面这一行 return）
+      if (true) return; 
 
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js').then(reg => {
-          console.log('[PWA] SW 已注册, scope =', reg.scope);
-
-          const reloadBar = () => {
-            if (document.getElementById('sw-update-bar')) return;
+          if (reg.waiting) {
             const bar = document.createElement('div');
-            bar.id = 'sw-update-bar';
-            bar.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);'
-              + 'background:#1D3557;color:#fff;padding:10px 16px;border-radius:10px;z-index:999998;'
-              + 'font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 14px rgba(0,0,0,.25)';
+            bar.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#1D3557;color:#fff;padding:10px 16px;border-radius:10px;z-index:999998;font-size:14px;display:flex;gap:10px;align-items:center;box-shadow:0 4px 14px rgba(0,0,0,.25)';
             bar.innerHTML = '<span>发现新版本</span>';
             const btn = document.createElement('button');
             btn.textContent = '立即刷新';
@@ -167,28 +137,8 @@
             };
             bar.appendChild(btn);
             document.body.appendChild(bar);
-          };
-
-          if (reg.waiting) reloadBar();
-          reg.addEventListener('updatefound', () => {
-            const nw = reg.installing;
-            if (!nw) return;
-            nw.addEventListener('statechange', () => {
-              // installed 且已有旧版控制 = 有新包可用，提示刷新
-              if (nw.state === 'installed' && navigator.serviceWorker.controller) reloadBar();
-            });
-          });
-        }).catch(err => {
-          console.error('[PWA] SW 注册失败:', err);
-          if (!isSecure) {
-            window.__swHint = '当前地址(' + location.protocol + ')不支持离线缓存，'
-              + '请用 http://localhost 或 https:// 打开';
           }
-        });
-      });
-
-      navigator.serviceWorker.addEventListener('message', (e) => {
-        if (e.data && e.data.type === 'SW_READY') console.log('[PWA] 版本已启用:', e.data.version);
+        }).catch(err => { });
       });
     })();
   </script>

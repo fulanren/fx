@@ -642,7 +642,6 @@ export function renderEditPoint({ params, query }) {
   let isToolbarExpanded = true;
 
   // ================== 先创建排在最前面的 4 个新按钮 ==================
-
   const copyBtn = el('button', {
     class: 'btn btn-sm btn-ghost', text: '📋',
     style: { padding: '0 6px', fontSize: '14px', color: 'var(--text-2)', flexShrink: '0' },
@@ -663,7 +662,12 @@ export function renderEditPoint({ params, query }) {
               tempDiv.innerHTML = explainInput.innerHTML;
               const plainText = tempDiv.textContent || tempDiv.innerText || '';
               navigator.clipboard.writeText(plainText)
-                .then(() => toastSuccess('纯文本已复制'))
+                .then(() => {
+                  toastSuccess('纯文本已复制');
+                  // 复制成功后，把文本存起来并更新状态
+                  localStorage.setItem('kg_clipboard_text', plainText);
+                  if (typeof updateClipboardStatus === 'function') updateClipboardStatus();
+                })
                 .catch(() => toastError('复制失败'));
               mask.remove();
             }
@@ -674,35 +678,17 @@ export function renderEditPoint({ params, query }) {
             style: { flex: '1', padding: '12px' },
             onClick: () => {
               try {
-                // 创建一个临时隐藏的 div，放入要复制的 HTML
-                const tempDiv = document.createElement('div');
-                tempDiv.innerHTML = explainInput.innerHTML;
-                tempDiv.style.position = 'fixed';
-                tempDiv.style.left = '-9999px';
-                document.body.appendChild(tempDiv);
-
-                // 选中这个 div 的内容
-                const range = document.createRange();
-                range.selectNodeContents(tempDiv);
-                const sel = window.getSelection();
-                sel.removeAllRanges();
-                sel.addRange(range);
-
-                // 执行复制命令
-                const success = document.execCommand('copy');
-
-                // 清理现场
-                sel.removeAllRanges();
-                document.body.removeChild(tempDiv);
-
+                // ...
                 if (success) {
                   toastSuccess('带格式文本已复制');
+                  // 复制成功后，把纯文本存起来并更新状态
+                  localStorage.setItem('kg_clipboard_text', tempDiv.innerText);
+                  if (typeof updateClipboardStatus === 'function') updateClipboardStatus();
                 } else {
                   toastError('复制失败，浏览器可能不支持');
                 }
               } catch (err) {
                 toastError('复制失败');
-                console.error(err);
               }
               mask.remove();
             }
@@ -716,6 +702,123 @@ export function renderEditPoint({ params, query }) {
       ]);
       mask.appendChild(box);
       document.body.appendChild(mask);
+    }
+  });
+
+  // ================== 粘贴按钮 ==================
+  const pasteBtn = el('button', {
+    class: 'btn btn-sm btn-ghost', text: '📥',
+    style: { padding: '0 6px', fontSize: '14px', color: 'var(--text-2)', flexShrink: '0' },
+    title: '粘贴',
+    onMousedown: (e) => e.preventDefault(),
+    onClick: async () => {
+      try {
+        // 优先尝试读取富文本的 HTML
+        const items = await navigator.clipboard.read();
+        let hasHtml = false;
+        for (const item of items) {
+          if (item.types.includes('text/html')) {
+            const blob = await item.getType('text/html');
+            const html = await blob.text();
+
+            explainInput.focus();
+            const sel = window.getSelection();
+            if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
+              if (savedRange) {
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+              } else {
+                // 如果没光标，默认插在最后
+                const range = document.createRange();
+                range.selectNodeContents(explainInput);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+              }
+            }
+            document.execCommand('insertHTML', false, html);
+            form.explanation = explainInput.innerHTML;
+            saveExplainRange();
+            queueSave();
+            toastSuccess('已粘贴');
+            hasHtml = true;
+            break;
+          }
+        }
+
+        // 如果没有 HTML 格式，尝试纯文本
+        if (!hasHtml) {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            explainInput.focus();
+            const sel = window.getSelection();
+            if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
+              if (savedRange) {
+                sel.removeAllRanges();
+                sel.addRange(savedRange);
+              }
+            }
+            document.execCommand('insertText', false, text);
+            form.explanation = explainInput.innerHTML;
+            saveExplainRange();
+            queueSave();
+            toastSuccess('已粘贴纯文本');
+          }
+        }
+      } catch (err) {
+        // 如果浏览器不支持 read API，退回到监听 paste 事件的方式
+        console.warn('Clipboard API 失败，请手动按 Ctrl+V', err);
+        toastError('当前浏览器不支持直接点击粘贴，请使用 Ctrl+V');
+      }
+    }
+  });
+
+  // ================== 剪切按钮 ==================
+  const cutBtn = el('button', {
+    class: 'btn btn-sm btn-ghost', text: '✂️',
+    style: { padding: '0 6px', fontSize: '14px', color: 'var(--text-2)', flexShrink: '0' },
+    title: '剪切',
+    onMousedown: (e) => e.preventDefault(),
+    onClick: async () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount || sel.isCollapsed || !explainInput.contains(sel.anchorNode)) {
+        return toastError('请先选中要剪切的内容');
+      }
+
+      try {
+        // 1. 将选区内容复制到剪贴板
+        const range = sel.getRangeAt(0);
+        const div = document.createElement('div');
+        div.appendChild(range.cloneContents());
+
+        await navigator.clipboard.writeText(div.innerText); // 简单写入纯文本防报错
+
+        // 如果浏览器支持写入 HTML，则写入更完整的格式
+        if (navigator.clipboard.write) {
+          const blob = new Blob([div.innerHTML], { type: 'text/html' });
+          await navigator.clipboard.write([
+            new ClipboardItem({
+              'text/html': blob,
+              'text/plain': new Blob([div.innerText], { type: 'text/plain' })
+            })
+          ]);
+        }
+
+        // 2. 从编辑器中删除选区
+        range.deleteContents();
+
+        // 3. 重新计算并保存
+        form.explanation = explainInput.innerHTML;
+        saveExplainRange();
+        queueSave();
+        toastSuccess('已剪切到剪贴板');
+        // 剪切后更新状态
+        localStorage.setItem('kg_clipboard_text', div.innerText);
+        if (typeof updateClipboardStatus === 'function') updateClipboardStatus();
+      } catch (err) {
+        console.error(err);
+        toastError('剪切失败：' + err.message);
+      }
     }
   });
 
@@ -752,6 +855,18 @@ export function renderEditPoint({ params, query }) {
           width: '240px', gap: '10px', border: '1px solid rgba(0,0,0,.08)'
         }
       });
+
+      // 面板顶部的标题和“取消”按钮
+      quotePanel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '2px' } }, [
+        el('span', { text: '❝ 引用块', style: { fontSize: '13px', fontWeight: '600', color: 'var(--text)' } }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '取消',
+          style: { padding: '0 6px', height: '22px', minHeight: 'auto', fontSize: '11px', color: 'var(--text-2)', background: 'var(--bg)' },
+          onMousedown: (e) => e.preventDefault(),
+          onClick: (e) => { e.stopPropagation(); quotePanel.remove(); }
+        })
+      ]));
+
       document.body.appendChild(quotePanel);
 
       // 定位
@@ -944,142 +1059,94 @@ export function renderEditPoint({ params, query }) {
       }, 10);
 
       // ================= 1. 颜色选择区 =================
+
+      // 标题行：无论是否选中文字，永远显示在顶部
+      maskPanel.appendChild(el('div', {
+        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-2)', fontWeight: 'bold', marginBottom: '8px' }
+      }, [
+        el('span', { text: '遮挡颜色' }),
+        el('div', { style: { display: 'flex', gap: '4px' } }, [
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '管理',
+            style: { padding: '0 4px', height: 'auto', minHeight: '18px', fontSize: '11px', fontWeight: 'normal', color: 'var(--primary-dark)' },
+            onClick: (e) => { e.preventDefault(); openFavoriteManager(maskPanel); }
+          }),
+          el('button', {
+            class: 'btn btn-sm btn-ghost', text: '取消',
+            style: { padding: '0 4px', height: 'auto', minHeight: '18px', fontSize: '11px', fontWeight: 'normal', color: 'var(--text-3)' },
+            onClick: (e) => { e.preventDefault(); maskPanel.remove(); }
+          })
+        ])
+      ]));
+
+      // 如果选中了文字，显示色块和操作栏
       if (savedMaskRange) {
-        maskPanel.appendChild(el('div', { style: { fontSize: '12px', color: 'var(--text-2)', fontWeight: 'bold' }, text: '遮挡颜色' }));
+        const basicColors = ['#EF476F', '#2B2D42', '#118AB2', '#073B4C'];
+        const customList = getFavoriteColors();
+        const allColors = [...basicColors, 'transparent'];
+        customList.forEach(c => {
+          if (!allColors.includes(c.hex)) allColors.push(c.hex);
+        });
 
-        const colors = ['#2B2D42', '#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#9D4EDD', '#F4F4F5', 'transparent'];
-        //压缩色块大小（repeat(8, 1fr)，尺寸约 18x18）
-        const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
-
-        colors.forEach(c => {
+        // 色块（统一 18px）
+        const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 18px)', gap: '3px', justifyContent: 'start' } });
+        allColors.forEach(c => {
           grid.appendChild(el('div', {
             style: {
-              width: '100%', aspectRatio: '1',
+              width: '18px', height: '18px',
               background: c === 'transparent' ? 'repeating-linear-gradient(45deg, #eee, #eee 2px, #fff 2px, #fff 4px)' : c,
-              borderRadius: '3px', border: '1px solid rgba(0,0,0,.1)', cursor: 'pointer'
+              borderRadius: '3px', border: '1px solid rgba(0,0,0,.1)', cursor: 'pointer', boxSizing: 'border-box'
             },
             onClick: () => { applyMask(c); maskPanel.remove(); }
           }));
         });
         maskPanel.appendChild(grid);
 
-        // 自定义与收藏（按钮样式对齐图示）
-        maskPanel.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginTop: '2px' } }, [
+        // 底部：收藏 + 自定义
+        maskPanel.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px', alignItems: 'center' } }, [
           el('button', {
-            class: 'btn btn-sm btn-ghost', text: '🎨 自定义',
-            style: { flex: '1', fontSize: '11px', padding: '0', height: '24px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: () => {
-              const picker = document.createElement('input');
-              picker.type = 'color'; picker.value = '#2B2D42';
-              // 不能完全 opacity:0，要用 0.01 且固定在屏幕内，否则 iOS 会拦截
-              picker.style.cssText = 'position:fixed; bottom:0; right:0; width:40px; height:40px; opacity:0.01; z-index:9999999;';
-
-              picker.onchange = (e) => {
-                applyMask(e.target.value);
-                // 去掉 maskPanel.remove()，或者用 showPanelAtBtn 重新拉起
-                // 如果不想让面板消失，就不要 remove
-                setTimeout(() => picker.remove(), 100);
-              };
-              document.body.appendChild(picker); picker.click();
-            }
-          }),
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '⭐ 收藏色',
-            style: { flex: '1', fontSize: '11px', padding: '0', height: '24px', minHeight: 'auto', background: 'var(--bg)' },
+            class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
+            style: { flex: '1', height: '24px', padding: '0', background: 'rgba(255,209,102,0.2)', color: '#B8860B', fontSize: '11px', border: '1px solid rgba(255,209,102,0.4)', borderRadius: '4px' },
             onClick: () => {
               const c = prompt('输入颜色 HEX（如 #FF0000）', '#2B2D42');
               if (c) { applyMask(c); addFavoriteColor(c, 1); maskPanel.remove(); }
             }
-          })
+          }),
+          (() => {
+            let currentCustomColor = '#2B2D42';
+            const customLabel = el('label', {
+              class: 'btn btn-sm btn-ghost',
+              style: { flex: '1', height: '24px', padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', fontSize: '11px', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '4px', cursor: 'pointer', position: 'relative' }
+            }, [
+              el('div', { style: { width: '10px', height: '10px', borderRadius: '2px', background: currentCustomColor, border: '1px solid rgba(0,0,0,.2)', marginRight: '4px' }, id: 'mask-color-preview' }),
+              el('span', { text: '自定义' }),
+              el('input', {
+                type: 'color', value: currentCustomColor,
+                style: { position: 'absolute', inset: '0', opacity: '0', cursor: 'pointer' },
+                onInput: (e) => {
+                  document.getElementById('mask-color-preview').style.background = e.target.value;
+                  applyMask(e.target.value);
+                }
+              })
+            ]);
+            return customLabel;
+          })()
         ]));
       } else {
-        maskPanel.appendChild(el('div', { style: { fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '4px 0' }, text: '请先选中文字' }));
-      }
-
-      // ================= 2. 折叠的收藏颜色管理 =================
-      const favWrap = el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px' } });
-      let favExpanded = false;
-      let favManageMode = false;
-      const favSelected = new Set();
-      const favHeader = el('div', {
-        style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)' }
-      });
-      const favBody = el('div');
-      favWrap.appendChild(favHeader);
-      favWrap.appendChild(favBody);
-      maskPanel.appendChild(favWrap);
-
-      function renderFav() {
-        const customList = getFavoriteColors();
-        favHeader.innerHTML = '';
-        favHeader.appendChild(el('span', { text: `颜色管理 (${customList.length})` }));
-        favHeader.appendChild(el('span', { text: favExpanded ? '▾' : '▸' }));
-        favHeader.onclick = (e) => { e.stopPropagation(); favExpanded = !favExpanded; renderFav(); };
-
-        if (!favExpanded) { favBody.innerHTML = ''; return; }
-        favBody.innerHTML = '';
-
-        const toolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
-        toolbar.appendChild(el('button', {
-          class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
-          style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-          onClick: (e) => { e.stopPropagation(); favManageMode = !favManageMode; favSelected.clear(); renderFav(); }
+        // 如果没有选中文字，显示提示信息
+        maskPanel.appendChild(el('div', {
+          style: { fontSize: '11px', color: 'var(--text-3)', textAlign: 'center', padding: '10px 0' },
+          text: '请先在正文中选中文字'
         }));
-        if (favManageMode) {
-          toolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-ghost', text: '全选',
-            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto', background: 'var(--bg)' },
-            onClick: (e) => { e.stopPropagation(); customList.forEach(c => favSelected.add(c.id)); renderFav(); }
-          }));
-          toolbar.appendChild(el('button', {
-            class: 'btn btn-sm btn-danger', text: `删除(${favSelected.size})`,
-            style: { fontSize: '10px', padding: '0 6px', height: '20px', minHeight: 'auto' },
-            onClick: (e) => {
-              e.stopPropagation(); if (favSelected.size === 0) return;
-              removeFavoriteColors([...favSelected]); favSelected.clear(); renderFav(); toastSuccess('已删除');
-            }
-          }));
-        }
-        favBody.appendChild(toolbar);
 
-        if (customList.length === 0) {
-          favBody.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '2px 0' }, text: '暂无收藏' }));
-          return;
-        }
-
-        //压缩收藏色块
-        const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
-        customList.forEach(c => {
-          const isSel = favSelected.has(c.id);
-          const swatch = el('div', {
-            style: {
-              width: '100%', aspectRatio: '1', borderRadius: '3px', cursor: 'pointer',
-              background: c.hex, opacity: c.alpha, position: 'relative',
-              border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)', boxSizing: 'border-box'
-            },
-            onClick: (e) => {
-              e.stopPropagation();
-              if (favManageMode) {
-                if (favSelected.has(c.id)) favSelected.delete(c.id); else favSelected.add(c.id);
-                renderFav();
-              } else {
-                applyMask(c.hex); maskPanel.remove();
-              }
-            }
-          });
-          if (isSel) swatch.appendChild(el('span', { text: '✓', style: { position: 'absolute', top: '-4px', right: '-4px', background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: '10px', height: '10px', fontSize: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }));
-          grid.appendChild(swatch);
-        });
-        favBody.appendChild(grid);
       }
-      renderFav();
 
       // ================= 3. 当前遮挡列表管理 =================
       maskPanel.appendChild(el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.08)', marginTop: '4px', paddingTop: '6px' } }));
       const listWrap = el('div');
       maskPanel.appendChild(listWrap);
 
-      // ... 这里是你原本的 applyMask 函数 ...
+      // 这里是你原本的 applyMask 函数
       function applyMask(color) {
         if (!savedMaskRange) return toastError('选区已丢失，请重新选中文字');
         const range = savedMaskRange.cloneRange();
@@ -1097,14 +1164,21 @@ export function renderEditPoint({ params, query }) {
         span.dataset.originalColor = color;
         span.appendChild(range.extractContents());
 
-        span.onclick = function () {
+        // 点击正文遮挡块也能显隐
+        span.onclick = function (e) {
+          e.stopPropagation();
           if (this.style.color === 'transparent') {
             this.style.color = 'inherit';
-            this.style.background = 'rgba(255, 209, 102, 0.3)';
+            this.style.background = this.dataset.originalColor === 'transparent' ? 'rgba(255,209,102,0.3)' : this.dataset.originalColor;
           } else {
             this.style.color = 'transparent';
             this.style.background = this.dataset.originalColor === 'transparent' ? 'rgba(255,209,102,0.3)' : this.dataset.originalColor;
           }
+          // 触发 input 事件，保存修改
+          explainInput.dispatchEvent(new Event('input', { bubbles: true }));
+          form.explanation = explainInput.innerHTML;
+          queueSave();
+          renderMaskList(); // 刷新列表里的眼睛状态
         };
 
         range.insertNode(span);
@@ -1113,7 +1187,7 @@ export function renderEditPoint({ params, query }) {
         queueSave();
       }
 
-      //即使没有遮挡，也渲染列表头部
+      // 即使没有遮挡，也渲染列表头部
       let isListExpanded = false;
       const selectedMasks = new Set();
 
@@ -1121,7 +1195,6 @@ export function renderEditPoint({ params, query }) {
         listWrap.innerHTML = '';
         const blocks = Array.from(explainInput.querySelectorAll('.mask-block'));
 
-        // 无论 blocks 有多少个，都渲染头部展收
         const header = el('div', {
           style: { display: 'flex', justifyContent: 'space-between', cursor: 'pointer', fontSize: '11px', color: 'var(--text-2)' }
         }, [
@@ -1171,20 +1244,36 @@ export function renderEditPoint({ params, query }) {
         ]));
 
         // 遮挡列表项
-        const listBox = el('div', { style: { maxHeight: '100px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
+        const listBox = el('div', { style: { maxHeight: '120px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '4px' } });
+
         blocks.forEach((b) => {
           const isSelected = selectedMasks.has(b);
+          // 判断当前遮挡是显示还是隐藏
+          const isHidden = b.style.color === 'transparent';
+
           listBox.appendChild(el('div', {
-            style: { display: 'flex', alignItems: 'center', gap: '6px', padding: '4px', borderRadius: '4px', background: isSelected ? 'rgba(142,202,230,0.2)' : 'transparent', cursor: 'pointer' },
+            style: { display: 'flex', alignItems: 'center', gap: '4px', padding: '4px', borderRadius: '4px', background: isSelected ? 'rgba(142,202,230,0.2)' : 'transparent', cursor: 'pointer' },
             onClick: (e) => {
               e.stopPropagation();
               if (isSelected) selectedMasks.delete(b); else selectedMasks.add(b);
               renderMaskList();
             }
           }, [
-            el('input', { type: 'checkbox', checked: isSelected, style: { pointerEvents: 'none' } }),
-            el('div', { style: { width: '12px', height: '12px', borderRadius: '3px', background: b.dataset.originalColor === 'transparent' ? 'rgba(255,209,102,0.3)' : (b.dataset.originalColor || '#2B2D42') } }),
-            el('span', { text: b.textContent.substring(0, 15) || '(空)', style: { fontSize: '12px', color: 'var(--text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' } })
+            el('input', { type: 'checkbox', checked: isSelected, style: { pointerEvents: 'none', margin: '0' } }),
+
+            // 显隐按钮（眼睛图标）
+            el('button', {
+              class: 'btn btn-sm btn-ghost',
+              text: isHidden ? '👁️' : '👁️‍🗨️',
+              style: { padding: '0', width: '20px', height: '20px', minHeight: 'auto', fontSize: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center' },
+              title: '点击切换显隐',
+              onClick: (e) => {
+                e.stopPropagation();
+                b.click(); // 触发刚在 applyMask 里绑定的 onclick 逻辑
+              }
+            }),
+
+            el('span', { text: b.textContent.substring(0, 15) || '(空)', style: { fontSize: '11px', color: 'var(--text-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', flex: '1' } })
           ]));
         });
         listWrap.appendChild(listBox);
@@ -1224,6 +1313,16 @@ export function renderEditPoint({ params, query }) {
           overscrollBehavior: 'contain' //防止滚动穿透到背后的网页
         }
       });
+
+      // 给公式面板加上取消按钮
+      formulaPanel.appendChild(el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' } }, [
+        el('span', { text: '∑ 公式库', style: { fontSize: '13px', fontWeight: '600', color: 'var(--text)' } }),
+        el('button', {
+          class: 'btn btn-sm btn-ghost', text: '取消',
+          style: { padding: '0 6px', height: '22px', minHeight: 'auto', fontSize: '11px', color: 'var(--text-2)' },
+          onClick: (e) => { e.preventDefault(); formulaPanel.remove(); }
+        })
+      ]));
       document.body.appendChild(formulaPanel);
 
       // 定位与高度动态计算
@@ -1634,6 +1733,8 @@ export function renderEditPoint({ params, query }) {
 
   // 把这 4 个按钮放进左侧滚动区
   toolbarInner.appendChild(copyBtn);
+  toolbarInner.appendChild(pasteBtn);
+  toolbarInner.appendChild(cutBtn);
   toolbarInner.appendChild(quoteBtn);
   toolbarInner.appendChild(maskBtn);
   toolbarInner.appendChild(formulaBtn);
@@ -2548,8 +2649,7 @@ export function renderEditPoint({ params, query }) {
     }
     renderFav();
 
-    // 底部按钮
-        // 底部按钮：撤回 + 应用 + 取消
+    // 底部按钮：撤回 + 应用 + 取消
     panel.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginTop: '4px' } }, [
       el('button', {
         class: 'btn btn-sm btn-ghost', text: '撤回',
@@ -2626,278 +2726,102 @@ export function renderEditPoint({ params, query }) {
     requestAnimationFrame(() => updateFormatStatus());
   };
 
-  // --- 颜色选择面板 ---
+  // --- 颜色选择面板（精简版 + 收藏后置） ---
   const buildColorPanel = (cmd) => (panel) => {
     panel.innerHTML = '';
-    panel.style.width = '170px';
-    panel.style.padding = '8px';
+    panel.style.width = '210px';
+    panel.style.padding = '10px';
     panel.style.borderRadius = '10px';
-    panel.style.boxShadow = '0 8px 24px rgba(0,0,0,0.15)';
     panel.style.display = 'flex';
     panel.style.flexDirection = 'column';
     panel.style.gap = '6px';
 
+    // 左侧文字，右侧管理按钮
     panel.appendChild(el('div', {
-      style: { fontSize: '11px', color: 'var(--text-2)', fontWeight: 'bold' },
-      text: cmd === 'foreColor' ? '🎨 文字颜色' : '🖍 背景高亮'
-    }));
+      style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '11px', color: 'var(--text-2)', fontWeight: 'bold' }
+    }, [
+      el('span', { text: cmd === 'foreColor' ? '🎨 文字颜色' : '🖍 背景高亮' }),
+      el('button', {
+        class: 'btn btn-sm btn-ghost',
+        text: '管理',
+        style: { padding: '0 4px', height: 'auto', minHeight: '18px', fontSize: '11px', fontWeight: 'normal', color: 'var(--primary-dark)' },
+        onClick: (e) => { e.preventDefault(); openFavoriteManager(panel); }
+      })
+    ]));
 
-    const renderColorGrid = (colors, container) => {
-      const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
-      colors.forEach(c => {
-        grid.appendChild(el('div', {
-          style: {
-            width: '100%', aspectRatio: '1',
-            background: c === 'transparent' ? 'repeating-linear-gradient(45deg, #eee, #eee 2px, #fff 2px, #fff 4px)' : c,
-            borderRadius: '3px', border: '1px solid rgba(0,0,0,.1)', cursor: 'pointer',
-            transition: 'transform 0.1s', boxSizing: 'border-box'
-          },
-          title: c === 'transparent' ? '透明 / 清除' : c,
-          onMouseEnter: (e) => e.currentTarget.style.transform = 'scale(1.2)',
-          onMouseLeave: (e) => e.currentTarget.style.transform = 'scale(1)',
-          //阻止默认行为保住选区，同时保留 onClick 响应
-          onPointerDown: (e) => e.preventDefault(), // 改用 pointer 事件兼容性更好
-          onClick: () => {
-            currentColor = c; // 将当前点选的颜色同步给全局变量
-            execFormat(cmd, c);
-            closePanels();
-          }
-        }));
-      });
-      container.appendChild(grid);
-    };
-
-    // 1. 预设颜色
-    const presetWrap = el('div');
-    let presetExpanded = true;
-    const presetHeader = el('div', {
-      style: { fontSize: '10px', color: 'var(--text-3)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
-      onMousedown: (e) => e.preventDefault(),
-      onClick: () => { presetExpanded = !presetExpanded; renderPreset(); }
+    // 1. 合并预设色和收藏色
+    const basicColors = ['#EF476F', '#2B2D42', '#118AB2', '#073B4C'];
+    const customList = getFavoriteColors();
+    const allColors = [...basicColors, 'transparent'];
+    customList.forEach(c => {
+      if (!allColors.includes(c.hex)) allColors.push(c.hex);
     });
-    const presetBody = el('div');
-    presetWrap.appendChild(presetHeader);
-    presetWrap.appendChild(presetBody);
-    panel.appendChild(presetWrap);
 
-    const presets = ['#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#F4F4F5', 'transparent',
-      '#F94144', '#F3722C', '#F8961E', '#90BE6D', '#43AA8B', '#577590', '#9D4EDD', '#FF99C8'];
-
-    function renderPreset() {
-      presetHeader.innerHTML = '';
-      presetHeader.appendChild(el('span', { text: '预设颜色' }));
-      presetHeader.appendChild(el('span', { text: presetExpanded ? '▾' : '▸' }));
-      presetBody.innerHTML = '';
-      if (presetExpanded) renderColorGrid(presets, presetBody);
-    }
-    renderPreset();
-
-    // 2. 收藏颜色
-    const favWrap = el('div', { style: { borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px' } });
-    let favExpanded = false;
-    let favManageMode = false;
-    const favSelected = new Set();
-
-    const favHeader = el('div', {
-      style: { fontSize: '10px', color: 'var(--text-3)', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
-      onMousedown: (e) => e.preventDefault(),
-      onClick: () => { favExpanded = !favExpanded; renderFav(); }
-    });
-    const favBody = el('div');
-    favWrap.appendChild(favHeader);
-    favWrap.appendChild(favBody);
-    panel.appendChild(favWrap);
-
-    function renderFav() {
-      favHeader.innerHTML = '';
-      favHeader.appendChild(el('span', { class: 'fav-header-span', text: `⭐ 收藏颜色 (${getFavoriteColors().length})` }));
-      favHeader.appendChild(el('span', { text: favExpanded ? '▾' : '▸' }));
-
-      if (!favExpanded) { favBody.innerHTML = ''; return; }
-      favBody.innerHTML = '';
-
-      const customList = getFavoriteColors();
-      const toolbar = el('div', { style: { display: 'flex', gap: '4px', marginBottom: '6px', flexWrap: 'wrap' } });
-
-      toolbar.appendChild(el('button', {
-        class: 'btn btn-sm btn-ghost', text: favManageMode ? '完成' : '管理',
-        style: { fontSize: '10px', padding: '0 4px', height: '18px', minHeight: 'auto', background: 'var(--bg)' },
-        onMousedown: (e) => e.preventDefault(),
-        onClick: () => { favManageMode = !favManageMode; favSelected.clear(); renderFav(); }
-      }));
-
-      if (favManageMode && customList.length > 0) {
-        toolbar.appendChild(el('button', {
-          class: 'btn btn-sm btn-ghost', text: '全选',
-          style: { fontSize: '10px', padding: '0 4px', height: '18px', minHeight: 'auto', background: 'var(--bg)' },
-          onMousedown: (e) => e.preventDefault(),
-          onClick: () => { customList.forEach(c => favSelected.add(c.id)); renderFav(); }
-        }));
-        toolbar.appendChild(el('button', {
-          class: 'btn btn-sm btn-danger', text: `删除(${favSelected.size})`,
-          style: { fontSize: '10px', padding: '0 4px', height: '18px', minHeight: 'auto' },
-          onMousedown: (e) => e.preventDefault(),
-          onClick: () => {
-            if (favSelected.size === 0) return;
-            removeFavoriteColors([...favSelected]);
-            favSelected.clear();
-            renderFav();
-            toastSuccess('已删除');
-          }
-        }));
-      }
-      favBody.appendChild(toolbar);
-
-      if (customList.length === 0) {
-        favBody.appendChild(el('div', { style: { fontSize: '10px', color: 'var(--text-3)', padding: '2px 0' }, text: '暂无收藏' }));
-        return;
-      }
-
-      const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: '3px' } });
-      customList.forEach(c => {
-        const isSel = favSelected.has(c.id);
-        const swatch = el('div', {
-          style: {
-            width: '100%', aspectRatio: '1', borderRadius: '3px', cursor: 'pointer',
-            background: c.hex, opacity: c.alpha, position: 'relative',
-            border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)',
-            boxSizing: 'border-box'
-          },
-          onMousedown: (e) => e.preventDefault(),
-          onClick: () => {
-            if (favManageMode) {
-              if (favSelected.has(c.id)) favSelected.delete(c.id); else favSelected.add(c.id);
-              renderFav();
-            } else {
-              execFormat(cmd, c.hex);
-              closePanels();
-            }
-          }
-        });
-        if (isSel) {
-          swatch.appendChild(el('span', {
-            text: '✓', style: { position: 'absolute', top: '-4px', right: '-4px', background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: '10px', height: '10px', fontSize: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }
-          }));
+    // 2. 渲染合并后的色板（固定大小，紧凑排布）
+    // 把 22px 改成 18px，间距也改成 3px
+    const grid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 18px)', gap: '3px', justifyContent: 'start' } });
+    allColors.forEach(c => {
+      grid.appendChild(el('div', {
+        style: {
+          width: '18px', height: '18px',
+          background: c === 'transparent' ? 'repeating-linear-gradient(45deg, #eee, #eee 2px, #fff 2px, #fff 4px)' : c,
+          borderRadius: '3px', border: '1px solid rgba(0,0,0,.1)', cursor: 'pointer',
+          boxSizing: 'border-box'
+        },
+        title: c === 'transparent' ? '透明 / 清除' : c,
+        onPointerDown: (e) => e.preventDefault(),
+        onClick: () => {
+          currentColor = c;
+          execFormat(cmd, c);
+          closePanels();
         }
-        grid.appendChild(swatch);
-      });
-      favBody.appendChild(grid);
-    }
-    renderFav();
+      }));
+    });
+    panel.appendChild(grid);
 
-    // 3. 底部操作栏（收藏 + 自定义 + 取消）
+    // 3. 底部操作栏（收藏、自定义、取消、管理）
     const customBar = el('div', {
-      style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px', marginTop: '2px', gap: '4px' }
+      style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderTop: '1px dashed rgba(0,0,0,.08)', paddingTop: '6px', marginTop: '2px', gap: '4px', flexWrap: 'wrap' }
     });
 
     let currentCustomColor = cmd === 'foreColor' ? '#EF476F' : '#FFD166';
 
-      // ================== 1. 收藏按钮 ==================
-    const favBtn = el('button', {
-      class: 'btn btn-sm btn-ghost', text: '收藏',
-      style: { 
-        flex: '1.2', // 比取消宽一点，比自定义窄一点
-        height: '28px', minHeight: 'auto', padding: '0', 
-        display: 'flex', alignItems: 'center', justifyContent: 'center', 
-        background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', 
-        fontSize: '12px', border: '1px solid rgba(255, 209, 102, 0.4)', 
-        borderRadius: '6px', whiteSpace: 'nowrap' 
-      },
-      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
+    // 收藏按钮
+    customBar.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
+      style: { flex: '1', minWidth: '40px', height: '24px', padding: '0', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', fontSize: '11px', border: '1px solid rgba(255, 209, 102, 0.4)', borderRadius: '4px' },
+      onPointerDown: (e) => e.preventDefault(),
       onClick: (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-
+        e.preventDefault(); e.stopPropagation();
         let hexToSave = currentCustomColor || '#000000';
-        if (hexToSave.startsWith('rgb')) {
-          const rgb = hexToSave.match(/\d+/g);
-          if (rgb) hexToSave = '#' + rgb.map(x => parseInt(x).toString(16).padStart(2, '0')).join('');
-        }
-
         addFavoriteColor(hexToSave, 1);
-        toastSuccess('已收藏当前颜色');
-
-        const favHeaderSpan = panel.querySelector('.fav-header-span');
-        if (favHeaderSpan) {
-          favHeaderSpan.textContent = `⭐ 收藏颜色 (${getFavoriteColors().length})`;
-        }
-
-        favExpanded = true;
-        if (typeof renderFav === 'function') {
-          renderFav();
-        }
+        toastSuccess('已收藏颜色');
+        buildColorPanel(cmd)(panel); // 刷新面板，让收藏色立刻出现
       }
-    });
-    customBar.appendChild(favBtn);
+    }));
 
-    // ================== 2. 自定义取色器 ==================
+    // 自定义按钮
     const customLabel = el('label', {
-      class: 'color-custom-label',
-      style: {
-        flex: '2', // 占据更多空间，放下色块和文字
-        position: 'relative', 
-        fontSize: '12px', height: '28px', padding: '0', 
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)',
-        border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '6px', 
-        cursor: 'pointer', minWidth: '0', whiteSpace: 'nowrap'
-      }
-    });
-
-    // 使用一个 span 来显示小色块
-    const previewColorDot = el('div', {
-      style: { 
-        width: '12px', height: '12px', borderRadius: '3px', 
-        background: currentCustomColor || '#EF476F', 
-        border: '1px solid rgba(0,0,0,.2)', marginRight: '4px'
-      }
-    });
-    customLabel.appendChild(previewColorDot);
-    customLabel.appendChild(el('span', { text: '自定义' }));
-
-    // 原生 input 彻底透明，绝对定位铺满整个按钮
-    const customColorInput = el('input', {
-      type: 'color',
-      value: currentCustomColor || '#EF476F',
-      style: { 
-        position: 'absolute', inset: '0', width: '100%', height: '100%', 
-        opacity: '0', cursor: 'pointer' 
-      }
-    });
-
-    customColorInput.addEventListener('input', (e) => {
-      currentCustomColor = e.target.value;
-      previewColorDot.style.background = currentCustomColor;
-      execFormat(cmd, currentCustomColor);
-    });
-    customColorInput.addEventListener('change', (e) => {
-      currentCustomColor = e.target.value;
-      execFormat(cmd, currentCustomColor);
-    });
-    customColorInput.addEventListener('pointerdown', () => {
-      if (typeof saveExplainRange === 'function') saveExplainRange();
-    });
-
-    customLabel.appendChild(customColorInput);
+      class: 'btn btn-sm btn-ghost',
+      style: { flex: '1', minWidth: '50px', height: '24px', padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(186, 225, 255, 0.3)', color: 'var(--primary-dark)', fontSize: '11px', border: '1px solid rgba(186, 225, 255, 0.6)', borderRadius: '4px', cursor: 'pointer', position: 'relative' }
+    }, [
+      el('div', { style: { width: '10px', height: '10px', borderRadius: '2px', background: currentCustomColor, border: '1px solid rgba(0,0,0,.2)', marginRight: '4px' } }),
+      el('span', { text: '自定义' }),
+      el('input', {
+        type: 'color', value: currentCustomColor,
+        style: { position: 'absolute', inset: '0', opacity: '0', cursor: 'pointer' },
+        onInput: (e) => { currentCustomColor = e.target.value; execFormat(cmd, currentCustomColor); }
+      })
+    ]);
     customBar.appendChild(customLabel);
 
-    // ================== 3. 取消按钮 ==================
-    const cancelBtn = el('button', {
+    // 取消按钮（放在自定义后面）
+    customBar.appendChild(el('button', {
       class: 'btn btn-sm btn-ghost', text: '取消',
-      style: {
-        flex: 'none', width: '50px', height: '28px', minHeight: 'auto', padding: '0',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: '12px', color: 'var(--text-2)', whiteSpace: 'nowrap',
-        border: '1px solid rgba(0,0,0,.12)', borderRadius: '6px'
-      },
-      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
-      onClick: (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        if (typeof closePanels === 'function') closePanels();
-      }
-    });
-    customBar.appendChild(cancelBtn);
+      style: { flex: 'none', width: '40px', height: '24px', padding: '0', fontSize: '11px', color: 'var(--text-2)', border: '1px solid rgba(0,0,0,.1)', borderRadius: '4px' },
+      onPointerDown: (e) => e.preventDefault(),
+      onClick: (e) => { e.preventDefault(); closePanels(); }
+    }));
 
     panel.appendChild(customBar);
   };
@@ -3005,7 +2929,7 @@ export function renderEditPoint({ params, query }) {
       panel.appendChild(btnGrid);
     }
 
-        // 2. 颜色选择区标题行：线条颜色 + 自定义色块
+    // 2. 颜色选择区标题行
     const colorTitleRow = el('div', {
       style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }
     });
@@ -3014,43 +2938,51 @@ export function renderEditPoint({ params, query }) {
       text: '🎨 线条颜色'
     }));
 
-    const markColorInput = document.createElement('input');
-    markColorInput.type = 'color';
-    markColorInput.value = currentMarkColor;
-    markColorInput.className = 'color-swatch-btn';
-    // 去掉宽高强制内联，交给 CSS 里的 .color-swatch-btn 控制
+    // 把“管理”和“自定义”放在一行
+    const rightActions = el('div', { style: { display: 'flex', alignItems: 'center', gap: '8px' } }, [
+      // 管理按钮
+      el('button', {
+        class: 'btn btn-sm btn-ghost', text: '管理',
+        style: { padding: '0 4px', fontSize: '11px', color: 'var(--text-2)', height: 'auto', minHeight: '20px' },
+        onClick: (e) => { e.preventDefault(); openFavoriteManager(panel); }
+      }),
+      // 自定义取色器
+      (() => {
+        const markColorInput = document.createElement('input');
+        markColorInput.type = 'color';
+        markColorInput.value = currentMarkColor;
+        markColorInput.className = 'color-swatch-btn';
+        markColorInput.addEventListener('input', (ev) => { currentMarkColor = ev.target.value; });
+        markColorInput.addEventListener('change', (ev) => { currentMarkColor = ev.target.value; buildTextDecoPanel(panel); });
+        markColorInput.addEventListener('pointerdown', () => { if (typeof saveExplainRange === 'function') saveExplainRange(); });
 
-    const markColorLabel = el('label', {
-      style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--primary-dark)' }
-    }, [markColorInput, el('span', { text: '自定义' })]);
+        return el('label', {
+          style: { display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '11px', color: 'var(--primary-dark)' }
+        }, [markColorInput, el('span', { text: '自定义' })]);
+      })()
+    ]);
 
-    // 拖动实时变色
-    markColorInput.addEventListener('input', (ev) => { 
-      currentMarkColor = ev.target.value; 
-    });
-    // 选完确认
-    markColorInput.addEventListener('change', (ev) => { 
-      currentMarkColor = ev.target.value; 
-      buildTextDecoPanel(panel); // 刷新面板以显示选中高亮
-    });
-    // 记录选区，防止选颜色时文本失去焦点
-    markColorInput.addEventListener('pointerdown', () => { 
-      if (typeof saveExplainRange === 'function') saveExplainRange(); 
-    });
-
-    colorTitleRow.appendChild(markColorLabel);
+    colorTitleRow.appendChild(rightActions);
     panel.appendChild(colorTitleRow);
 
-    // 预设颜色网格
-    const colors = ['#EF476F', '#FFD166', '#06D6A0', '#118AB2', '#073B4C', '#2B2D42', '#F94144', '#F3722C', '#F8961E', '#90BE6D', '#43AA8B', '#577590'];
-    const colorGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px', marginTop: '6px' } }); // 加点 marginTop 让上下对齐
-    
-    colors.forEach(c => {
+    // 3. 颜色网格
+    const basicColors = ['#EF476F', '#2B2D42', '#118AB2', '#073B4C'];
+    if (!Array.isArray(favoriteColors)) favoriteColors = [];
+
+    const allColors = [...basicColors];
+    favoriteColors.forEach(c => {
+      if (!allColors.includes(c)) allColors.push(c);
+    });
+
+    //把 1fr 改成固定的 20px，并增加列数，让色块变小且不占满行
+    const colorGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 16px)', gap: '4px', marginTop: '6px', justifyContent: 'start' } });
+
+    allColors.forEach(c => {
       colorGrid.appendChild(el('div', {
         style: {
-          width: '100%', aspectRatio: '1', background: c, borderRadius: '3px',
+          width: '100%', aspectRatio: '1', background: c, borderRadius: '4px',
           cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)',
-          transform: currentMarkColor === c ? 'scale(1.1)' : 'scale(1)',
+          transform: currentMarkColor === c ? 'scale(1.15)' : 'scale(1)',
           transition: 'all 0.1s', boxSizing: 'border-box'
         },
         onMousedown: (e) => e.preventDefault(),
@@ -3059,53 +2991,13 @@ export function renderEditPoint({ params, query }) {
     });
     panel.appendChild(colorGrid);
 
-        // 3. 收藏颜色展示区（带折叠）
-    if (!Array.isArray(favoriteColors)) favoriteColors = [];
-    if (favoriteColors.length > 0) {
-      const favHeader = el('div', {
-        style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', cursor: 'pointer' },
-        onClick: () => { isFavExpanded = !isFavExpanded; buildTextDecoPanel(panel); }
-      }, [
-        el('span', { text: `⭐ 已收藏 (${favoriteColors.length})`, style: { fontSize: '11px', color: 'var(--text-2)' } }),
-        el('div', { style: { display: 'flex', alignItems: 'center', gap: '4px' } }, [
-          el('button', {
-            class: 'btn btn-sm btn-ghost', text: '管理',
-            style: { padding: '0 4px', height: '18px', minHeight: 'auto', fontSize: '10px' },
-            onClick: (e) => { e.stopPropagation(); openFavoriteManager(panel); }
-          }),
-          el('span', { text: isFavExpanded ? '▾' : '▸', style: { fontSize: '12px' } })
-        ])
-      ]);
-      panel.appendChild(favHeader);
-
-      if (isFavExpanded) {
-        const favGrid = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(12, 1fr)', gap: '3px', marginTop: '4px' } });
-        favoriteColors.forEach(c => {
-          favGrid.appendChild(el('div', {
-            style: { width: '100%', aspectRatio: '1', background: c, borderRadius: '3px', cursor: 'pointer', border: currentMarkColor === c ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)' },
-            onClick: () => { currentMarkColor = c; buildTextDecoPanel(panel); }
-          }));
-        });
-        panel.appendChild(favGrid);
-      }
-    }
-
-    // 5. 底部操作：取消 + 收藏 + 应用（三个等宽，收藏居中）
+    // 4. 底部操作栏
     const footer = el('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } });
 
-    footer.appendChild(el('button', {
-      class: 'btn btn-sm btn-ghost', text: '取消',
-      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px', color: 'var(--text-2)', justifyContent: 'center', alignItems: 'center', display: 'flex' },
-      onMousedown: (e) => e.preventDefault(),
-      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
-      onClick: () => closePanels()
-    }));
-
+    // 收藏按钮
     footer.appendChild(el('button', {
       class: 'btn btn-sm btn-ghost', text: '⭐ 收藏',
-      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px', justifyContent: 'center', alignItems: 'center', display: 'flex', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', border: '1px solid rgba(255, 209, 102, 0.4)', borderRadius: '6px' },
-      onMousedown: (e) => e.preventDefault(),
-      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
+      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px', background: 'rgba(255, 209, 102, 0.2)', color: '#B8860B', border: '1px solid rgba(255, 209, 102, 0.4)' },
       onClick: (e) => {
         e.preventDefault(); e.stopPropagation();
         if (!Array.isArray(favoriteColors)) favoriteColors = [];
@@ -3120,19 +3012,18 @@ export function renderEditPoint({ params, query }) {
       }
     }));
 
+    // 应用按钮（放在前面，更顺手）
     footer.appendChild(el('button', {
       class: 'btn btn-sm btn-primary', text: '应用',
-      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px', justifyContent: 'center', alignItems: 'center', display: 'flex' },
-      onMousedown: (e) => e.preventDefault(),
-      onPointerDown: (e) => { e.preventDefault(); e.stopPropagation(); },
-      onClick: () => {
-        if (currentMarkStyle === 'underline') {
-          execFormat('underline');
-        } else {
-          execFormat(currentMarkStyle, currentMarkColor);
-        }
-        closePanels();
-      }
+      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px' },
+      onClick: () => { if (currentMarkStyle === 'underline') execFormat('underline'); else execFormat(currentMarkStyle, currentMarkColor); closePanels(); }
+    }));
+
+    // 取消按钮（放到最后）
+    footer.appendChild(el('button', {
+      class: 'btn btn-sm btn-ghost', text: '取消',
+      style: { flex: '1', padding: '6px', fontSize: '12px', minHeight: '28px', color: 'var(--text-2)' },
+      onClick: () => closePanels()
     }));
 
     panel.appendChild(footer);
@@ -3145,42 +3036,68 @@ export function renderEditPoint({ params, query }) {
 
     const renderManager = () => {
       mask.innerHTML = '';
-      const box = el('div', { class: 'confirm-box', style: { maxWidth: '300px', padding: '16px' } });
+      //缩小弹窗最大宽度和内边距
+      const box = el('div', { class: 'confirm-box', style: { maxWidth: '280px', padding: '12px 16px' } });
 
-      box.appendChild(el('h3', { text: '⭐ 管理收藏颜色', style: { fontSize: '15px', marginBottom: '12px' } }));
+      // 标题字号调小，减少底部间距
+      box.appendChild(el('h3', { text: '⭐ 管理收藏颜色', style: { fontSize: '14px', margin: '0 0 10px 0', color: 'var(--text)' } }));
 
-      const list = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '8px', marginBottom: '16px' } });
-      favoriteColors.forEach((c, idx) => {
-        const isSel = selected.has(c);
-        list.appendChild(el('div', {
-          style: {
-            width: '100%', aspectRatio: '1', background: c, borderRadius: '4px', cursor: 'pointer',
-            border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)', position: 'relative'
-          },
-          onClick: () => { if (isSel) selected.delete(c); else selected.add(c); renderManager(); }
-        }, [
-          isSel ? el('span', { text: '✓', style: { position: 'absolute', top: '-4px', right: '-4px', background: 'var(--primary)', color: '#fff', borderRadius: '50%', width: '14px', height: '14px', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' } }) : null
-        ]));
-      });
+      // 色块固定 24px，紧凑排布
+      const list = el('div', { style: { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, 24px)', gap: '6px', marginBottom: '12px', justifyContent: 'start' } });
+
+      if (favoriteColors.length === 0) {
+        list.appendChild(el('div', { text: '暂无收藏颜色', style: { gridColumn: '1 / -1', textAlign: 'center', color: 'var(--text-3)', fontSize: '12px', padding: '10px 0' } }));
+      } else {
+        favoriteColors.forEach((c) => {
+          const isSel = selected.has(c);
+          list.appendChild(el('div', {
+            style: {
+              width: '24px',
+              height: '24px',
+              background: c,
+              borderRadius: '4px',
+              cursor: 'pointer',
+              border: isSel ? '2px solid var(--primary)' : '1px solid rgba(0,0,0,.1)',
+              position: 'relative',
+              boxSizing: 'border-box'
+            },
+            onClick: () => { if (isSel) selected.delete(c); else selected.add(c); renderManager(); }
+          }, [
+            isSel ? el('span', {
+              text: '✓',
+              style: {
+                position: 'absolute', top: '-4px', right: '-4px',
+                background: 'var(--primary)', color: '#fff',
+                borderRadius: '50%', width: '12px', height: '12px',
+                fontSize: '9px', display: 'flex', alignItems: 'center', justifyContent: 'center'
+              }
+            }) : null
+          ]));
+        });
+      }
       box.appendChild(list);
 
-      box.appendChild(el('div', { style: { display: 'flex', gap: '6px', marginBottom: '12px' } }, [
-        el('button', { class: 'btn btn-sm btn-ghost', text: '全选', onClick: () => { favoriteColors.forEach(c => selected.add(c)); renderManager(); } }),
-        el('button', { class: 'btn btn-sm btn-ghost', text: '非全选', onClick: () => { selected.clear(); renderManager(); } }),
-        el('button', {
-          class: 'btn btn-sm btn-danger', text: '删除', onClick: () => {
-            if (selected.size === 0) return toastError('请先勾选颜色');
-            favoriteColors = favoriteColors.filter(c => !selected.has(c));
-            localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
-            selected.clear(); renderManager(); buildTextDecoPanel(mainPanel);
-            toastSuccess('已删除');
-          }
-        }),
-      ]));
+      // 把操作按钮和“完成”放在同一行，取消“完成”按钮的独占一行
+      const actionRow = el('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '4px' } }, [
+        // 左侧小按钮组
+        el('div', { style: { display: 'flex', gap: '4px', flexWrap: 'wrap' } }, [
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全选', style: { padding: '2px 6px', fontSize: '11px', minHeight: '24px' }, onClick: () => { favoriteColors.forEach(c => selected.add(c)); renderManager(); } }),
+          el('button', { class: 'btn btn-sm btn-ghost', text: '全不选', style: { padding: '2px 6px', fontSize: '11px', minHeight: '24px' }, onClick: () => { selected.clear(); renderManager(); } }),
+          el('button', {
+            class: 'btn btn-sm btn-danger', text: `删除(${selected.size})`, style: { padding: '2px 6px', fontSize: '11px', minHeight: '24px' }, onClick: () => {
+              if (selected.size === 0) return toastError('请先勾选颜色');
+              favoriteColors = favoriteColors.filter(c => !selected.has(c));
+              localStorage.setItem('kg_fav_mark_colors', JSON.stringify(favoriteColors));
+              selected.clear(); renderManager(); buildTextDecoPanel(mainPanel);
+              toastSuccess('已删除');
+            }
+          }),
+        ]),
+        // 右侧完成按钮
+        el('button', { class: 'btn btn-sm btn-primary', text: '完成', style: { padding: '2px 12px', fontSize: '12px', minHeight: '24px' }, onClick: () => mask.remove() })
+      ]);
 
-      box.appendChild(el('div', { style: { display: 'flex', justifyContent: 'flex-end' } }, [
-        el('button', { class: 'btn btn-primary', text: '完成', onClick: () => mask.remove() })
-      ]));
+      box.appendChild(actionRow);
 
       mask.appendChild(box);
     };
@@ -3384,6 +3301,53 @@ export function renderEditPoint({ params, query }) {
     }
   });
   toolbarInner.appendChild(formatStatus);
+
+  // 剪切板状态展示区
+  const clipboardStatus = el('div', {
+    style: {
+      display: 'inline-flex', alignItems: 'center', marginLeft: '8px',
+      fontSize: '12px', color: 'var(--text-3)',
+      borderLeft: '1px solid rgba(0,0,0,.1)', paddingLeft: '8px', flexShrink: '0',
+      gap: '4px'
+    }
+  });
+
+  const updateClipboardStatus = () => {
+    clipboardStatus.innerHTML = '';
+    const text = localStorage.getItem('kg_clipboard_text') || '';
+
+    if (!text) {
+      clipboardStatus.innerHTML = `<span style="opacity: 0.5;">📋 空</span>`;
+      return;
+    }
+
+    const displayText = text.length > 6 ? text.substring(0, 6) + '…' : text;
+
+    // 文本展示
+    clipboardStatus.appendChild(el('span', {
+      style: { color: 'var(--primary-dark)', cursor: 'pointer' },
+      title: '点击查看完整内容',
+      onClick: () => {
+        // 查看完整内容的弹窗逻辑（如果原来有，就保留）
+      }
+    }, [`📋 ${displayText}`]));
+
+    // 小叉清空按钮
+    clipboardStatus.appendChild(el('span', {
+      text: '✖',
+      style: { cursor: 'pointer', fontSize: '10px', color: 'var(--text-3)', marginLeft: '2px' },
+      onClick: async (e) => {
+        e.stopPropagation();
+        if (await confirmBox({ title: '清空剪切板', message: '确定要清空剪切板内容吗？' })) {
+          localStorage.removeItem('kg_clipboard_text');
+          updateClipboardStatus();
+          toastSuccess('剪切板已清空');
+        }
+      }
+    }));
+  };
+  updateClipboardStatus();
+  toolbarInner.appendChild(clipboardStatus); // 塞进工具栏
 
   function updateFormatStatus() {
     requestAnimationFrame(() => {

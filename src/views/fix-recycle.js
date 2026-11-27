@@ -5,21 +5,17 @@ import * as store from '../store.js';
  * 终极修复脚本：全量遍历匹配，补全回收站历史数据的 folderName 和 pointName
  */
 export function fixRecycleData() {
-  console.log('🔧 开始深度扫描并修复回收站历史数据...');
-
   const bin = store.getRecycleBin();
   if (!bin || bin.length === 0) {
-    console.log('✅ 回收站为空，无需修复。');
     return;
   }
 
-  // 1. 一次性获取所有卡片和文件夹数据（请根据你 store.js 实际暴露的方法名调整）
-  // 常见的方法名可能是 getPoints/getAllPoints, getChapters/getFolders/getAllFolders
   const allPoints = store.getPoints ? store.getPoints() : (store.getAllPoints ? store.getAllPoints() : []);
   const allFolders = store.getChapters ? store.getChapters() : (store.getFolders ? store.getFolders() : (store.getAllFolders ? store.getAllFolders() : []));
 
+  // 如果连卡片数据都没有，直接结束
   if (!allPoints || allPoints.length === 0) {
-    console.warn('⚠️ 警告：未能从 store 中获取到卡片数据，请检查 store.js 中的方法名！');
+    return;
   }
 
   let fixCount = 0;
@@ -72,9 +68,6 @@ export function fixRecycleData() {
           }
 
           fixCount++;
-          console.log(`✅ 已修复 [${item.type}]:`, p.pointName || p.entityName, '-> 文件夹:', p.folderName);
-        } else {
-          console.warn(`⚠️ 找不到 ID 为 ${targetPointId} 的卡片，可能该卡片已被彻底删除。`);
         }
       }
     }
@@ -86,11 +79,6 @@ export function fixRecycleData() {
       store.saveRecycleBin(bin);
     } else if (store.updateRecycleBin) {
       store.updateRecycleBin(bin);
-    } else {
-      console.warn('⚠️ 未在 store 中找到 saveRecycleBin 方法，请确认数据是否已持久化。');
     }
-    console.log(`🎉 修复完成！共更新了 ${fixCount} 条记录。请刷新页面查看效果。`);
-  } else {
-    console.log('✅ 未发现需要修复的历史数据，或所有数据已完整。');
   }
 }

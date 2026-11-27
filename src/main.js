@@ -484,7 +484,6 @@ async function migrateImageNames() {
       if (r.type === 'pdf_placeholder') continue;
       if (!r.name) { r.name = `图片_${r.id.slice(0, 6)}`; await dbPut('images', r); count++; }
     }
-    if (count > 0) console.log(`[迁移] 已为 ${count} 张旧图片补 name 字段`);
     localStorage.setItem('kg_migrated_imgname', '1');
   } catch (e) { }
 }
@@ -957,7 +956,7 @@ function autoSnapshot() {
   const lastSnap = localStorage.getItem('kg_last_snapshot');
 
   if (lastSnap !== today) {
-    try {
+        try {
       const snapshotData = {
         tasks: JSON.parse(localStorage.getItem('kg_tasks') || '[]'),
         chapters: JSON.parse(localStorage.getItem('kg_chapters') || '[]'),
@@ -967,8 +966,6 @@ function autoSnapshot() {
 
       localStorage.setItem(`kg_snapshot_${today}`, JSON.stringify(snapshotData));
       localStorage.setItem('kg_last_snapshot', today);
-      console.log('✅ 今日自动快照已保存，空间占用:', JSON.stringify(snapshotData).length, '字节');
-
       // 清理 3 天前的旧快照
       for (let i = localStorage.length - 1; i >= 0; i--) {
         const key = localStorage.key(i);
@@ -977,12 +974,10 @@ function autoSnapshot() {
           const snapDate = new Date(dateStr);
           if (!isNaN(snapDate) && (new Date() - snapDate) > 3 * 86400000) {
             localStorage.removeItem(key);
-            console.log(`🗑 已清理过期快照: ${key}`);
           }
         }
       }
     } catch (e) {
-      console.warn('自动快照失败，可能是存储空间不足', e);
     }
   }
 }
