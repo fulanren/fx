@@ -359,42 +359,40 @@ input[type="color"] { -webkit-appearance: none; appearance: none; border: none; 
 #point-list {
   margin-top: 0 !important;
   padding-top: 0 !important;
-}
-
-/* 如果你的卡片容器有默认的 gap，也把它干掉 */
-#point-list {
   display: flex;
   flex-direction: column;
   gap: 0 !important;
 }
 
-input[type="color"].color-swatch-btn{
-      -webkit-appearance: none; appearance: none;
-      border: 1px solid rgba(0,0,0,.2); border-radius: 4px;
-      background: transparent; padding: 0; cursor: pointer;
-    }
-    input[type="color"].color-swatch-btn::-webkit-color-swatch-wrapper{ padding:0; }
-    input[type="color"].color-swatch-btn::-webkit-color-swatch{ border:none; border-radius:3px; }
-    input[type="color"].color-swatch-btn::-moz-color-swatch{ border:none; border-radius:3px; }
-
-    .color-swatch-btn::-webkit-color-swatch-wrapper { padding: 0; }
-.color-swatch-btn::-webkit-color-swatch { border: 1px solid rgba(0,0,0,.2); border-radius: 4px; }
-.color-swatch-btn::-moz-color-swatch { border: 1px solid rgba(0,0,0,.2); border-radius: 4px; }
-
-.color-swatch-btn {
+/* ================= 原生颜色选择器统一样式 ================= */
+/* 彻底重置原生取色器的外观，确保色块精准缩小、无原生边框 */
+/* ================= 原生颜色选择器统一样式 ================= */
+input[type="color"].color-swatch-btn {
   -webkit-appearance: none;
   appearance: none;
   padding: 0;
   border: none;
   background: none;
   cursor: pointer;
+  box-sizing: border-box;
+  width: 14px !important;  /* 强制锁定宽度 */
+  height: 14px !important; /* 强制锁定高度，如果觉得小可以统一改 16px */
+  overflow: hidden;
 }
-.color-swatch-btn::-webkit-color-swatch-wrapper { padding: 0; }
-.color-swatch-btn::-webkit-color-swatch {
-  border: 1px solid rgba(0,0,0,.25);
-  border-radius: 2px;
+
+input[type="color"].color-swatch-btn::-webkit-color-swatch-wrapper {
+  padding: 0;
+  border: none;
 }
-.color-swatch-btn::-moz-color-swatch {
-  border: 1px solid rgba(0,0,0,.25);
-  border-radius: 2px;
+
+input[type="color"].color-swatch-btn::-webkit-color-swatch {
+  border: 1px solid rgba(0,0,0,.15);
+  border-radius: 3px;
+  box-sizing: border-box;
+}
+
+input[type="color"].color-swatch-btn::-moz-color-swatch {
+  border: 1px solid rgba(0,0,0,.15);
+  border-radius: 3px;
+  box-sizing: border-box;
 }
