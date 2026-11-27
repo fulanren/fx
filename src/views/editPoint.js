@@ -712,64 +712,75 @@ export function renderEditPoint({ params, query }) {
     title: '粘贴',
     onMousedown: (e) => e.preventDefault(),
     onClick: async () => {
-      try {
-        // 优先尝试读取富文本的 HTML
-        const items = await navigator.clipboard.read();
-        let hasHtml = false;
-        for (const item of items) {
-          if (item.types.includes('text/html')) {
-            const blob = await item.getType('text/html');
-            const html = await blob.text();
+      // 👇 弹出格式选择面板
+      const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
+      const box = el('div', { class: 'confirm-box', style: { maxWidth: '300px', padding: '20px', textAlign: 'center' } }, [
+        el('h3', { text: '选择粘贴格式', style: { fontSize: '15px', marginBottom: '16px' } }),
+        el('div', { style: { display: 'flex', gap: '12px', justifyContent: 'center' } }, [
+          el('button', {
+            class: 'btn btn-primary', text: '带格式粘贴',
+            style: { flex: '1', padding: '12px 0', fontSize: '14px' },
+            onClick: async () => {
+              mask.remove();
+              try {
+                const items = await navigator.clipboard.read();
+                let hasHtml = false;
+                for (const item of items) {
+                  if (item.types.includes('text/html')) {
+                    const blob = await item.getType('text/html');
+                    const html = await blob.text();
 
-            explainInput.focus();
-            const sel = window.getSelection();
-            if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
-              if (savedRange) {
-                sel.removeAllRanges();
-                sel.addRange(savedRange);
-              } else {
-                // 如果没光标，默认插在最后
-                const range = document.createRange();
-                range.selectNodeContents(explainInput);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
+                    explainInput.focus();
+                    const sel = window.getSelection();
+                    if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
+                      if (savedRange) { sel.removeAllRanges(); sel.addRange(savedRange); }
+                      else {
+                        const range = document.createRange(); range.selectNodeContents(explainInput); range.collapse(false);
+                        sel.removeAllRanges(); sel.addRange(range);
+                      }
+                    }
+                    document.execCommand('insertHTML', false, html);
+                    form.explanation = explainInput.innerHTML;
+                    saveExplainRange();
+                    queueSave();
+                    toastSuccess('已带格式粘贴');
+                    hasHtml = true;
+                    break;
+                  }
+                }
+                if (!hasHtml) toastError('剪贴板中没有带格式的内容');
+              } catch (err) {
+                toastError('当前浏览器不支持读取剪贴板，请按 Ctrl+V 粘贴');
               }
             }
-            document.execCommand('insertHTML', false, html);
-            form.explanation = explainInput.innerHTML;
-            saveExplainRange();
-            queueSave();
-            toastSuccess('已粘贴');
-            hasHtml = true;
-            break;
-          }
-        }
+          }),
+          el('button', {
+            class: 'btn btn-ghost', text: '纯文本粘贴',
+            style: { flex: '1', padding: '12px 0', fontSize: '14px' },
+            onClick: async () => {
+              mask.remove();
+              try {
+                const text = await navigator.clipboard.readText();
+                if (!text) return toastError('剪贴板为空');
 
-        // 如果没有 HTML 格式，尝试纯文本
-        if (!hasHtml) {
-          const text = await navigator.clipboard.readText();
-          if (text) {
-            explainInput.focus();
-            const sel = window.getSelection();
-            if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
-              if (savedRange) {
-                sel.removeAllRanges();
-                sel.addRange(savedRange);
+                explainInput.focus();
+                const sel = window.getSelection();
+                if (!sel.rangeCount || !explainInput.contains(sel.anchorNode)) {
+                  if (savedRange) { sel.removeAllRanges(); sel.addRange(savedRange); }
+                }
+                document.execCommand('insertText', false, text);
+                form.explanation = explainInput.innerHTML;
+                saveExplainRange();
+                queueSave();
+                toastSuccess('已粘贴纯文本');
+              } catch (err) {
+                toastError('当前浏览器不支持读取剪贴板，请按 Ctrl+V 粘贴');
               }
             }
-            document.execCommand('insertText', false, text);
-            form.explanation = explainInput.innerHTML;
-            saveExplainRange();
-            queueSave();
-            toastSuccess('已粘贴纯文本');
-          }
-        }
-      } catch (err) {
-        // 如果浏览器不支持 read API，退回到监听 paste 事件的方式
-        console.warn('Clipboard API 失败，请手动按 Ctrl+V', err);
-        toastError('当前浏览器不支持直接点击粘贴，请使用 Ctrl+V');
-      }
+          })
+        ])
+      ]);
+      mask.appendChild(box); document.body.appendChild(mask);
     }
   });
 
@@ -819,6 +830,75 @@ export function renderEditPoint({ params, query }) {
         console.error(err);
         toastError('剪切失败：' + err.message);
       }
+    }
+  });
+
+  // ================== 格式刷按钮 ==================
+  const formatPainterBtn = el('button', {
+    class: 'btn btn-sm btn-ghost', text: '🖌️',
+    style: { padding: '0 6px', fontSize: '14px', color: 'var(--text-2)', flexShrink: '0' },
+    title: '格式刷',
+    onMousedown: (e) => e.preventDefault(),
+    onClick: () => {
+      const sel = window.getSelection();
+      if (!sel.rangeCount || sel.isCollapsed || !explainInput.contains(sel.anchorNode)) {
+        return toastError('请先选中带有格式的文字，再点击格式刷');
+      }
+
+      // 1. 获取当前选区的样式
+      const range = sel.getRangeAt(0);
+      const tempDiv = document.createElement('div');
+      tempDiv.appendChild(range.cloneContents());
+
+      // 创建一个隐藏的 span 测量样式
+      const span = document.createElement('span');
+      span.appendChild(range.cloneContents());
+      explainInput.appendChild(span); // 临时插入
+      const computed = window.getComputedStyle(span);
+
+      // 提取关键样式
+      const clonedStyles = {
+        color: computed.color,
+        backgroundColor: computed.backgroundColor,
+        fontSize: computed.fontSize,
+        fontWeight: computed.fontWeight,
+        fontStyle: computed.fontStyle,
+        textDecoration: computed.textDecoration,
+      };
+      explainInput.removeChild(span); // 移除临时测样
+
+      // 2. 弹出提示，让用户去应用格式
+      toastSuccess('格式已复制，请选中要应用的文字');
+
+      // 3. 监听下一次鼠标抬起（选中文字后），应用格式
+      const applyHandler = () => {
+        const currentSel = window.getSelection();
+        if (currentSel.rangeCount && !currentSel.isCollapsed && explainInput.contains(currentSel.anchorNode)) {
+          const currentRange = currentSel.getRangeAt(0);
+          const newSpan = document.createElement('span');
+          newSpan.style.color = clonedStyles.color;
+          newSpan.style.backgroundColor = clonedStyles.backgroundColor;
+          newSpan.style.fontSize = clonedStyles.fontSize;
+          newSpan.style.fontWeight = clonedStyles.fontWeight;
+          newSpan.style.fontStyle = clonedStyles.fontStyle;
+          newSpan.style.textDecoration = clonedStyles.textDecoration;
+
+          newSpan.appendChild(currentRange.extractContents());
+          currentRange.insertNode(newSpan);
+
+          form.explanation = explainInput.innerHTML;
+          saveExplainRange();
+          queueSave();
+          toastSuccess('格式已应用');
+        }
+        // 清理监听
+        document.removeEventListener('pointerup', applyHandler);
+      };
+
+      // 延迟绑定，防止当前点击直接触发
+      setTimeout(() => {
+        document.addEventListener('pointerup', applyHandler, { once: true });
+      }, 100);
     }
   });
 
@@ -1735,6 +1815,7 @@ export function renderEditPoint({ params, query }) {
   toolbarInner.appendChild(copyBtn);
   toolbarInner.appendChild(pasteBtn);
   toolbarInner.appendChild(cutBtn);
+  toolbarInner.appendChild(formatPainterBtn);
   toolbarInner.appendChild(quoteBtn);
   toolbarInner.appendChild(maskBtn);
   toolbarInner.appendChild(formulaBtn);
@@ -1742,10 +1823,7 @@ export function renderEditPoint({ params, query }) {
   // 分隔线
   toolbarInner.appendChild(el('div', { style: { width: '1px', height: '16px', background: 'rgba(0,0,0,.1)', margin: '0 4px' } }));
 
-  // ================== 下面是你原本就有的排版按钮 ==================
-  // (如果你原本后面还有加粗、斜体等按钮的 appendChild，由于这段替换没包含它们，
-  // 请确保它们在代码的更下方没有被删掉)
-  // 接下来是你的双向链接按钮 🔗
+  // 双向链接按钮 🔗
   const linkBtn = el('button', {
     class: 'btn btn-sm btn-ghost',
     style: { padding: '0 6px', fontSize: '14px', color: 'var(--primary)', flexShrink: '0', marginLeft: '4px' },
@@ -5276,4 +5354,3 @@ function openFolderSelectModal(onSelect) {
   mask.appendChild(box);
   document.body.appendChild(mask);
 }
-
