@@ -712,7 +712,7 @@ export function renderEditPoint({ params, query }) {
     title: '粘贴',
     onMousedown: (e) => e.preventDefault(),
     onClick: async () => {
-      // 👇 弹出格式选择面板
+      // 弹出格式选择面板
       const mask = el('div', { class: 'confirm-mask', style: { zIndex: 999999 } });
       const box = el('div', { class: 'confirm-box', style: { maxWidth: '300px', padding: '20px', textAlign: 'center' } }, [
         el('h3', { text: '选择粘贴格式', style: { fontSize: '15px', marginBottom: '16px' } }),
@@ -778,9 +778,18 @@ export function renderEditPoint({ params, query }) {
               }
             }
           })
-        ])
+        ]),
+
+        // 取消按钮
+        el('button', {
+          class: 'btn btn-ghost',
+          text: '取消',
+          style: { marginTop: '16px', width: '100%', padding: '10px', fontSize: '14px', color: 'var(--text-2)' },
+          onClick: () => mask.remove()
+        })
       ]);
-      mask.appendChild(box); document.body.appendChild(mask);
+      mask.appendChild(box);
+      document.body.appendChild(mask);
     }
   });
 
@@ -3612,15 +3621,21 @@ export function renderEditPoint({ params, query }) {
   const draft = loadDraft('point', entityId);
   if (draft && hasChanges(original, draft.data)) {
     setTimeout(async () => {
+      // 在弹窗的返回结果里加入 'cancel'，如果用户点了取消，直接杀掉草稿
       const restore = await confirmBox({
         title: '恢复草稿',
         message: '检测到未保存的草稿，是否恢复？',
         confirmText: '恢复',
-        cancelText: '放弃'
+        cancelText: '取消' // 这里改了名字
       });
 
+      // 不管用户选了什么（恢复、放弃、取消），立刻清空草稿、锁死标记
+      isDraftResolved = true;
+      clearDraft('point', entityId);
+      draftRejected = !restore; // 用户没选“恢复”就算拒绝
+
       if (restore) {
-        // 恢复数据
+        // 恢复数据逻辑
         form = { ...form, ...draft.data };
         contentInput.value = form.content;
         hydrateExplainImgs(form.explanation).then(h => { explainInput.innerHTML = h; });
@@ -3635,18 +3650,12 @@ export function renderEditPoint({ params, query }) {
           manualBtn.textContent = '隐藏手动设置';
         }
       } else {
-        // 如果点了放弃，把表单恢复成原始状态
+        // 如果点了取消或放弃，把表单恢复成原始状态
         form.content = original ? original.content : '';
         form.explanation = original ? original.explanation : '';
         if (contentInput) contentInput.value = form.content;
         if (explainInput) explainInput.innerHTML = form.explanation;
       }
-
-      // 弹窗已做出选择：只清掉本次草稿，绝不关闭后续自动保存
-      isDraftResolved = true;
-      draftRejected = !restore;          // 点“放弃”才需要特殊处理
-      clearDraft('point', entityId);
-
     }, 300);
   }
 
@@ -3654,9 +3663,20 @@ export function renderEditPoint({ params, query }) {
   function setStatus(text, type = '') { status.textContent = text ? `● ${text}` : ''; status.className = 'save-status ' + type; }
 
   const queueSave = debounce(() => {
-    // 用户明确“放弃草稿”且当前内容仍等于原始内容时，不回写空草稿；
-    // 一旦产生新改动，必须照常保存（旧版这里直接 return，导致后续所有编辑全部丢失）
-    if (draftRejected && !hasChanges(original, form)) return;
+    // 如果用户已经做过选择（恢复或放弃），且目前没有新的改动，就不做任何操作
+    if (isDraftResolved && !hasChanges(original, form)) return;
+
+    // 如果用户点了“放弃”或者“取消”，在这里直接重置 isDraftResolved
+    // 否则用户后续真的修改了内容，也不会自动存草稿了
+    if (draftRejected) {
+      // 如果内容有变化，说明用户开始重新编辑了，就解除拒绝标记，恢复自动保存
+      if (hasChanges(original, form)) {
+        draftRejected = false;
+        isDraftResolved = false; // 恢复自动保存
+      } else {
+        return; // 内容没变，继续拒绝保存
+      }
+    }
 
     saveDraft('point', entityId, form);
     setStatus('已保存草稿', 'saved');
